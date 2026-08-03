@@ -1,0 +1,12 @@
+node_modules/
+docs/
+logs/*.log
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+.DS_Store
+.npm
+.eslintcache
