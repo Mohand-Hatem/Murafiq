@@ -6,8 +6,11 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
 import morgan from 'morgan';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
 import env from './config/env.config.js';
 import { stream } from './config/logger.config.js';
+import { swaggerDefinition, apis } from './config/swagger.config.js';
 import rateLimiter from './common/middlewares/rate-limiter.middleware.js';
 import errorHandler from './common/middlewares/error-handler.middleware.js';
 import notFoundHandler from './common/middlewares/not-found.middleware.js';
@@ -48,6 +51,11 @@ app.use(rateLimiter);
 if (env.NODE_ENV !== 'test') {
   app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev', { stream }));
 }
+
+// API Docs — mounted from Phase 0 so every phase from here on documents its own routes as it builds them
+// (see docs/00_PHASES_INDEX.md), rather than one large retrofit at the end.
+const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis });
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // API Routes
 app.use('/api/v1', routes);

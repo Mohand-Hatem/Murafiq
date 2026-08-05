@@ -1,7 +1,7 @@
 export const ACCOUNT_STATUS = {
   ACTIVE: 'active',
   SUSPENDED: 'suspended',
-  PENDING_VERIFICATION: 'pending_verification',
+  DELETED: 'deleted',
 };
 
 export const BOOKING_STATUS = {

@@ -1,7 +1,10 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import authRoutes from '../modules/auth/auth.routes.js';
 
 const router = express.Router();
+
+router.use('/auth', authRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(

@@ -18,8 +18,10 @@ const validate = (schema) => async (req, res, next) => {
     if (schema.params) setReqProp(req, 'params', await schema.params.parseAsync(req.params));
     return next();
   } catch (err) {
-    if (err.errors) {
-      const message = err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    // Zod v4 exposes issues via `.issues`; `.errors` is kept for older/other error shapes.
+    const issues = err.issues || err.errors;
+    if (issues) {
+      const message = issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
       return next(new ApiError(400, `Validation Error: ${message}`));
     }
     return next(new ApiError(400, 'Invalid request parameters'));
