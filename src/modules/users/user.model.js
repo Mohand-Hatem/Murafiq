@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import { ACCOUNT_STATUS } from '../../common/constants/statuses.constant.js';
+import { DEFAULT_PROFILE_IMAGE_URL } from '../../common/constants/defaults.constant.js';
 
 const { Schema } = mongoose;
 
@@ -9,6 +10,7 @@ const ROLE_AR_DEFAULTS = {
   [ROLES.CLIENT]: 'مستخدم',
   [ROLES.STYLIST]: 'مصمم',
   [ROLES.ADMIN]: 'ادمن',
+  [ROLES.OPERATOR]: 'مدقق',
 };
 
 const userSchema = new Schema(
@@ -36,9 +38,62 @@ const userSchema = new Schema(
     accountStatus: { type: String, enum: Object.values(ACCOUNT_STATUS), default: ACCOUNT_STATUS.ACTIVE },
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
+
+    // Profile fields (Phase 2)
+    profileImage: { type: String, default: DEFAULT_PROFILE_IMAGE_URL },
+    country: String,
+    governorate: String,
+    city: String,
+    area: String,
+    location: {
+      type: { type: String, enum: ['Point'], default: 'Point' },
+      coordinates: { type: [Number], default: [0, 0] },
+    },
+    savedAddresses: [
+      {
+        label: String,
+        address: String,
+        lat: Number,
+        lng: Number,
+      },
+    ],
+
+    // Verification fields (Phase 2)
+    verification: {
+      status: {
+        type: String,
+        enum: ['unverified', 'pending', 'verified', 'rejected'],
+        default: 'unverified',
+      },
+      documents: [
+        {
+          type: {
+            type: String,
+            enum: [
+              'national_id_front',
+              'national_id_back',
+              'selfie_with_id',
+              'police_clearance_certificate',
+            ],
+          },
+          url: String,
+          uploadedAt: { type: Date, default: Date.now },
+        },
+      ],
+      rejectionReason: String,
+      reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      reviewedAt: Date,
+    },
+
+    isOnline: { type: Boolean, default: false },
+    clientRating: { type: Number, default: 0 },
+    clientTotalReviews: { type: Number, default: 0 },
+    completedBookings: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
+userSchema.index({ location: '2dsphere' });
 
 // Auto-fill nameAr from role if the user didn't provide one; stays in sync if role changes before save.
 userSchema.pre('save', function assignDefaultArabicName(next) {
