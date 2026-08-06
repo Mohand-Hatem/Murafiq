@@ -3,22 +3,39 @@ import { z } from 'zod';
 
 dotenv.config();
 
+// Secrets/credentials get a dev-only fallback so local setup stays frictionless;
+// in production the same field becomes required (no default), so a misconfigured
+// deploy fails at boot instead of silently running on placeholder values.
+const isProd = process.env.NODE_ENV === 'production';
+const secret = (devDefault) => (isProd ? z.string().min(1) : z.string().default(devDefault));
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().default('4000'),
-  MONGO_URI: z.string().default('mongodb://127.0.0.1:27017/murafiq'),
-  JWT_ACCESS_SECRET: z.string().default('dev_access_secret_change_me_in_prod'),
-  JWT_REFRESH_SECRET: z.string().default('dev_refresh_secret_change_me_in_prod'),
-  REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
-  CLOUDINARY_CLOUD_NAME: z.string().default('my_cloud_name'),
-  CLOUDINARY_API_KEY: z.string().default('my_api_key'),
-  CLOUDINARY_API_SECRET: z.string().default('my_api_secret'),
-  MAIL_PROVIDER: z.enum(['gmail', 'sendgrid']).default('gmail'),
-  GMAIL_USER: z.string().default('myemail@gmail.com'),
-  GMAIL_APP_PASSWORD: z.string().default('my_app_password'),
+  MONGO_URI: secret('mongodb://127.0.0.1:27017/murafiq'),
+  JWT_ACCESS_SECRET: secret('dev_access_secret_change_me_in_prod'),
+  JWT_REFRESH_SECRET: secret('dev_refresh_secret_change_me_in_prod'),
+  // ID-token verification only needs the audience (client ID) — no client secret, since there's
+  // no server-side authorization-code exchange (the client hands us an already-signed ID token).
+  GOOGLE_CLIENT_ID: secret('dev-google-client-id.apps.googleusercontent.com'),
+  REDIS_URL: secret('redis://127.0.0.1:6379'),
+  CLOUDINARY_CLOUD_NAME: secret('my_cloud_name'),
+  CLOUDINARY_API_KEY: secret('my_api_key'),
+  CLOUDINARY_API_SECRET: secret('my_api_secret'),
+  MAIL_PROVIDER: z.enum(['resend', 'sendgrid']).default('resend'),
+  RESEND_API_KEY: secret('re_dev_key_change_me_in_prod'),
+  MAIL_FROM_ADDRESS: secret('no-reply@murafiq.dev'),
   PAYMENT_PROVIDER: z.enum(['mock', 'paymob']).default('mock'),
   CLIENT_URL: z.string().default('http://localhost:3000'),
   PLATFORM_FEE_PERCENTAGE: z.string().default('15').transform(Number),
+  FIREBASE_PROJECT_ID: secret('murafiq-dev'),
+  FIREBASE_CLIENT_EMAIL: secret('firebase-adminsdk@murafiq-dev.iam.gserviceaccount.com'),
+  FIREBASE_PRIVATE_KEY: secret('dev_firebase_private_key_change_me_in_prod'),
+  // Required starting Phase 14 (wardrobe photo classification/embedding) — added now so the
+  // schema doesn't drift from what Phases 9/14/15 already assume is there.
+  OPENAI_API_KEY: secret('sk-dev-key-change-me-in-prod'),
+  VECTOR_DB_URL: secret('https://dev-vector-db.local'),
+  VECTOR_DB_API_KEY: secret('dev_vector_db_key_change_me_in_prod'),
 });
 
 const parsed = envSchema.safeParse(process.env);

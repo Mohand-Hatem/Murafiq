@@ -49,6 +49,32 @@ describe('QueryBuilder Unit Tests', () => {
     expect(mockMongooseQuery.select).toHaveBeenCalledWith('name email');
   });
 
+  it('should strip "+" so a client cannot force-select a select:false field', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, { fields: '+passwordHash,name' });
+    qb.select();
+    expect(mockMongooseQuery.select).toHaveBeenCalledWith('passwordHash name');
+  });
+
+  it('should not treat an operator-like string value as a Mongo operator', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, { city: 'in', role: 'ne' });
+    qb.filter();
+    expect(mockMongooseQuery.find).toHaveBeenCalledWith({ city: 'in', role: 'ne' });
+  });
+
+  it('should build a $or regex search across the given fields when ?search= is present', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, { search: 'sara' });
+    qb.search(['nameEn', 'bio']);
+    expect(mockMongooseQuery.find).toHaveBeenCalledWith({
+      $or: [{ nameEn: /sara/i }, { bio: /sara/i }],
+    });
+  });
+
+  it('should do nothing when ?search= is absent', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, {});
+    qb.search(['nameEn']);
+    expect(mockMongooseQuery.find).not.toHaveBeenCalled();
+  });
+
   it('should compute skip and limit for pagination and generate meta', async () => {
     const mockModel = {
       countDocuments: jest.fn().mockResolvedValue(25),
