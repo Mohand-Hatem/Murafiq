@@ -3,12 +3,18 @@ import mongoose from 'mongoose';
 import authRoutes from '../modules/auth/auth.routes.js';
 import userRoutes from '../modules/users/user.routes.js';
 import adminRoutes from '../modules/admin/admin.routes.js';
+import stylistRoutes from '../modules/stylists/stylist.routes.js';
+import requestRoutes from '../modules/requests/request.routes.js';
+import offerRoutes from '../modules/offers/offer.routes.js';
 
 const router = express.Router();
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/admin', adminRoutes);
+router.use('/stylists', stylistRoutes);
+router.use('/requests', requestRoutes);
+router.use('/offers', offerRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(

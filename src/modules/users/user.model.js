@@ -96,11 +96,10 @@ userSchema.pre('save', function assignDefaultArabicName(next) {
 });
 
 // Soft-deleted users never appear in normal queries.
-userSchema.pre(/^find/, function excludeSoftDeleted(next) {
+userSchema.pre(/^find/, function excludeSoftDeleted() {
   if (this.getFilter().isDeleted === undefined) {
     this.where({ isDeleted: { $ne: true } });
   }
-  next();
 });
 
 const User = mongoose.model('User', userSchema);
