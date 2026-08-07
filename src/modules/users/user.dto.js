@@ -17,7 +17,6 @@ export const toUserProfileDto = (user) => {
     city: doc.city || null,
     area: doc.area || null,
     location: doc.location || { type: 'Point', coordinates: [0, 0] },
-    savedAddresses: doc.savedAddresses || [],
     verification: doc.verification || { status: 'unverified', documents: [] },
     isOnline: doc.isOnline || false,
     clientRating: doc.clientRating || 0,

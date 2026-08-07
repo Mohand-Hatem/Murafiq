@@ -49,14 +49,6 @@ const userSchema = new Schema(
       type: { type: String, enum: ['Point'], default: 'Point' },
       coordinates: { type: [Number], default: [0, 0] },
     },
-    savedAddresses: [
-      {
-        label: String,
-        address: String,
-        lat: Number,
-        lng: Number,
-      },
-    ],
 
     // Verification fields (Phase 2)
     verification: {

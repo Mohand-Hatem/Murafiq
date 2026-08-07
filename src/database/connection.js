@@ -5,7 +5,7 @@ import { logger } from '../config/logger.config.js';
 export const connectDB = async () => {
   try {
     const conn = await mongoose.connect(dbConfig.uri, dbConfig.options);
-    logger.info(`✅ MongoDB Connected: ${conn.connection.host}`);
+    logger.info(`✅ MongoDB Connected: Murafiq is Online Now`);
     return conn;
   } catch (error) {
     logger.error(`❌ MongoDB Connection Error: ${error.message}`);

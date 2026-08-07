@@ -11,16 +11,6 @@ export const updateProfileSchema = {
     area: z.string().trim().optional(),
     lat: z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90').optional(),
     lng: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180').optional(),
-    savedAddresses: z
-      .array(
-        z.object({
-          label: z.string().trim(),
-          address: z.string().trim(),
-          lat: z.number().min(-90).max(90),
-          lng: z.number().min(-180).max(180),
-        })
-      )
-      .optional(),
   }),
 };
 
