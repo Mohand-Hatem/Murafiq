@@ -1,6 +1,8 @@
+import mongoose from 'mongoose';
 import offerRepository from './offer.repository.js';
 import requestRepository from '../requests/request.repository.js';
 import userRepository from '../users/user.repository.js';
+import bookingService from '../bookings/booking.service.js';
 import { toPublicOfferDto } from './offer.dto.js';
 import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
 import eventBus from '../../common/events/event-bus.js';
@@ -96,12 +98,35 @@ export const acceptOffer = async (clientUser, offerId) => {
     throw new ApiError(400, 'Offer has expired');
   }
 
-  const updatedOffer = await offerRepository.updateById(offerId, { status: 'accepted' });
-  await requestRepository.updateById(offerDoc.requestId, { status: 'accepted' });
+  let bookingDoc;
+  let session;
+  try {
+    if (mongoose.connection?.readyState === 1) {
+      session = await mongoose.startSession();
+      session.startTransaction();
+      bookingDoc = await bookingService.createBookingFromOffer(offerId, session);
+      await session.commitTransaction();
+    } else {
+      bookingDoc = await bookingService.createBookingFromOffer(offerId, null);
+    }
+  } catch (err) {
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+    }
+    if (err.statusCode) {
+      throw err; // Re-throw ApiErrors (such as 409 Conflict)
+    }
+    bookingDoc = await bookingService.createBookingFromOffer(offerId, null);
+  } finally {
+    if (session) {
+      try { session.endSession(); } catch (_) {}
+    }
+  }
 
   eventBus.emit(EVENTS.OFFER_ACCEPTED, { offerId });
+  eventBus.emit(EVENTS.BOOKING_CREATED, { bookingId: bookingDoc.id || bookingDoc._id });
 
-  return toPublicOfferDto(updatedOffer);
+  return bookingDoc;
 };
 
 export const rejectOffer = async (clientUser, offerId) => {
