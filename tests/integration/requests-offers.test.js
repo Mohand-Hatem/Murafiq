@@ -124,6 +124,21 @@ jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => (
   },
 }));
 
+jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
+  default: {
+    create: jest.fn().mockImplementation((data) => Promise.resolve({ _id: 'a0f719b8f1a2c81234567890', status: 'confirmed', ...data })),
+    findById: jest.fn().mockResolvedValue(null),
+    updateById: jest.fn().mockResolvedValue(null),
+  },
+}));
+
+jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', () => ({
+  default: {
+    findOverlap: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({ _id: 'b0f719b8f1a2c81234567890' }),
+  },
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Phase 4 Integration — Requests & Offers', () => {
@@ -237,7 +252,7 @@ describe('Phase 4 Integration — Requests & Offers', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('accepted');
+      expect(res.body.data.status).toBe('confirmed');
     });
   });
 });

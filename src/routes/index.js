@@ -6,6 +6,7 @@ import adminRoutes from '../modules/admin/admin.routes.js';
 import stylistRoutes from '../modules/stylists/stylist.routes.js';
 import requestRoutes from '../modules/requests/request.routes.js';
 import offerRoutes from '../modules/offers/offer.routes.js';
+import bookingRoutes from '../modules/bookings/booking.routes.js';
 
 const router = express.Router();
 
@@ -15,6 +16,7 @@ router.use('/admin', adminRoutes);
 router.use('/stylists', stylistRoutes);
 router.use('/requests', requestRoutes);
 router.use('/offers', offerRoutes);
+router.use('/bookings', bookingRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(
