@@ -3,13 +3,13 @@ import rateLimit from 'express-rate-limit';
 // Stricter than the global baseline limiter — applied only to sensitive auth routes
 // (login, register, forgot-password) to slow down brute-force/credential-stuffing attempts.
 export const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 5 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req, res, next) => {
-    next(new ApiError(429, 'Too many attempts. Please try again in 15 minutes.'));
+    next(new ApiError(429, 'Too many attempts. Please try again in 5 minutes.'));
   },
 });
 
