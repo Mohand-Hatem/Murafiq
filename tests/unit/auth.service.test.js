@@ -30,6 +30,7 @@ class MockOAuth2Client {
 jest.unstable_mockModule('google-auth-library', () => ({ OAuth2Client: MockOAuth2Client }));
 
 const { default: authService } = await import('../../src/modules/auth/auth.service.js');
+const { registerSchema } = await import('../../src/modules/auth/auth.validator.js');
 
 const KNOWN_PASSWORD = 'CorrectHorse123';
 const KNOWN_OTP = '123456';
@@ -40,7 +41,7 @@ const makeMockUser = async (overrides = {}) => {
 
   const user = {
     _id: { toString: () => 'user-id-123' },
-    nameEn: 'Test User',
+    name: 'Test User',
     email: 'test@example.com',
     role: 'client',
     isEmailVerified: false,
@@ -65,7 +66,7 @@ describe('authService.register', () => {
     mockCreateUser.mockResolvedValue(created);
 
     const result = await authService.register({
-      nameEn: 'Test User',
+      name: 'Test User',
       email: 'test@example.com',
       password: KNOWN_PASSWORD,
       role: 'client',
@@ -264,5 +265,49 @@ describe('authService.googleLogin', () => {
     await expect(authService.googleLogin({ idToken: 'valid-token', role: 'client' })).rejects.toMatchObject({
       statusCode: 403,
     });
+  });
+});
+
+describe('registerSchema validation', () => {
+  it('validates a valid registration payload with matching password and confirmpassword', () => {
+    const validBody = {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'Password123!',
+      confirmpassword: 'Password123!',
+      role: 'client',
+    };
+
+    const parsed = registerSchema.body.safeParse(validBody);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.name).toBe('Jane Doe');
+    expect(parsed.data.email).toBe('jane@example.com');
+  });
+
+  it('rejects when confirmpassword does not match password', () => {
+    const invalidBody = {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'Password123!',
+      confirmpassword: 'DifferentPassword!',
+      role: 'client',
+    };
+
+    const parsed = registerSchema.body.safeParse(invalidBody);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.issues[0].message).toBe('Passwords do not match');
+  });
+
+  it('rejects when name is shorter than 2 characters', () => {
+    const invalidBody = {
+      name: 'J',
+      email: 'jane@example.com',
+      password: 'Password123!',
+      confirmpassword: 'Password123!',
+      role: 'client',
+    };
+
+    const parsed = registerSchema.body.safeParse(invalidBody);
+    expect(parsed.success).toBe(false);
   });
 });

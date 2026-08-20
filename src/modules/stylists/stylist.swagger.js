@@ -9,9 +9,7 @@
  *           type: string
  *         userId:
  *           type: string
- *         nameEn:
- *           type: string
- *         nameAr:
+ *         name:
  *           type: string
  *         profileImage:
  *           type: string

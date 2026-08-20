@@ -63,15 +63,15 @@ describe('QueryBuilder Unit Tests', () => {
 
   it('should build a $or regex search across the given fields when ?search= is present', () => {
     const qb = new QueryBuilder(mockMongooseQuery, { search: 'sara' });
-    qb.search(['nameEn', 'bio']);
+    qb.search(['name', 'bio']);
     expect(mockMongooseQuery.find).toHaveBeenCalledWith({
-      $or: [{ nameEn: /sara/i }, { bio: /sara/i }],
+      $or: [{ name: /sara/i }, { bio: /sara/i }],
     });
   });
 
   it('should do nothing when ?search= is absent', () => {
     const qb = new QueryBuilder(mockMongooseQuery, {});
-    qb.search(['nameEn']);
+    qb.search(['name']);
     expect(mockMongooseQuery.find).not.toHaveBeenCalled();
   });
 

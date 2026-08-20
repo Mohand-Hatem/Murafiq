@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 export const updateProfileSchema = {
   body: z.object({
-    nameEn: z.string().trim().min(1, 'English name cannot be empty').optional(),
-    nameAr: z.string().trim().min(1, 'Arabic name cannot be empty').optional(),
+    name: z.string().trim().min(2, 'Name must be at least 2 characters').optional(),
     phone: z.string().trim().optional(),
+    profileImage: z.string().url('Invalid image URL').optional(),
     country: z.string().trim().optional(),
     governorate: z.string().trim().optional(),
     city: z.string().trim().optional(),

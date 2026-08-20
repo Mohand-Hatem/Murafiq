@@ -30,8 +30,7 @@ describe('userService', () => {
 
   const sampleUser = {
     _id: { toString: () => 'user-123' },
-    nameEn: 'Jane Doe',
-    nameAr: 'جين دو',
+    name: 'Jane Doe',
     email: 'jane@example.com',
     role: 'client',
     profileImage: DEFAULT_PROFILE_IMAGE_URL,

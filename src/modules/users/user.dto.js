@@ -4,8 +4,7 @@ export const toUserProfileDto = (user) => {
 
   return {
     id: doc._id?.toString() || doc.id,
-    nameEn: doc.nameEn,
-    nameAr: doc.nameAr,
+    name: doc.name,
     email: doc.email,
     phone: doc.phone || null,
     role: doc.role,

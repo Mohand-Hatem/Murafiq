@@ -26,16 +26,14 @@ const issueTokensFor = async (user) => {
   return { accessToken, refreshToken };
 };
 
-const register = async ({ nameEn, nameAr, email, phone, password, role }) => {
+const register = async ({ name, email, password, role }) => {
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const otp = generateOtp(6);
   const otpCode = await bcrypt.hash(otp, SALT_ROUNDS);
 
   const user = await authRepository.createUser({
-    nameEn,
-    nameAr,
+    name,
     email,
-    phone,
     passwordHash,
     role,
     otpCode,
@@ -139,7 +137,7 @@ const googleLogin = async ({ idToken, role }) => {
 
   if (!user) {
     user = await authRepository.createUser({
-      nameEn: name || email.split('@')[0],
+      name: name || email.split('@')[0],
       email,
       googleId,
       role,

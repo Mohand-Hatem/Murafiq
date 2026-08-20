@@ -4,7 +4,7 @@ import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 
 const mockVerifiedClient = {
   _id: '60f719b8f1a2c81234567891',
-  nameEn: 'Verified Client',
+  name: 'Verified Client',
   email: 'client@test.com',
   role: 'client',
   isEmailVerified: true,
@@ -17,7 +17,7 @@ const mockVerifiedClient = {
 
 const mockUnverifiedClient = {
   _id: '60f719b8f1a2c81234567892',
-  nameEn: 'Unverified Client',
+  name: 'Unverified Client',
   email: 'unverified-client@test.com',
   role: 'client',
   isEmailVerified: true,
@@ -30,7 +30,7 @@ const mockUnverifiedClient = {
 
 const mockVerifiedStylistUser = {
   _id: '60f719b8f1a2c81234567890',
-  nameEn: 'Verified Stylist',
+  name: 'Verified Stylist',
   email: 'stylist@test.com',
   role: 'stylist',
   isEmailVerified: true,

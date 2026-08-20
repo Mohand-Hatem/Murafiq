@@ -10,8 +10,7 @@ export const toPublicStylistDto = (stylistProfile) => {
   return {
     id: doc._id?.toString() || doc.id,
     userId: user._id?.toString() || (typeof doc.userId === 'string' ? doc.userId : undefined),
-    nameEn: user.nameEn || '',
-    nameAr: user.nameAr || '',
+    name: user.name || '',
     profileImage: user.profileImage || null,
     specialty: doc.specialty,
     bio: doc.bio || '',

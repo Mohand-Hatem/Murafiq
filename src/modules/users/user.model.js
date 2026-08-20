@@ -5,18 +5,9 @@ import { DEFAULT_PROFILE_IMAGE_URL } from '../../common/constants/defaults.const
 
 const { Schema } = mongoose;
 
-// Role → default Arabic display name mapping, used when a user doesn't supply nameAr at registration.
-const ROLE_AR_DEFAULTS = {
-  [ROLES.CLIENT]: 'مستخدم',
-  [ROLES.STYLIST]: 'مصمم',
-  [ROLES.ADMIN]: 'ادمن',
-  [ROLES.OPERATOR]: 'مدقق',
-};
-
 const userSchema = new Schema(
   {
-    nameEn: { type: String, required: true, trim: true },
-    nameAr: { type: String, trim: true },
+    name: { type: String, required: true, trim: true },
     email: { type: String, unique: true, required: true, lowercase: true, trim: true },
     phone: { type: String, unique: true, sparse: true, trim: true },
     // Required unless this is a Google-only account (no local password ever set).
@@ -86,14 +77,6 @@ const userSchema = new Schema(
 );
 
 userSchema.index({ location: '2dsphere' });
-
-// Auto-fill nameAr from role if the user didn't provide one; stays in sync if role changes before save.
-userSchema.pre('save', function assignDefaultArabicName(next) {
-  if (!this.nameAr) {
-    this.nameAr = ROLE_AR_DEFAULTS[this.role] || 'مستخدم';
-  }
-  next();
-});
 
 // Soft-deleted users never appear in normal queries.
 userSchema.pre(/^find/, function excludeSoftDeleted() {

@@ -7,9 +7,7 @@
  *       properties:
  *         id:
  *           type: string
- *         nameEn:
- *           type: string
- *         nameAr:
+ *         name:
  *           type: string
  *         email:
  *           type: string
@@ -96,20 +94,20 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, password, nameEn]
+ *             required: [name, email, password, confirmpassword]
  *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Jane Doe"
  *               email:
  *                 type: string
  *                 format: email
  *               password:
  *                 type: string
  *                 minLength: 8
- *               nameEn:
+ *               confirmpassword:
  *                 type: string
- *               nameAr:
- *                 type: string
- *               phone:
- *                 type: string
+ *                 minLength: 8
  *               role:
  *                 type: string
  *                 enum: [client, stylist]

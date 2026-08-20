@@ -4,8 +4,7 @@ import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 
 const mockStylistUser = {
   _id: '60f719b8f1a2c81234567890',
-  nameEn: 'Sara Stylist',
-  nameAr: 'سارة ديزاينر',
+  name: 'Sara Stylist',
   email: 'sara@stylist.com',
   role: 'stylist',
   profileImage: 'http://example.com/sara.jpg',
@@ -24,7 +23,7 @@ const mockStylistUser = {
 
 const mockClientUser = {
   _id: '60f719b8f1a2c81234567891',
-  nameEn: 'John Client',
+  name: 'John Client',
   email: 'john@client.com',
   role: 'client',
   isEmailVerified: true,
@@ -95,7 +94,7 @@ jest.unstable_mockModule('../../src/modules/stylists/stylist-search.service.js',
       items: [
         {
           id: mockStylistProfile._id,
-          nameEn: mockStylistUser.nameEn,
+          name: mockStylistUser.name,
           hourlyPrice: mockStylistProfile.hourlyPrice,
           city: mockStylistProfile.city,
         },
@@ -167,7 +166,7 @@ describe('Phase 3 Integration — Stylist Profiles & Search', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(1);
-      expect(res.body.data[0].nameEn).toBe('Sara Stylist');
+      expect(res.body.data[0].name).toBe('Sara Stylist');
     });
   });
 
@@ -178,7 +177,7 @@ describe('Phase 3 Integration — Stylist Profiles & Search', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.hourlyPrice).toBe(200);
-      expect(res.body.data.nameEn).toBe('Sara Stylist');
+      expect(res.body.data.name).toBe('Sara Stylist');
     });
   });
 });

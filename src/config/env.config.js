@@ -25,6 +25,9 @@ const envSchema = z.object({
   MAIL_PROVIDER: z.enum(['resend', 'sendgrid']).default('resend'),
   RESEND_API_KEY: secret('re_dev_key_change_me_in_prod'),
   MAIL_FROM_ADDRESS: secret('no-reply@murafiq.dev'),
+  // Dev-only: redirect ALL outgoing emails to this address (sandbox workaround).
+  // Leave empty or remove in production to send to the actual recipient.
+  MAIL_TO_ADDRESS: z.string().optional(),
   PAYMENT_PROVIDER: z.enum(['mock', 'paymob']).default('mock'),
   CLIENT_URL: z.string().default('http://localhost:3000'),
   PLATFORM_FEE_PERCENTAGE: z.string().default('15').transform(Number),

@@ -5,15 +5,18 @@ import { emailField, passwordField, otpField } from '../../common/validators/sha
 export const registerSchema = {
   body: z
     .object({
-      nameEn: z.string().trim().min(1, 'nameEn is required'),
-      nameAr: z.string().trim().min(1).optional(),
+      name: z.string().trim().min(2, 'Name must be at least 2 characters'),
       email: emailField,
-      phone: z.string().trim().min(1).optional(),
       password: passwordField,
+      confirmpassword: z.string().min(1, 'Confirm password is required'),
       // Self-registration only allows client/stylist — admin accounts are never created via this endpoint.
       role: z.enum([ROLES.CLIENT, ROLES.STYLIST]).optional().default(ROLES.CLIENT),
     })
-    .strict(),
+    .strict()
+    .refine((data) => data.password === data.confirmpassword, {
+      message: 'Passwords do not match',
+      path: ['confirmpassword'],
+    }),
 };
 
 export const loginSchema = {

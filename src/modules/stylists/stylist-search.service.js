@@ -120,8 +120,7 @@ export const searchStylists = async (queryParams = {}) => {
         $or: [
           { bio: searchRegex },
           { serviceDescription: searchRegex },
-          { 'user.nameEn': searchRegex },
-          { 'user.nameAr': searchRegex },
+          { 'user.name': searchRegex },
         ],
       },
     });

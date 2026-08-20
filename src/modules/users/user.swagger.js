@@ -7,9 +7,7 @@
  *       properties:
  *         id:
  *           type: string
- *         nameEn:
- *           type: string
- *         nameAr:
+ *         name:
  *           type: string
  *         email:
  *           type: string
@@ -138,9 +136,7 @@
  *           schema:
  *             type: object
  *             properties:
- *               nameEn:
- *                 type: string
- *               nameAr:
+ *               name:
  *                 type: string
  *               phone:
  *                 type: string

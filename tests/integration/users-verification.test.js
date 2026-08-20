@@ -5,8 +5,7 @@ import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 
 const mockUser = {
   _id: { toString: () => '60f719b8f1a2c81234567890' },
-  nameEn: 'Integration Client',
-  nameAr: 'عميل تجريبي',
+  name: 'Integration Client',
   email: 'client@test-phase2.com',
   role: 'client',
   profileImage: DEFAULT_PROFILE_IMAGE_URL,

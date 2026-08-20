@@ -3,15 +3,15 @@ import Request from './request.model.js';
 export const create = async (data) => {
   const reqDoc = await Request.create(data);
   return reqDoc.populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
 export const findById = async (id) => {
   return Request.findById(id).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -29,8 +29,8 @@ export const findMine = async (clientId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Request.countDocuments(query),
   ]);
@@ -52,8 +52,8 @@ export const findIncoming = async (stylistId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Request.countDocuments(query),
   ]);
@@ -70,8 +70,8 @@ export const countDailyClientRequests = async (clientId, startOfDay, endOfDay) =
 
 export const updateById = async (id, data) => {
   return Request.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
