@@ -6,7 +6,12 @@ export const EVENTS = {
   REQUEST_CREATED: 'request.created',
   OFFER_CREATED: 'offer.created',
   BOOKING_CONFIRMED: 'booking.confirmed',
-  PAYMENT_COMPLETED: 'payment.completed',
+  BOOKING_CANCELLED: 'booking.cancelled',
+  SESSION_COMPLETED: 'session.completed',
+  SESSION_DISPUTED: 'session.disputed',
+  PAYMENT_SUCCEEDED: 'payment.succeeded',
+  PAYMENT_FAILED: 'payment.failed',
+  PAYMENT_REFUNDED: 'payment.refunded',
   REVIEW_SUBMITTED: 'review.submitted',
 };
 

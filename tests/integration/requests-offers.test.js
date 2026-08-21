@@ -139,6 +139,13 @@ jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', ()
   },
 }));
 
+jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () => ({
+  default: {
+    create: jest.fn().mockResolvedValue({ _id: 'p0f719b8f1a2c81234567890', status: 'pending' }),
+    findByBookingId: jest.fn().mockResolvedValue({ _id: 'p0f719b8f1a2c81234567890', status: 'paid' }),
+  },
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Phase 4 Integration — Requests & Offers', () => {

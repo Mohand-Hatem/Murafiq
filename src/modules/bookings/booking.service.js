@@ -2,12 +2,16 @@ import bookingRepository from './booking.repository.js';
 import scheduleRepository from './schedule.repository.js';
 import requestRepository from '../requests/request.repository.js';
 import offerRepository from '../offers/offer.repository.js';
+import paymentRepository from '../payments/payment.repository.js';
+import paymentService, { round2 } from '../payments/payment.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
 import { timeToMinutes } from '../../common/utils/timeUtils.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
+import { PAYMENT_STATUS, CANCELLATION_POLICY } from '../../common/constants/statuses.constant.js';
+import env from '../../config/env.config.js';
 
 export const createBookingFromOffer = async (offerId, session = null) => {
   const offer = await offerRepository.findById(offerId);
@@ -69,6 +73,26 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     session
   );
 
+  // Create pending payment record
+  const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || 15;
+  const platformFeeAmount = round2(offer.price * (platformFeePercentage / 100));
+  const stylistPayoutAmount = round2(offer.price - platformFeeAmount);
+
+  await paymentRepository.create(
+    {
+      bookingId: bookingDoc._id,
+      clientId: offer.clientId._id || offer.clientId,
+      currency: 'EGP',
+      amount: offer.price,
+      platformFeePercentage,
+      platformFeeAmount,
+      stylistPayoutAmount,
+      status: PAYMENT_STATUS.PENDING,
+      provider: env.PAYMENT_PROVIDER || 'mock',
+    },
+    session
+  );
+
   // Update Request & Offer statuses to 'accepted'
   await requestRepository.updateById(requestDoc._id, { status: 'accepted' }, session);
   await offerRepository.updateById(offer._id, { status: 'accepted' }, session);
@@ -125,6 +149,12 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
 
   if (booking.status !== 'confirmed' && booking.status !== 'in-progress') {
     throw new ApiError(400, `Cannot check-in to a booking in '${booking.status}' status`);
+  }
+
+  // Payment Gate: Booking must be paid before check-in is permitted
+  const payment = await paymentRepository.findByBookingId(bookingId);
+  if (!payment || payment.status !== PAYMENT_STATUS.PAID) {
+    throw new ApiError(400, 'Payment must be completed before check-in');
   }
 
   const updateData = {
@@ -237,6 +267,27 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
     cancellationReason: cancelData.reason || undefined,
     cancelledAt: new Date(),
   });
+
+  // If payment was paid, execute refund logic based on cancellation policy
+  const payment = await paymentRepository.findByBookingId(bookingId);
+  if (payment && payment.status === PAYMENT_STATUS.PAID) {
+    let refundPercentage = 100;
+    if (cancelledBy === 'client') {
+      const scheduledDateTime = new Date(booking.scheduledDate);
+      if (booking.scheduledStartMinute) {
+        scheduledDateTime.setMinutes(scheduledDateTime.getMinutes() + booking.scheduledStartMinute);
+      }
+      const hoursUntilSession = (scheduledDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
+      if (hoursUntilSession < CANCELLATION_POLICY.FULL_REFUND_HOURS) {
+        refundPercentage = CANCELLATION_POLICY.PARTIAL_REFUND_PERCENTAGE; // 75%
+      }
+    }
+    await paymentService.processRefund({
+      bookingId,
+      refundPercentage,
+      reason: cancelData.reason || `Booking cancelled by ${cancelledBy}`,
+    });
+  }
 
   eventBus.emit(EVENTS.BOOKING_CANCELLED, { bookingId: updated._id.toString(), cancelledBy });
 
