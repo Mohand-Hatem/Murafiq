@@ -5,3 +5,14 @@ import { z } from 'zod';
 export const emailField = z.string().trim().toLowerCase().email('Invalid email address');
 export const passwordField = z.string().min(8, 'Password must be at least 8 characters');
 export const otpField = z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code');
+export const objectIdField = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-fA-F]{24}$/, 'Invalid ObjectId format');
+
+export default {
+  emailField,
+  passwordField,
+  otpField,
+  objectIdField,
+};

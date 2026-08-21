@@ -119,6 +119,28 @@ jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', ()
   },
 }));
 
+jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () => ({
+  default: {
+    create: jest.fn().mockResolvedValue({ _id: 'p0f719b8f1a2c81234567890', status: 'pending' }),
+    findByBookingId: jest.fn().mockResolvedValue({
+      _id: 'p0f719b8f1a2c81234567890',
+      status: 'paid',
+      amount: 1000,
+      bookingId: 'c0f719b8f1a2c81234567890',
+      clientId: '60f719b8f1a2c81234567891',
+      providerTransactionId: 'mock_tx_123',
+    }),
+    updateById: jest.fn().mockImplementation((id, data) =>
+      Promise.resolve({
+        _id: 'p0f719b8f1a2c81234567890',
+        bookingId: 'c0f719b8f1a2c81234567890',
+        clientId: '60f719b8f1a2c81234567891',
+        ...data,
+      })
+    ),
+  },
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Phase 5 Integration — Bookings & Scheduling', () => {
