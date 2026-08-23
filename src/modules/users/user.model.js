@@ -69,6 +69,7 @@ const userSchema = new Schema(
     },
 
     isOnline: { type: Boolean, default: false },
+    fcmTokens: { type: [String], default: [] },
     clientRating: { type: Number, default: 0 },
     clientTotalReviews: { type: Number, default: 0 },
     completedBookings: { type: Number, default: 0 },

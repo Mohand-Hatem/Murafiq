@@ -12,6 +12,7 @@ export const EVENTS = {
   PAYMENT_SUCCEEDED: 'payment.succeeded',
   PAYMENT_FAILED: 'payment.failed',
   PAYMENT_REFUNDED: 'payment.refunded',
+  CHAT_MESSAGE_SENT: 'chat.message_sent',
   REVIEW_SUBMITTED: 'review.submitted',
 };
 

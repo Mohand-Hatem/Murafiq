@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'admin';
+    }
+
+    function isParticipant(conversationData) {
+      return isAuthenticated() && (request.auth.uid in conversationData.participants);
+    }
+
+    function isConversationActive(conversationData) {
+      return conversationData.isOpen == true && conversationData.isLocked != true;
+    }
+
+    // Conversations collection
+    match /conversations/{conversationId} {
+      // Participants can read open conversations; Admins can read any conversation for dispute reviews
+      allow read: if isAdmin() || isParticipant(resource.data);
+
+      // Backend initializes conversations via Admin SDK (bypasses security rules).
+      // Client cannot create or delete root conversation rooms directly.
+      allow create, delete: if false;
+
+      // Participants can update metadata (e.g. lastMessageAt) only if room is active
+      allow update: if isParticipant(resource.data) && isConversationActive(resource.data);
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        // Participants can read message history; Admins have read-only access
+        allow read: if isAdmin() || isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
+
+        // Participants can write messages only if room is open and not locked
+        allow create: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
+          && isConversationActive(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
+          && request.resource.data.senderId == request.auth.uid;
+
+        // Participants can update message read receipts (deliveredAt / seenAt)
+        allow update: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
+
+        allow delete: if false;
+      }
+    }
+
+    // Typing indicators (short-lived docs)
+    match /typing/{conversationId}/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Realtime User Presence
+    match /presence/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+  }
+}

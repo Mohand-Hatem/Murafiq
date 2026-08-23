@@ -5,6 +5,8 @@ import validate from '../../common/middlewares/validate.middleware.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import { rejectVerificationSchema } from './admin.validator.js';
 import adminController from './admin.controller.js';
+import { hideReviewSchema } from '../reviews/review.validator.js';
+import reviewController from '../reviews/review.controller.js';
 
 const router = express.Router();
 
@@ -28,6 +30,14 @@ router.patch(
   restrictTo(ROLES.ADMIN, ROLES.OPERATOR),
   validate(rejectVerificationSchema),
   adminController.rejectVerification
+);
+
+// Review moderation (Admin only)
+router.patch(
+  '/reviews/:id/hide',
+  restrictTo(ROLES.ADMIN),
+  validate(hideReviewSchema),
+  reviewController.hideReview
 );
 
 export default router;

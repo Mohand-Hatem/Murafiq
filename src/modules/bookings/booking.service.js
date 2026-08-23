@@ -4,6 +4,7 @@ import requestRepository from '../requests/request.repository.js';
 import offerRepository from '../offers/offer.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
 import paymentService, { round2 } from '../payments/payment.service.js';
+import chatService from '../chat/chat.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
 import { timeToMinutes } from '../../common/utils/timeUtils.js';
 import eventBus from '../../common/events/event-bus.js';
@@ -96,6 +97,16 @@ export const createBookingFromOffer = async (offerId, session = null) => {
   // Update Request & Offer statuses to 'accepted'
   await requestRepository.updateById(requestDoc._id, { status: 'accepted' }, session);
   await offerRepository.updateById(offer._id, { status: 'accepted' }, session);
+
+  // Initialize closed chat room (unlocked upon payment)
+  try {
+    await chatService.createConversation(bookingDoc._id, [
+      offer.clientId._id || offer.clientId,
+      offer.stylistId._id || offer.stylistId,
+    ]);
+  } catch (err) {
+    // Non-fatal if firestore is offline during creation; service listeners will retry/sync
+  }
 
   return bookingDoc;
 };

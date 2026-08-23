@@ -1,5 +1,7 @@
 import stylistService from './stylist.service.js';
 import stylistSearchService from './stylist-search.service.js';
+import reviewService from '../reviews/review.service.js';
+import { toPublicReviewDto } from '../reviews/review.dto.js';
 
 export const createProfile = asyncHandler(async (req, res) => {
   const profile = await stylistService.createProfile(req.user.id, req.user.role, req.body);
@@ -44,11 +46,11 @@ export const searchStylists = asyncHandler(async (req, res) => {
 });
 
 export const getStylistReviews = asyncHandler(async (req, res) => {
-  // Phase 8 stub — returns empty reviews list until Phase 8 is implemented
+  const { items, meta } = await reviewService.getStylistReviews(req.params.id, req.query);
   return ApiResponse.success(res, {
     message: 'Stylist reviews retrieved successfully',
-    data: [],
-    meta: { total: 0, page: 1, limit: 10, totalPages: 0 },
+    data: items.map(toPublicReviewDto),
+    meta,
   });
 });
 

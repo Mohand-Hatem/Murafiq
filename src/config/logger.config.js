@@ -45,3 +45,5 @@ export const stream = {
     logger.info(message.trim());
   },
 };
+
+export default logger;

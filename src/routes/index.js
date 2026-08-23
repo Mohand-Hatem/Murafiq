@@ -8,6 +8,9 @@ import requestRoutes from '../modules/requests/request.routes.js';
 import offerRoutes from '../modules/offers/offer.routes.js';
 import bookingRoutes from '../modules/bookings/booking.routes.js';
 import paymentRoutes from '../modules/payments/payment.routes.js';
+import chatRoutes from '../modules/chat/chat.routes.js';
+import notificationRoutes from '../modules/notifications/notification.routes.js';
+import reviewRoutes from '../modules/reviews/review.routes.js';
 
 const router = express.Router();
 
@@ -19,6 +22,9 @@ router.use('/requests', requestRoutes);
 router.use('/offers', offerRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/chat', chatRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/reviews', reviewRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(

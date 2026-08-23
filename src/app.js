@@ -15,6 +15,10 @@ import rateLimiter from './common/middlewares/rate-limiter.middleware.js';
 import errorHandler from './common/middlewares/error-handler.middleware.js';
 import notFoundHandler from './common/middlewares/not-found.middleware.js';
 import routes from './routes/index.js';
+import notificationListener from './modules/notifications/notification.listener.js';
+
+// Initialize domain event notification listeners
+notificationListener.register();
 
 const app = express();
 
