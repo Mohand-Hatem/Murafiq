@@ -4,14 +4,21 @@
 >
 > **Verified 2026-08-25 against the working tree on top of commit `3ace8c8` (uncommitted) — by
 > direct code inspection and a real `npm test`/`npm run lint` run, not by reading other docs.
-> Latest pass: Phase 10 completed — `GET /admin/users` and `GET /admin/dashboard/stats` built.
-> Found and fixed a real bug during review: `getBusinessMonthRange()` computed pure-UTC month
-> boundaries despite claiming Cairo timezone, misattributing ~2-3h of revenue at each month
-> boundary — now reuses `getBusinessDayRange`'s correct per-instant offset math. Added a
-> filter-allow-list regression test for `GET /admin/users`, and a Sharp-compression PDF-skip test
-> from the Phase 9 follow-up. All new tests verified by deliberately re-introducing each bug and
-> confirming the test fails, then restoring the fix and confirming it passes again — not just
-> written and trusted. 47/204 tests pass. Two Phase-9 follow-ups still open, not blockers:
+> Latest pass: fixed a startup bug the user hit running `npm run dev` —
+> `firebase.config.js` was written against firebase-admin's old v9-11 namespaced API
+> (`admin.credential.cert`, `admin.apps.length`) but the installed version is `^14.3.0`, which
+> replaced that with a modular API (`firebase-admin/app`, `/firestore`, `/auth`, `/messaging`).
+> This meant Firebase/Firestore/FCM had **never** actually initialized, in any environment, in this
+> project's history — not a credential issue, chat has been silently running on the in-memory mock
+> fallback in every dev run to date. Rewritten to the modular API; confirmed initializing
+> successfully against real `.env` credentials. One follow-up fix mid-repair: a static top-level
+> import of `firebase-admin/auth` broke 18 test suites under Jest (its `jwks-rsa`→`jose` dependency
+> chain is pure-ESM and can't be `require()`'d on this Node version) — restructured to dynamically
+> import the firestore/auth/messaging submodules only inside the branch where initialization
+> actually succeeds, so the test environment (which never initializes) never touches that chain.
+> 47/204 tests still pass. Earlier pass: Phase 10 completed (`GET /admin/users`,
+> `GET /admin/dashboard/stats`), plus a real Cairo-timezone bug fixed in
+> `getBusinessMonthRange()`. Two Phase-9 follow-ups still open, not blockers:
 > `welcomeTemplate`/`bookingConfirmationTemplate` exist but are called from nowhere yet.
 >
 > Every claim in this file was checked against `src/`, `package.json`, and a real test run. If you are
@@ -72,7 +79,7 @@ Legend:
 | `bookings/` | ✅ Active | 7 routes + 48h dispute filing window, admin arbitration resolution, dispute status locks, and scheduling. |
 | `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. |
 | `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). |
-| `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), admin access restricted to disputed bookings with audit logs. |
+| `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), admin access restricted to disputed bookings with audit logs. Prior to the `firebase.config.js` fix (§5 below), the mock fallback was silently exercised in **every** dev run regardless of credentials — dev now actually talks to real Firestore. |
 | `notifications/` | ✅ Active | 3 routes, Mongo feed + FCM multicast with token pruning. |
 | `reviews/` | ✅ Active | Two-way reviews, unique `{bookingId, direction}` index, aggregation-based ratings. |
 | `admin/` | ✅ Active | `GET /verifications`, `PATCH /verifications/:userId/approve`, `PATCH /verifications/:userId/reject`, `PATCH /users/:id/suspend`, `PATCH /users/:id/reactivate`, `PATCH /reviews/:id/hide`, `GET /audit-logs`, `GET /bookings/disputed`, `PATCH /bookings/:id/resolve-dispute`, `GET /users`, `GET /dashboard/stats`. |
@@ -153,7 +160,7 @@ key above). All are now present in `.env.example`.
 
 | Piece | Status | Notes |
 |---|---|---|
-| `firebase.config.js` | ⚠️ Defective | Catches init failure and **warns**, exporting `null`. Chat then silently degrades to in-memory `Map`s — data lost on restart, not shared across instances. → `HARDENING_03` Step 3. |
+| `firebase.config.js` | ✅ Active (fixed 2026-08-25) | Was silently failing to initialize in **every** environment, always — root cause was a `firebase-admin` v14 API mismatch (see below), not a credential problem. Confirmed initializing against real `.env` credentials. Catches init failure and **warns** in dev/test, exporting `null` (chat falls back to in-memory `Map`s — data lost on restart, not shared across instances); fails hard in production. |
 | Firestore `conversations`/`messages` | ✅ Active | 1:1 with `bookingId`. Source of truth for chat. |
 | `chat.service.js` | ✅ Active | Rooms, custom tokens with role claims, open-on-payment / lock-on-completion. |
 | `firestore.rules` | ⚠️ **Defective** | `update` rules have **no field restriction** — a participant can rewrite another user's message `content`/`senderId`, or add an arbitrary third UID to `participants`. → `HARDENING_02` Step 7. |
