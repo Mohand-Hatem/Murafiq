@@ -34,7 +34,26 @@ class NotificationListener {
       }
     });
 
-    // 2. Offer Created -> Notify Client
+    // 2. Request Declined -> Notify Client
+    eventBus.on(EVENTS.REQUEST_DECLINED, async ({ requestId }) => {
+      try {
+        if (!requestId) return;
+        const request = await requestRepository.findById(requestId);
+        if (request?.clientId) {
+          const clientUserId = request.clientId._id || request.clientId;
+          await notificationService.send(clientUserId, {
+            type: 'request',
+            title: 'Request Declined',
+            body: 'The stylist was unable to accept your styling request.',
+            relatedEntityId: request._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on REQUEST_DECLINED: ${err.message}`);
+      }
+    });
+
+    // 3. Offer Created -> Notify Client
     eventBus.on(EVENTS.OFFER_CREATED, async ({ offerId }) => {
       try {
         if (!offerId) return;
@@ -53,7 +72,7 @@ class NotificationListener {
       }
     });
 
-    // 3. Offer Accepted / Booking Created -> Notify Stylist
+    // 4. Offer Accepted / Booking Created -> Notify Stylist
     eventBus.on(EVENTS.OFFER_ACCEPTED, async ({ offerId }) => {
       try {
         if (!offerId) return;
@@ -69,6 +88,38 @@ class NotificationListener {
         }
       } catch (err) {
         logger.error(`Notification error on OFFER_ACCEPTED: ${err.message}`);
+      }
+    });
+
+    // 5. Offer Rejected -> Notify Stylist
+    eventBus.on(EVENTS.OFFER_REJECTED, async ({ stylistId, offerId }) => {
+      try {
+        if (stylistId) {
+          await notificationService.send(stylistId, {
+            type: 'offer',
+            title: 'Offer Declined',
+            body: 'The client has declined your styling offer.',
+            relatedEntityId: offerId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on OFFER_REJECTED: ${err.message}`);
+      }
+    });
+
+    // 6. Check-in Completed -> Notify Client
+    eventBus.on(EVENTS.CHECK_IN_COMPLETED, async ({ bookingId, clientId }) => {
+      try {
+        if (clientId) {
+          await notificationService.send(clientId, {
+            type: 'booking',
+            title: 'Stylist Checked In',
+            body: 'Your stylist has checked in and your styling session is now in progress.',
+            relatedEntityId: bookingId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on CHECK_IN_COMPLETED: ${err.message}`);
       }
     });
 
@@ -174,7 +225,7 @@ class NotificationListener {
       }
     });
 
-    // 8. Booking Cancelled -> Notify Participants
+    // 11. Booking Cancelled -> Notify Participants
     eventBus.on(EVENTS.BOOKING_CANCELLED, async ({ bookingId }) => {
       try {
         if (!bookingId) return;
@@ -203,6 +254,30 @@ class NotificationListener {
         }
       } catch (err) {
         logger.error(`Notification error on BOOKING_CANCELLED: ${err.message}`);
+      }
+    });
+
+    // 12. Dispute Raised -> Notify Client & Stylist
+    eventBus.on(EVENTS.DISPUTE_RAISED, async ({ bookingId, raisedBy, reason }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (booking) {
+          const clientUserId = booking.clientId?._id || booking.clientId;
+          const stylistUserId = booking.stylistId?._id || booking.stylistId;
+          const targetRecipient = String(raisedBy) === String(clientUserId) ? stylistUserId : clientUserId;
+
+          if (targetRecipient) {
+            await notificationService.send(targetRecipient, {
+              type: 'dispute',
+              title: 'Dispute Raised',
+              body: `A dispute has been raised on your booking: "${reason || 'Under review'}". An admin will investigate.`,
+              relatedEntityId: booking._id,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error(`Notification error on DISPUTE_RAISED: ${err.message}`);
       }
     });
 

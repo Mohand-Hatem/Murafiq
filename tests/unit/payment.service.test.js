@@ -1,9 +1,7 @@
-import { jest } from '@jest/globals';
 import crypto from 'crypto';
 import '../../src/common/globals.js';
-import { round2, getProvider } from '../../src/modules/payments/payment.service.js';
+import { round2 } from '../../src/modules/payments/payment.service.js';
 import PaymobProvider from '../../src/modules/payments/providers/paymob.provider.js';
-import MockProvider from '../../src/modules/payments/providers/mock.provider.js';
 
 describe('Payment Financial Arithmetic & Rounding', () => {
   it('guarantees platformFeeAmount + stylistPayoutAmount equals total amount without float drift', () => {
@@ -32,6 +30,34 @@ describe('Payment Financial Arithmetic & Rounding', () => {
     expect(clientRefund).toBe(750.0);
     expect(platformRetained).toBe(250.0);
     expect(clientRefund + platformRetained).toBe(sessionAmount);
+  });
+
+  it('guarantees ledger balancing invariant on full (100%) refund', () => {
+    const amount = 1000.0;
+    const refundPercentage = 100;
+    const refundAmount = round2((amount * refundPercentage) / 100);
+    const isPartial = refundPercentage < 100;
+    const platformFeeAmount = isPartial ? round2(amount - refundAmount) : 0;
+    const stylistPayoutAmount = 0;
+
+    expect(refundAmount).toBe(1000.0);
+    expect(platformFeeAmount).toBe(0.0);
+    expect(stylistPayoutAmount).toBe(0.0);
+    expect(round2(platformFeeAmount + stylistPayoutAmount + refundAmount)).toBe(amount);
+  });
+
+  it('guarantees ledger balancing invariant on partial (75%) refund', () => {
+    const amount = 1000.0;
+    const refundPercentage = 75;
+    const refundAmount = round2((amount * refundPercentage) / 100);
+    const isPartial = refundPercentage < 100;
+    const platformFeeAmount = isPartial ? round2(amount - refundAmount) : 0;
+    const stylistPayoutAmount = 0;
+
+    expect(refundAmount).toBe(750.0);
+    expect(platformFeeAmount).toBe(250.0);
+    expect(stylistPayoutAmount).toBe(0.0);
+    expect(round2(platformFeeAmount + stylistPayoutAmount + refundAmount)).toBe(amount);
   });
 });
 

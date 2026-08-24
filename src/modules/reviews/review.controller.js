@@ -54,7 +54,7 @@ export const getMyReviews = asyncHandler(async (req, res) => {
 export const hideReview = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const isHidden = req.body.isHidden !== undefined ? req.body.isHidden : true;
-  const updated = await reviewService.hideReview(id, isHidden);
+  const updated = await reviewService.hideReview(id, isHidden, req.user.id, req.body.reason);
 
   return ApiResponse.success(
     res,

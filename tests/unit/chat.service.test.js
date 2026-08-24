@@ -1,9 +1,13 @@
 import { jest } from '@jest/globals';
 import '../../src/common/globals.js';
 import chatService from '../../src/modules/chat/chat.service.js';
+import bookingRepository from '../../src/modules/bookings/booking.repository.js';
 import eventBus from '../../src/common/events/event-bus.js';
 import { EVENTS } from '../../src/common/constants/events.constant.js';
 import { ROLES } from '../../src/common/constants/roles.constant.js';
+import chatListener from '../../src/modules/chat/chat.listener.js';
+
+chatListener.register();
 
 describe('Chat Service Unit Tests', () => {
   const bookingId = '60f719b8f1a2c81234567891';
@@ -14,6 +18,7 @@ describe('Chat Service Unit Tests', () => {
   beforeEach(async () => {
     // Re-create a fresh closed room before each test
     await chatService.createConversation(bookingId, [clientUserId, stylistUserId]);
+    jest.spyOn(bookingRepository, 'findById').mockResolvedValue({ _id: bookingId, status: 'disputed' });
   });
 
   describe('Lifecycle State Transitions', () => {
@@ -66,11 +71,19 @@ describe('Chat Service Unit Tests', () => {
       expect(Array.isArray(res.items)).toBe(true);
     });
 
-    it('allows Admin to view message history of any conversation (for dispute reviews)', async () => {
+    it('allows Admin to view message history of disputed conversation', async () => {
       await chatService.openConversation(bookingId);
       const res = await chatService.getMessages(bookingId, outsiderUserId, ROLES.ADMIN);
       expect(res.conversation).toBeDefined();
       expect(Array.isArray(res.items)).toBe(true);
+    });
+
+    it('rejects Admin when booking has no active dispute', async () => {
+      jest.spyOn(bookingRepository, 'findById').mockResolvedValue({ _id: bookingId, status: 'confirmed' });
+      await chatService.openConversation(bookingId);
+      await expect(
+        chatService.getMessages(bookingId, outsiderUserId, ROLES.ADMIN)
+      ).rejects.toThrow(/restricted to disputed/i);
     });
 
     it('rejects non-participant non-admin with 403 Forbidden', async () => {

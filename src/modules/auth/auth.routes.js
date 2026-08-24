@@ -21,10 +21,10 @@ router.post('/login', authRateLimiter, validate(loginSchema), authController.log
 router.post('/google', authRateLimiter, validate(googleAuthSchema), authController.googleAuth);
 router.post('/logout', authMiddleware, authController.logout);
 router.post('/refresh-token', authController.refreshToken);
-router.post('/verify-email', validate(verifyEmailSchema), authController.verifyEmail);
+router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), authController.verifyEmail);
 router.post('/resend-otp', otpResendRateLimiter, validate(resendOtpSchema), authController.resendOtp);
 router.post('/forgot-password', authRateLimiter, validate(forgotPasswordSchema), authController.forgotPassword);
-router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), authController.resetPassword);
 router.patch('/change-password', authMiddleware, validate(changePasswordSchema), authController.changePassword);
 
 export default router;

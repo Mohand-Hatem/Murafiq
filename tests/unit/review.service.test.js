@@ -7,6 +7,9 @@ import stylistRepository from '../../src/modules/stylists/stylist.repository.js'
 import userRepository from '../../src/modules/users/user.repository.js';
 import eventBus from '../../src/common/events/event-bus.js';
 import { EVENTS } from '../../src/common/constants/events.constant.js';
+import reviewListener from '../../src/modules/reviews/review.listener.js';
+
+reviewListener.register();
 
 describe('Review Service Unit Tests', () => {
   const clientId = '60f719b8f1a2c81234567891';

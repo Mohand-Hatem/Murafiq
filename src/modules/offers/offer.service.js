@@ -8,6 +8,7 @@ import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
+import { DEFAULT_CAPS } from '../../common/constants/defaults.constant.js';
 
 export const createOffer = async (stylistUser, requestId, offerData) => {
   const stylist = await userRepository.findById(stylistUser._id || stylistUser.id);
@@ -35,15 +36,20 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
     throw new ApiError(400, 'Request has expired');
   }
 
-  // 2. Check Stylist Daily Offer Cap (5/day in Africa/Cairo)
+  // 2. Check Stylist Daily Offer Cap (Africa/Cairo)
   const { startOfDay, endOfDay } = getBusinessDayRange();
   const dailyCount = await offerRepository.countDailyStylistOffers(
     stylistUser._id || stylistUser.id,
     startOfDay,
     endOfDay
   );
-  if (dailyCount >= 5) {
-    throw new ApiError(403, 'Daily offer limit reached (5/day). Try again tomorrow.');
+
+  const maxDailyOffers = DEFAULT_CAPS.STYLIST_DAILY_OFFERS;
+  if (dailyCount >= maxDailyOffers) {
+    throw new ApiError(
+      403,
+      `Daily offer limit reached (${maxDailyOffers}/day). Try again tomorrow.`
+    );
   }
 
   const reqClientId = reqDoc.clientId._id?.toString() || reqDoc.clientId.toString();
@@ -113,10 +119,7 @@ export const acceptOffer = async (clientUser, offerId) => {
     if (session) {
       try { await session.abortTransaction(); } catch (_) {}
     }
-    if (err.statusCode) {
-      throw err; // Re-throw ApiErrors (such as 409 Conflict)
-    }
-    bookingDoc = await bookingService.createBookingFromOffer(offerId, null);
+    throw err;
   } finally {
     if (session) {
       try { session.endSession(); } catch (_) {}

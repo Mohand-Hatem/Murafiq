@@ -30,7 +30,7 @@ export const findVerifications = async (queryString = {}) => {
 
   const baseQuery = User.find();
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['role', 'verification.status', 'accountStatus', 'isEmailVerified'])
     .search(['name', 'email', 'phone'])
     .sort()
     .select();

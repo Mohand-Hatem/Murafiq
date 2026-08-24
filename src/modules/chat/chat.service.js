@@ -1,4 +1,5 @@
 import { firestore, auth } from '../../config/firebase.config.js';
+import bookingRepository from '../bookings/booking.repository.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
@@ -9,10 +10,6 @@ const mockConversations = new Map();
 const mockMessages = new Map();
 
 class ChatService {
-  constructor() {
-    this._registerEventListeners();
-  }
-
   /**
    * Create a new conversation doc 1:1 with bookingId (created closed, unlocked upon payment)
    */
@@ -123,12 +120,24 @@ class ChatService {
       throw new ApiError(404, 'Conversation not found');
     }
 
-    // Access control: User must be a participant OR an admin reviewing a dispute
+    // Access control: User must be a participant OR an admin reviewing an active dispute
     const isParticipant = conversation.participants?.includes(stringUserId);
     const isAdmin = userRole === ROLES.ADMIN;
 
     if (!isParticipant && !isAdmin) {
       throw new ApiError(403, 'You do not have access to this conversation');
+    }
+
+    if (isAdmin && !isParticipant) {
+      const booking = await bookingRepository.findById(conversation.bookingId);
+      if (!booking || (booking.status !== 'disputed' && booking.status !== 'cancelled')) {
+        throw new ApiError(403, 'Admin chat access is restricted to disputed or investigated bookings');
+      }
+      eventBus.emit(EVENTS.ADMIN_CHAT_ACCESSED, {
+        adminId: stringUserId,
+        bookingId: conversation.bookingId,
+        conversationId: stringConvId,
+      });
     }
 
     if (firestore) {
@@ -256,29 +265,6 @@ class ChatService {
     });
 
     return createdMessage;
-  }
-
-  /**
-   * Domain event listeners for booking & payment state sync
-   */
-  _registerEventListeners() {
-    eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async (payload) => {
-      if (payload?.bookingId) {
-        await this.openConversation(payload.bookingId);
-      }
-    });
-
-    eventBus.on(EVENTS.SESSION_COMPLETED, async (payload) => {
-      if (payload?.bookingId) {
-        await this.lockConversation(payload.bookingId);
-      }
-    });
-
-    eventBus.on(EVENTS.BOOKING_CANCELLED, async (payload) => {
-      if (payload?.bookingId) {
-        await this.lockConversation(payload.bookingId);
-      }
-    });
   }
 }
 

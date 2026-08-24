@@ -99,7 +99,6 @@ const { default: app } = await import('../../src/app.js');
 
 describe('Phase 8 Integration — Reviews & Ratings Endpoints', () => {
   const clientToken = generateAccessToken({ sub: clientId, role: 'client' });
-  const stylistToken = generateAccessToken({ sub: stylistId, role: 'stylist' });
   const outsiderToken = generateAccessToken({ sub: outsiderId, role: 'client' });
   const adminToken = generateAccessToken({ sub: adminId, role: 'admin' });
 

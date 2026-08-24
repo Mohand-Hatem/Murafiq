@@ -3,6 +3,7 @@ import * as paymentController from './payment.controller.js';
 import authMiddleware from '../../common/middlewares/auth.middleware.js';
 import { restrictTo } from '../../common/middlewares/rbac.middleware.js';
 import validate from '../../common/middlewares/validate.middleware.js';
+import { webhookRateLimiter } from '../../common/middlewares/auth-rate-limiter.middleware.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import {
   initializePaymentSchema,
@@ -12,8 +13,8 @@ import {
 
 const router = express.Router();
 
-// Public Webhook callback from Paymob / payment provider
-router.post('/callback', paymentController.handleWebhook);
+// Public Webhook callback from Paymob / payment provider with dedicated rate limiting
+router.post('/callback', webhookRateLimiter, paymentController.handleWebhook);
 
 // Client-initiated payment initialization
 router.post(

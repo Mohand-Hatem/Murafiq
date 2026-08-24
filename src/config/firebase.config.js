@@ -23,12 +23,20 @@ try {
     isFirebaseInitialized = true;
     logger.info('Firebase Admin initialized successfully');
   } else {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('Firebase Admin credentials missing or placeholder in production environment');
+    }
     logger.warn('Firebase Admin running in mock/uninitialized mode (placeholder credentials detected)');
   }
 } catch (error) {
+  if (env.NODE_ENV === 'production') {
+    logger.error(`Fatal Firebase initialization error in production: ${error.message}`);
+    throw error;
+  }
   logger.warn(`Firebase Admin initialization skipped or failed: ${error.message}`);
 }
 
+export const isFirebaseConnected = isFirebaseInitialized;
 export const firestore = isFirebaseInitialized ? admin.firestore() : null;
 export const auth = isFirebaseInitialized ? admin.auth() : null;
 export const messaging = isFirebaseInitialized ? admin.messaging() : null;

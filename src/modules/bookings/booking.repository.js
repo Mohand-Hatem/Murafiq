@@ -64,6 +64,28 @@ export const findStylistBookings = async (stylistId, queryString = {}) => {
   return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
 };
 
+export const findDisputedBookings = async (queryString = {}) => {
+  const page = Math.max(1, parseInt(queryString.page, 10) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(queryString.limit, 10) || 20));
+  const skip = (page - 1) * limit;
+
+  const query = { status: 'disputed' };
+
+  const [items, total] = await Promise.all([
+    Booking.find(query)
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate([
+        { path: 'clientId', select: 'name email phone profileImage' },
+        { path: 'stylistId', select: 'name email phone profileImage' },
+      ]),
+    Booking.countDocuments(query),
+  ]);
+
+  return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+};
+
 export const updateById = async (id, data, session = null) => {
   const options = { new: true, runValidators: true };
   if (session) options.session = session;
@@ -74,10 +96,41 @@ export const updateById = async (id, data, session = null) => {
   ]);
 };
 
+
+// Used by payouts (cross-module): bookings eligible for a specific stylist's payout batch —
+// completed, unpaid, and past the dispute-window hold. Keeps the payouts module off the raw
+// Booking model, matching every other cross-module caller's repository-to-repository pattern.
+export const findEligibleForPayout = async (stylistId, cutoffDate) => {
+  return Booking.find({
+    stylistId,
+    status: 'completed',
+    payoutStatus: 'unpaid',
+    completedAt: { $ne: null, $lte: cutoffDate },
+  }).select('_id price scheduledDate');
+};
+
+// Same eligibility rule as above, across all stylists — backs the admin pending-balances summary.
+export const findCompletedUnpaidBefore = async (cutoffDate) => {
+  return Booking.find({
+    status: 'completed',
+    payoutStatus: 'unpaid',
+    completedAt: { $ne: null, $lte: cutoffDate },
+  }).select('_id stylistId');
+};
+
+export const updateManyPayoutStatus = async (bookingIds, data, session = null) => {
+  const options = session ? { session } : {};
+  return Booking.updateMany({ _id: { $in: bookingIds } }, data, options);
+};
+
 export default {
   create,
   findById,
+  findEligibleForPayout,
+  findCompletedUnpaidBefore,
+  updateManyPayoutStatus,
   findMine,
   findStylistBookings,
+  findDisputedBookings,
   updateById,
 };

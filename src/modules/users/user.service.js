@@ -81,7 +81,7 @@ export const uploadVerificationDocs = async (userId, role, documents) => {
 
   const formattedDocs = documents.map((doc) => ({
     type: doc.type,
-    url: doc.url,
+    url: doc.documentRef || doc.url,
     uploadedAt: new Date(),
   }));
 
@@ -131,6 +131,17 @@ export const approveVerification = async (userId, reviewerId) => {
     throw new ApiError(404, 'User not found');
   }
 
+  if (user.verification?.status !== 'pending') {
+    throw new ApiError(
+      409,
+      `Cannot approve verification: current status is '${user.verification?.status || 'unverified'}' (only 'pending' can be approved)`
+    );
+  }
+
+  if (!user.verification?.documents || user.verification.documents.length === 0) {
+    throw new ApiError(400, 'Cannot approve verification: user has no submitted documents');
+  }
+
   const updatedUser = await userRepository.updateById(userId, {
     'verification.status': 'verified',
     'verification.reviewedBy': reviewerId,
@@ -153,6 +164,13 @@ export const rejectVerification = async (userId, reviewerId, rejectionReason) =>
     throw new ApiError(404, 'User not found');
   }
 
+  if (user.verification?.status !== 'pending') {
+    throw new ApiError(
+      409,
+      `Cannot reject verification: current status is '${user.verification?.status || 'unverified'}' (only 'pending' can be rejected)`
+    );
+  }
+
   const updatedUser = await userRepository.updateById(userId, {
     'verification.status': 'rejected',
     'verification.rejectionReason': rejectionReason,
@@ -170,6 +188,58 @@ export const rejectVerification = async (userId, reviewerId, rejectionReason) =>
   return toUserProfileDto(updatedUser);
 };
 
+
+export const suspendUser = async (userId, adminId, reason) => {
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  if (user.accountStatus === 'suspended') {
+    throw new ApiError(409, 'User is already suspended');
+  }
+  if (user.accountStatus === 'deleted') {
+    throw new ApiError(409, 'Cannot suspend a deleted account');
+  }
+
+  const updatedUser = await userRepository.updateById(userId, {
+    accountStatus: 'suspended',
+  });
+
+  eventBus.emit(EVENTS.USER_SUSPENDED, {
+    userId: user._id.toString(),
+    adminId,
+    reason,
+  });
+
+  return toUserProfileDto(updatedUser);
+};
+
+export const reactivateUser = async (userId, adminId) => {
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  if (user.accountStatus !== 'suspended') {
+    throw new ApiError(
+      409,
+      `Cannot reactivate: current status is '${user.accountStatus}' (only 'suspended' can be reactivated)`
+    );
+  }
+
+  const updatedUser = await userRepository.updateById(userId, {
+    accountStatus: 'active',
+  });
+
+  eventBus.emit(EVENTS.USER_REACTIVATED, {
+    userId: user._id.toString(),
+    adminId,
+  });
+
+  return toUserProfileDto(updatedUser);
+};
+
 export default {
   getProfile,
   updateProfile,
@@ -179,4 +249,6 @@ export default {
   getVerifications,
   approveVerification,
   rejectVerification,
+  suspendUser,
+  reactivateUser,
 };

@@ -9,6 +9,7 @@ import { ACCOUNT_STATUS } from '../../common/constants/statuses.constant.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import eventBus from '../../common/events/event-bus.js';
 import env from '../../config/env.config.js';
+import logger from '../../config/logger.config.js';
 
 const SALT_ROUNDS = 12;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -38,9 +39,14 @@ const register = async ({ name, email, password, role }) => {
     role,
     otpCode,
     otpExpiresAt: new Date(Date.now() + OTP_TTL_MS),
+    otpAttempts: 0,
   });
 
-  await mailService.sendMail({ to: user.email, subject: 'Verify your Murafiq account', html: otpEmailHtml(otp) });
+  try {
+    await mailService.sendMail({ to: user.email, subject: 'Verify your Murafiq account', html: otpEmailHtml(otp) });
+  } catch (mailErr) {
+    logger.error(`Registration verification email failed for user ${user._id} (${user.email}): ${mailErr.message}`);
+  }
 
   eventBus.emit(EVENTS.USER_REGISTERED, { userId: user._id.toString() });
 
@@ -57,12 +63,20 @@ const verifyEmail = async ({ email, otp }) => {
   }
   const matches = await bcrypt.compare(otp, user.otpCode);
   if (!matches) {
+    user.otpAttempts = (user.otpAttempts || 0) + 1;
+    if (user.otpAttempts >= 5) {
+      user.otpCode = undefined;
+      user.otpExpiresAt = undefined;
+      user.otpAttempts = 0;
+    }
+    await user.save();
     throw new ApiError(400, 'Invalid or expired OTP');
   }
 
   user.isEmailVerified = true;
   user.otpCode = undefined;
   user.otpExpiresAt = undefined;
+  user.otpAttempts = 0;
   await user.save();
 
   return user;
@@ -80,6 +94,7 @@ const resendOtp = async ({ email }) => {
   const otp = generateOtp(6);
   user.otpCode = await bcrypt.hash(otp, SALT_ROUNDS);
   user.otpExpiresAt = new Date(Date.now() + OTP_TTL_MS);
+  user.otpAttempts = 0;
   await user.save();
 
   await mailService.sendMail({ to: user.email, subject: 'Your Murafiq verification code', html: otpEmailHtml(otp) });
@@ -183,7 +198,8 @@ const refreshTokens = async (refreshToken) => {
     throw new ApiError(401, 'Invalid or expired refresh token');
   }
 
-  return issueTokensFor(user); // rotates the refresh token too
+  const tokens = await issueTokensFor(user); // rotates the refresh token too
+  return { user, ...tokens };
 };
 
 const forgotPassword = async ({ email }) => {
@@ -193,6 +209,7 @@ const forgotPassword = async ({ email }) => {
   const otp = generateOtp(6);
   user.otpCode = await bcrypt.hash(otp, SALT_ROUNDS);
   user.otpExpiresAt = new Date(Date.now() + OTP_TTL_MS);
+  user.otpAttempts = 0;
   await user.save();
 
   await mailService.sendMail({ to: user.email, subject: 'Reset your Murafiq password', html: otpEmailHtml(otp) });
@@ -208,12 +225,20 @@ const resetPassword = async ({ email, otp, newPassword }) => {
   }
   const matches = await bcrypt.compare(otp, user.otpCode);
   if (!matches) {
+    user.otpAttempts = (user.otpAttempts || 0) + 1;
+    if (user.otpAttempts >= 5) {
+      user.otpCode = undefined;
+      user.otpExpiresAt = undefined;
+      user.otpAttempts = 0;
+    }
+    await user.save();
     throw new ApiError(400, 'Invalid or expired OTP');
   }
 
   user.passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
   user.otpCode = undefined;
   user.otpExpiresAt = undefined;
+  user.otpAttempts = 0;
   user.refreshTokenHash = undefined; // invalidate all existing sessions
   await user.save();
 };
@@ -223,11 +248,15 @@ const changePassword = async (userId, { currentPassword, newPassword }) => {
   if (!user) {
     throw new ApiError(404, 'User not found');
   }
+  if (!user.passwordHash) {
+    throw new ApiError(400, 'This account uses Google Sign-In. Continue with Google instead of a password.');
+  }
   const matches = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!matches) {
     throw new ApiError(401, 'Current password is incorrect');
   }
   user.passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  user.refreshTokenHash = undefined; // Invalidate all active sessions
   await user.save();
 };
 

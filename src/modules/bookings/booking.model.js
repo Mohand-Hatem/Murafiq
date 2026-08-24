@@ -40,10 +40,37 @@ const bookingSchema = new Schema(
     cancelledBy: { type: String, enum: ['client', 'stylist', 'admin'] },
     cancellationReason: String,
     cancelledAt: Date,
+    // Set exactly once, the moment status first becomes 'completed' (mutual confirmation or
+    // a dispute resolved as 'completed'). Used as the anchor for the dispute-filing window and
+    // payout-eligibility hold period — NOT `updatedAt`, which changes on unrelated writes
+    // (e.g. payoutStatus flipping to 'processing') and would keep pushing both windows back.
+    completedAt: Date,
+    payoutStatus: {
+      type: String,
+      enum: ['unpaid', 'processing', 'paid'],
+      default: 'unpaid',
+    },
+    payoutId: { type: Schema.Types.ObjectId, ref: 'Payout' },
+
+    disputeDetails: {
+      raisedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      reason: String,
+      type: { type: String, default: 'general' },
+      raisedAt: Date,
+      evidence: [{ type: String, trim: true }],
+    },
+    disputeResolution: {
+      outcome: { type: String, enum: ['completed', 'cancelled'] },
+      refundPercentage: Number,
+      resolutionNotes: String,
+      resolvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      resolvedAt: Date,
+    },
   },
   { timestamps: true }
 );
 
+bookingSchema.index({ offerId: 1 }, { unique: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });

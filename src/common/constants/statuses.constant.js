@@ -19,6 +19,7 @@ export const PAYMENT_STATUS = {
   FAILED: 'failed',
   CANCELLED: 'cancelled',
   REFUNDED: 'refunded',
+  PARTIALLY_REFUNDED: 'partially_refunded',
 };
 
 export const CANCELLATION_POLICY = {

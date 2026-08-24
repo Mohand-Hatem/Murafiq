@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import env from '../../config/env.config.js';
 import { logger } from '../../config/logger.config.js';
+import ApiError from '../../common/utils/ApiError.js';
 
 // Minimal, temporary mail shim for Phase 1 — Phase 9 replaces this with the full provider-pattern
 // implementation (Resend active, SendGrid skeleton) behind the same sendMail({ to, subject, html })
@@ -26,7 +27,7 @@ const sendMail = async ({ to, subject, html }) => {
 
   if (error) {
     logger.error(`Failed to send email to ${to}: ${error.message}`);
-    throw new Error('Failed to send email');
+    throw new ApiError(502, 'Failed to send email. Please try again later.');
   }
 
   logger.info(`Email sent to ${actualRecipient} (original: ${to})`);

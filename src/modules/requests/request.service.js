@@ -7,6 +7,7 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
+import { DEFAULT_CAPS } from '../../common/constants/defaults.constant.js';
 
 export const createRequest = async (clientUser, requestData) => {
   const client = await userRepository.findById(clientUser._id || clientUser.id);
@@ -31,15 +32,24 @@ export const createRequest = async (clientUser, requestData) => {
     throw new ApiError(400, 'Target stylist has not completed onboarding');
   }
 
-  // 4. Check Client Daily Request Cap (2/day in Africa/Cairo)
+  // 4. Check Client Daily Request Cap (verified: 5/day, unverified: 2/day in Africa/Cairo)
   const { startOfDay, endOfDay } = getBusinessDayRange();
   const dailyCount = await requestRepository.countDailyClientRequests(
     clientUser._id || clientUser.id,
     startOfDay,
     endOfDay
   );
-  if (dailyCount >= 2) {
-    throw new ApiError(403, 'Daily request limit reached (2/day). Try again tomorrow.');
+
+  const isVerified = client.verification?.status === 'verified';
+  const maxDailyRequests = isVerified
+    ? DEFAULT_CAPS.CLIENT_DAILY_REQUESTS_VERIFIED
+    : DEFAULT_CAPS.CLIENT_DAILY_REQUESTS_UNVERIFIED;
+
+  if (dailyCount >= maxDailyRequests) {
+    throw new ApiError(
+      403,
+      `Daily request limit reached (${maxDailyRequests}/day). Try again tomorrow.`
+    );
   }
 
   // Format meeting location

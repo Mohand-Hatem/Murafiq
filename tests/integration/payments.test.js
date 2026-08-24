@@ -53,6 +53,18 @@ const mockFindClientHistory = jest.fn().mockResolvedValue({
   meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
 });
 
+jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
+  default: {
+    findById: jest.fn().mockResolvedValue({
+      _id: clientId,
+      name: 'Test Client',
+      email: 'client@example.com',
+      phone: '+201012345678',
+      role: 'client',
+    }),
+  },
+}));
+
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
     findById: mockFindBookingById,
@@ -108,7 +120,7 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
   });
 
   describe('POST /api/v1/payments/callback (Webhook)', () => {
-    it('successfully processes payment webhook and marks payment as paid', async () => {
+    it('returns 400 when webhook request carries no signature or secret', async () => {
       const res = await request(app)
         .post('/api/v1/payments/callback')
         .send({
@@ -116,6 +128,22 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
           status: 'paid',
           bookingId,
           success: true,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toMatch(/secret|HMAC/i);
+    });
+
+    it('successfully processes payment webhook and marks payment as paid when valid secret is provided', async () => {
+      const res = await request(app)
+        .post('/api/v1/payments/callback')
+        .send({
+          transactionId: 'mock_tx_12345',
+          status: 'paid',
+          bookingId,
+          success: true,
+          secret: 'dev_mock_webhook_secret',
         });
 
       expect(res.status).toBe(200);
@@ -172,7 +200,7 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('refunded');
+      expect(res.body.data.status).toBe('partially_refunded');
       expect(res.body.data.refundAmount).toBe(750.0);
     });
   });

@@ -28,8 +28,10 @@ service cloud.firestore {
       // Client cannot create or delete root conversation rooms directly.
       allow create, delete: if false;
 
-      // Participants can update metadata (e.g. lastMessageAt) only if room is active
-      allow update: if isParticipant(resource.data) && isConversationActive(resource.data);
+      // Participants can only update lastMessageAt when room is active (cannot modify participants, isOpen, or isLocked)
+      allow update: if isParticipant(resource.data)
+        && isConversationActive(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']);
 
       // Messages subcollection
       match /messages/{messageId} {
@@ -41,8 +43,9 @@ service cloud.firestore {
           && isConversationActive(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
           && request.resource.data.senderId == request.auth.uid;
 
-        // Participants can update message read receipts (deliveredAt / seenAt)
-        allow update: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
+        // Participants can ONLY update message read receipts (deliveredAt / seenAt) — content and senderId are immutable
+        allow update: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt', 'seenAt']);
 
         allow delete: if false;
       }

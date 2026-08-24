@@ -1,18 +1,32 @@
 import paymentRepository from './payment.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
+import userRepository from '../users/user.repository.js';
 import MockProvider from './providers/mock.provider.js';
 import PaymobProvider from './providers/paymob.provider.js';
 import env from '../../config/env.config.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
-import { PAYMENT_STATUS, CANCELLATION_POLICY } from '../../common/constants/statuses.constant.js';
+import { PAYMENT_STATUS } from '../../common/constants/statuses.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
+// The mock provider exists solely to keep automated tests deterministic and offline — it is
+// selected by NODE_ENV, never by PAYMENT_PROVIDER. Every non-test environment (dev, staging,
+// production) always hits the real Paymob sandbox/live API, so the integration is actually
+// exercised long before go-live rather than being discovered broken in production.
 export const getProvider = () => {
-  return env.PAYMENT_PROVIDER === 'paymob' ? new PaymobProvider() : new MockProvider();
+  if (env.NODE_ENV === 'test') {
+    return new MockProvider();
+  }
+  if (env.PAYMENT_PROVIDER === 'mock') {
+    throw new ApiError(
+      500,
+      'PAYMENT_PROVIDER=mock is only permitted when NODE_ENV=test. Set PAYMENT_PROVIDER=paymob for local/dev/staging/production.'
+    );
+  }
+  return new PaymobProvider();
 };
 
 export const createPendingPayment = async (
@@ -52,6 +66,18 @@ export const initializePayment = async (user, bookingId) => {
     throw new ApiError(403, 'Forbidden: You do not own this booking');
   }
 
+  const customerUser = await userRepository.findById(clientIdStr);
+  if (!customerUser) {
+    throw new ApiError(404, 'Customer user record not found');
+  }
+
+  if (env.PAYMENT_PROVIDER === 'paymob' && !customerUser.phone) {
+    throw new ApiError(
+      400,
+      'A valid phone number on your profile is required before initiating online payment'
+    );
+  }
+
   let payment = await paymentRepository.findByBookingId(bookingId);
   if (!payment) {
     payment = await createPendingPayment({
@@ -71,9 +97,9 @@ export const initializePayment = async (user, bookingId) => {
     amount: payment.amount,
     bookingId: booking._id.toString(),
     customer: {
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
+      name: customerUser.name || user.name || 'Valued Customer',
+      email: customerUser.email || user.email || 'customer@murafiq.dev',
+      phone: customerUser.phone || user.phone || '+201000000000',
     },
     currency: payment.currency,
   });
@@ -173,39 +199,58 @@ export const getClientHistory = async (user, queryString = {}) => {
 export const processRefund = async ({ bookingId, refundPercentage = 100, reason = '' }) => {
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (!payment) {
-    throw new ApiError(404, 'Payment not found for this booking');
+    throw new ApiError(404, 'Payment record not found for this booking');
   }
 
   if (payment.status !== PAYMENT_STATUS.PAID) {
-    throw new ApiError(400, `Cannot refund a payment with status '${payment.status}'`);
+    throw new ApiError(400, `Cannot refund payment in '${payment.status}' status`);
   }
 
-  const refundAmount = round2(payment.amount * (refundPercentage / 100));
+  // A refund zeroes stylistPayoutAmount on this Payment record, which is correct for any FUTURE
+  // payout aggregation. But if this booking was already batched into a Payout ('processing' or
+  // 'paid'), the stylist's share has already left the ledger (or is about to) based on the
+  // pre-refund amount — a plain status flip here can't claw that back. Block it and force manual
+  // reconciliation of the existing payout batch before the refund proceeds.
+  const booking = await bookingRepository.findById(bookingId);
+  if (booking && booking.payoutStatus && booking.payoutStatus !== 'unpaid') {
+    throw new ApiError(
+      409,
+      `Cannot refund: this booking's payout is already '${booking.payoutStatus}'. ` +
+        'Reconcile the associated payout batch manually before issuing a refund.'
+    );
+  }
 
-  if (payment.providerTransactionId) {
-    const provider = getProvider();
+  const refundAmount = round2((payment.amount * refundPercentage) / 100);
+
+  const provider = getProvider();
+  if (payment.providerTransactionId && provider.refund) {
     await provider.refund(payment.providerTransactionId, refundAmount);
   }
 
-  const updated = await paymentRepository.updateById(payment._id, {
-    status: PAYMENT_STATUS.REFUNDED,
+  const isPartial = refundPercentage < 100;
+  const retainedFee = isPartial ? round2(payment.amount - refundAmount) : 0;
+  const status = isPartial ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
+
+  const updateFields = {
+    status,
     refundAmount,
     refundReason: reason,
-  });
+    refundedAt: new Date(),
+    platformFeeAmount: isPartial ? retainedFee : 0,
+    stylistPayoutAmount: 0,
+  };
 
-  const bookingIdStr = updated.bookingId
-    ? (updated.bookingId._id || updated.bookingId).toString()
-    : (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+  const updated = await paymentRepository.updateById(payment._id, updateFields);
 
-  const clientIdStr = updated.clientId
-    ? (updated.clientId._id || updated.clientId).toString()
-    : (payment.clientId?._id || payment.clientId || '').toString();
+  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
 
   eventBus.emit(EVENTS.PAYMENT_REFUNDED, {
     paymentId: (updated._id || updated.id || payment._id).toString(),
     bookingId: bookingIdStr,
     clientId: clientIdStr,
     refundAmount,
+    status,
     reason,
   });
 

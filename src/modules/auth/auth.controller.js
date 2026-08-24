@@ -21,7 +21,7 @@ export const register = asyncHandler(async (req, res) => {
   const user = await authService.register(req.body);
   return ApiResponse.success(res, {
     statusCode: 201,
-    message: 'Registration successful. Check your email for a verification code.',
+    message: 'Registration successful. Check your email for a verification code (or request a new one if not received).',
     data: { user: toPublicUser(user) },
   });
 });

@@ -13,7 +13,7 @@ const scheduleBlockSchema = new Schema(
   { timestamps: true }
 );
 
-scheduleBlockSchema.index({ stylistId: 1, date: 1 });
+scheduleBlockSchema.index({ stylistId: 1, date: 1, startMinute: 1 }, { unique: true });
 scheduleBlockSchema.index({ bookingId: 1 });
 
 const ScheduleBlock = mongoose.model('ScheduleBlock', scheduleBlockSchema);

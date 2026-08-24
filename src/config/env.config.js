@@ -18,7 +18,6 @@ const envSchema = z.object({
   // ID-token verification only needs the audience (client ID) — no client secret, since there's
   // no server-side authorization-code exchange (the client hands us an already-signed ID token).
   GOOGLE_CLIENT_ID: secret('dev-google-client-id.apps.googleusercontent.com'),
-  REDIS_URL: secret('redis://127.0.0.1:6379'),
   CLOUDINARY_CLOUD_NAME: secret('my_cloud_name'),
   CLOUDINARY_API_KEY: secret('my_api_key'),
   CLOUDINARY_API_SECRET: secret('my_api_secret'),
@@ -29,24 +28,36 @@ const envSchema = z.object({
   // Leave empty or remove in production to send to the actual recipient.
   MAIL_TO_ADDRESS: z.string().optional(),
   PAYMENT_PROVIDER: z.enum(['mock', 'paymob']).default('mock'),
+  MOCK_WEBHOOK_SECRET: secret('dev_mock_webhook_secret'),
   PAYMOB_SECRET_KEY: secret('sk_test_placeholder'),
   PAYMOB_PUBLIC_KEY: secret('pk_test_placeholder'),
   PAYMOB_HMAC_SECRET: secret('dev_hmac_placeholder'),
   PAYMOB_CARD_INTEGRATION_ID: secret('123456'),
+  // Paymob's LEGACY api_key (Settings → Account Info in the Paymob dashboard) — distinct from
+  // PAYMOB_SECRET_KEY. Only the classic refund endpoint (api/acceptance/void_refund/refund)
+  // needs it: it's exchanged for a short-lived auth_token via POST /api/auth/tokens before
+  // each refund call. The Intention API used for initialize()/webhooks doesn't need this.
+  PAYMOB_API_KEY: secret('paymob_legacy_api_key_placeholder'),
   PAYMOB_WALLET_INTEGRATION_ID: z.string().optional(),
   PAYMOB_BASE_URL: z.string().default('https://accept.paymob.com'),
   PAYMOB_NOTIFICATION_URL: z.string().optional(),
   PAYMOB_REDIRECTION_URL: z.string().optional(),
+  // The FRONTEND origin — used for CORS and for building user-facing redirect links.
   CLIENT_URL: z.string().default('http://localhost:3000'),
+  // This BACKEND's own public origin. Distinct from CLIENT_URL: payment webhooks must be
+  // delivered here, not to the frontend. In production this is the public API hostname.
+  API_URL: z.string().default('http://localhost:4000'),
   PLATFORM_FEE_PERCENTAGE: z.string().default('15').transform(Number),
   FIREBASE_PROJECT_ID: secret('murafiq-dev'),
   FIREBASE_CLIENT_EMAIL: secret('firebase-adminsdk@murafiq-dev.iam.gserviceaccount.com'),
   FIREBASE_PRIVATE_KEY: secret('dev_firebase_private_key_change_me_in_prod'),
-  // Required starting Phase 14 (wardrobe photo classification/embedding) — added now so the
-  // schema doesn't drift from what Phases 9/14/15 already assume is there.
-  OPENAI_API_KEY: secret('sk-dev-key-change-me-in-prod'),
-  VECTOR_DB_URL: secret('https://dev-vector-db.local'),
-  VECTOR_DB_API_KEY: secret('dev_vector_db_key_change_me_in_prod'),
+  // Reserved for Phase 14 (wardrobe photo classification/embedding). Nothing reads these yet,
+  // so they are OPTIONAL — making them required in production would force a v1 deploy to supply
+  // four meaningless secrets or fail at boot. Promote back to secret() in Phase 14, when the
+  // wardrobe classification worker actually calls them.
+  OPENAI_API_KEY: z.string().optional(),
+  VECTOR_DB_URL: z.string().optional(),
+  VECTOR_DB_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

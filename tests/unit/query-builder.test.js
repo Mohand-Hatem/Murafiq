@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import QueryBuilder from '../../src/common/query-builder/QueryBuilder.js';
+import QueryBuilder, { escapeRegex } from '../../src/common/query-builder/QueryBuilder.js';
 
 describe('QueryBuilder Unit Tests', () => {
   let mockMongooseQuery;
@@ -90,6 +90,41 @@ describe('QueryBuilder Unit Tests', () => {
       limit: 10,
       total: 25,
       totalPages: 3,
+    });
+  });
+});
+
+describe('QueryBuilder Hardening', () => {
+  it('escapes dangerous regex characters', () => {
+    const malicious = '.*+?^${}()|[]\\';
+    const escaped = escapeRegex(malicious);
+    expect(escaped).toBe('\\.\\*\\+\\?\\^\\$\\{\\}\\(\\)\\|\\[\\]\\\\');
+  });
+
+  it('caps pagination limit at 100 maximum', async () => {
+    const mockMongooseQuery = {
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+    };
+    const builder = new QueryBuilder(mockMongooseQuery, { limit: '999999' });
+    await builder.paginate(null);
+    expect(builder.meta.limit).toBe(100);
+  });
+
+  it('drops disallowed filter fields (e.g. otpCode, passwordHash)', () => {
+    const queryObj = {
+      otpCode: { ne: null },
+      passwordHash: 'secret',
+      role: 'stylist',
+    };
+    const mockMongooseQuery = {
+      find: jest.fn().mockReturnThis(),
+    };
+    const builder = new QueryBuilder(mockMongooseQuery, queryObj);
+    builder.filter(['role', 'accountStatus']);
+
+    expect(mockMongooseQuery.find).toHaveBeenCalledWith({
+      role: 'stylist',
     });
   });
 });

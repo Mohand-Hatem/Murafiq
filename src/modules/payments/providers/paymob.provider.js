@@ -8,6 +8,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
     super();
     this.baseUrl = env.PAYMOB_BASE_URL || 'https://accept.paymob.com';
     this.secretKey = env.PAYMOB_SECRET_KEY;
+    this.apiKey = env.PAYMOB_API_KEY; // legacy key, only used by refund()'s auth-token exchange
     this.publicKey = env.PAYMOB_PUBLIC_KEY;
     this.hmacSecret = env.PAYMOB_HMAC_SECRET;
     this.cardIntegrationId = parseInt(env.PAYMOB_CARD_INTEGRATION_ID, 10) || 0;
@@ -58,7 +59,10 @@ export default class PaymobProvider extends PaymentProviderInterface {
         state: 'Cairo',
       },
       special_reference: bookingId.toString(),
-      notification_url: env.PAYMOB_NOTIFICATION_URL || `${env.CLIENT_URL}/api/v1/payments/callback`,
+      // Paymob posts the webhook to notification_url — it must be THIS backend's public origin,
+      // not the frontend's. redirection_url is where the customer's browser goes after checkout,
+      // which correctly IS the frontend.
+      notification_url: env.PAYMOB_NOTIFICATION_URL || `${env.API_URL}/api/v1/payments/callback`,
       redirection_url: env.PAYMOB_REDIRECTION_URL || `${env.CLIENT_URL}/payments/status`,
     };
 
@@ -142,7 +146,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
     const receivedHmac = query.hmac || payload.hmac;
 
     const isAuthentic = this.verifyHmac(dataObj, receivedHmac);
-    if (!isAuthentic && env.NODE_ENV === 'production') {
+    if (!isAuthentic) {
       throw new ApiError(400, 'Invalid webhook HMAC signature');
     }
 
@@ -163,20 +167,44 @@ export default class PaymobProvider extends PaymentProviderInterface {
   }
 
   /**
-   * Refund API
+   * Exchanges the legacy PAYMOB_API_KEY for a short-lived auth_token. The classic
+   * void_refund/refund endpoint authenticates via this token in the request body — it does NOT
+   * accept the Intention API's secret key, which is what the previous implementation incorrectly
+   * passed here.
+   */
+  async getAuthToken() {
+    const response = await fetch(`${this.baseUrl}/api/auth/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: this.apiKey }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      logger.error(`Paymob auth-token exchange failed (${response.status}): ${errText}`);
+      throw new ApiError(502, `Failed to authenticate with Paymob: ${errText}`);
+    }
+
+    const data = await response.json();
+    return data.token;
+  }
+
+  /**
+   * Refund API (classic/legacy endpoint — Paymob has not moved refunds onto the Intention API).
    */
   async refund(transactionId, amount) {
     const amountInCents = Math.round(amount * 100);
 
     try {
+      const authToken = await this.getAuthToken();
+
       const response = await fetch(`${this.baseUrl}/api/acceptance/void_refund/refund`, {
         method: 'POST',
         headers: {
-          Authorization: `Token ${this.secretKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          auth_token: this.secretKey,
+          auth_token: authToken,
           transaction_id: transactionId,
           amount_cents: amountInCents,
         }),

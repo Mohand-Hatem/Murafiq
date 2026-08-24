@@ -1,7 +1,4 @@
 node_modules/
-docs/
-AGENTS.md
-AGENT.md
 logs/*.log
 *.log
 .env

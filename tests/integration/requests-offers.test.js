@@ -104,7 +104,7 @@ jest.unstable_mockModule('../../src/modules/stylists/stylist.repository.js', () 
 jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () => ({
   default: {
     create: jest.fn().mockImplementation((data) => Promise.resolve({ ...mockRequestDoc, ...data })),
-    findById: jest.fn().mockImplementation((id) => Promise.resolve(mockRequestDoc)),
+    findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockRequestDoc)),
     countDailyClientRequests: jest.fn().mockImplementation(() => Promise.resolve(clientRequestCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
     findMine: jest.fn().mockResolvedValue({ items: [mockRequestDoc], meta: { total: 1 } }),
@@ -116,7 +116,7 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
 jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => ({
   default: {
     create: jest.fn().mockImplementation((data) => Promise.resolve({ ...mockOfferDoc, ...data })),
-    findById: jest.fn().mockImplementation((id) => Promise.resolve(mockOfferDoc)),
+    findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockOfferDoc)),
     findActiveForClient: jest.fn().mockImplementation(() => Promise.resolve(activeOfferStore)),
     countDailyStylistOffers: jest.fn().mockImplementation(() => Promise.resolve(stylistOfferCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockOfferDoc, ...data })),
@@ -188,15 +188,15 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.title).toBe('Shopping Session');
     });
 
-    it('should enforce client daily request cap (max 2/day)', async () => {
-      clientRequestCount = 2; // Already created 2 today!
+    it('should enforce client daily request cap (max 5/day for verified client)', async () => {
+      clientRequestCount = 5; // Already created 5 today!
 
       const res = await request(app)
         .post('/api/v1/requests')
         .set('Authorization', `Bearer ${clientToken}`)
         .send({
           stylistId: mockVerifiedStylistUser._id,
-          title: '3rd Request of the Day',
+          title: '6th Request of the Day',
         });
 
       expect(res.status).toBe(403);
@@ -220,8 +220,8 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.price).toBe(250);
     });
 
-    it('should enforce stylist daily offer cap (max 5/day)', async () => {
-      stylistOfferCount = 5; // Already sent 5 offers today!
+    it('should enforce stylist daily offer cap (max 10/day)', async () => {
+      stylistOfferCount = 10; // Already sent 10 offers today!
 
       const res = await request(app)
         .post(`/api/v1/offers/requests/${mockRequestDoc._id}`)

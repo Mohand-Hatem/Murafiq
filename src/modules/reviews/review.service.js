@@ -7,10 +7,6 @@ import { EVENTS } from '../../common/constants/events.constant.js';
 import logger from '../../config/logger.config.js';
 
 class ReviewService {
-  constructor() {
-    this._registerEventListeners();
-  }
-
   /**
    * Submit a two-way review for a completed booking
    */
@@ -98,7 +94,7 @@ class ReviewService {
   /**
    * Admin moderation: hide or unhide a review and recalculate rating averages
    */
-  async hideReview(reviewId, isHidden = true) {
+  async hideReview(reviewId, isHidden = true, adminId = null, reason = null) {
     const review = await reviewRepository.findById(reviewId);
     if (!review) {
       throw new ApiError(404, 'Review not found');
@@ -108,6 +104,12 @@ class ReviewService {
     const targetUserId = review.revieweeId._id || review.revieweeId;
 
     await this.recalculateAverages(targetUserId, review.direction);
+
+    eventBus.emit(isHidden ? EVENTS.REVIEW_HIDDEN : EVENTS.REVIEW_UNHIDDEN, {
+      reviewId: review._id.toString(),
+      adminId,
+      reason,
+    });
 
     return updated;
   }
@@ -138,45 +140,6 @@ class ReviewService {
     } catch (err) {
       logger.error(`Failed to recalculate rating averages for ${revieweeId}: ${err.message}`);
     }
-  }
-
-  /**
-   * Register domain event listeners
-   */
-  _registerEventListeners() {
-    // 1. Recalculate averages when a new review is submitted
-    eventBus.on(EVENTS.REVIEW_SUBMITTED, async ({ revieweeId, direction }) => {
-      if (revieweeId && direction) {
-        await this.recalculateAverages(revieweeId, direction);
-      }
-    });
-
-    // 2. Increment completed sessions counter on mutual completion
-    eventBus.on(EVENTS.SESSION_COMPLETED, async ({ bookingId }) => {
-      try {
-        if (!bookingId) return;
-        const booking = await bookingRepository.findById(bookingId);
-        if (booking) {
-          const stylistUserId = booking.stylistId?._id || booking.stylistId;
-          const clientUserId = booking.clientId?._id || booking.clientId;
-
-          if (stylistUserId) {
-            await stylistRepository.updateByUserId(stylistUserId, {
-              $inc: { completedSessions: 1 },
-            });
-          }
-
-          if (clientUserId) {
-            await userRepository.updateById(clientUserId, {
-              $inc: { completedBookings: 1 },
-            });
-          }
-          logger.info(`Incremented completed session counters for booking ${bookingId}`);
-        }
-      } catch (err) {
-        logger.error(`Error incrementing session completed counters: ${err.message}`);
-      }
-    });
   }
 }
 

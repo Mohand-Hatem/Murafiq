@@ -21,7 +21,7 @@ export const findById = async (id) => {
 
 export const updateByUserId = async (userId, data) => {
   return StylistProfile.findOneAndUpdate({ userId }, data, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).populate('userId', 'name profileImage verification accountStatus');
 };

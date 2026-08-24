@@ -25,7 +25,16 @@ const stylistProfileSchema = new Schema(
     rating: { type: Number, default: 0 },
     totalReviews: { type: Number, default: 0 },
     completedSessions: { type: Number, default: 0 },
+    cancelledSessions: { type: Number, default: 0 },
     gender: { type: String, enum: ['male', 'female'] },
+
+    payoutAccount: {
+      method: { type: String, enum: ['bank_transfer', 'vodafone_cash', 'instapay'] },
+      accountHolderName: { type: String, trim: true },
+      bankName: { type: String, trim: true },
+      accountNumber: { type: String, trim: true },
+      walletPhone: { type: String, trim: true },
+    },
 
     // Denormalized read-copy of User location fields for fast search
     country: { type: String, trim: true },
@@ -42,6 +51,11 @@ const stylistProfileSchema = new Schema(
 );
 
 stylistProfileSchema.index({ location: '2dsphere' });
+stylistProfileSchema.index({ rating: -1 });
+stylistProfileSchema.index({ hourlyPrice: 1 });
+stylistProfileSchema.index({ experienceYears: -1 });
+stylistProfileSchema.index({ completedSessions: -1 });
+stylistProfileSchema.index({ specialty: 1, hourlyPrice: 1 });
 
 const StylistProfile = mongoose.model('StylistProfile', stylistProfileSchema);
 

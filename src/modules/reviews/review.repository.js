@@ -28,7 +28,7 @@ export const findStylistReviews = async (stylistUserId, queryString = {}) => {
 
   const baseQuery = Review.find();
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['rating', 'direction', 'revieweeId', 'raterId', 'isHidden'])
     .sort()
     .select();
 
@@ -46,7 +46,7 @@ export const findUserReviews = async (userId, queryString = {}) => {
   const baseQuery = Review.find();
 
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['rating', 'direction', 'revieweeId', 'raterId', 'isHidden'])
     .sort()
     .select();
 

@@ -3,10 +3,17 @@ import authMiddleware from '../../common/middlewares/auth.middleware.js';
 import { restrictTo } from '../../common/middlewares/rbac.middleware.js';
 import validate from '../../common/middlewares/validate.middleware.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
-import { rejectVerificationSchema } from './admin.validator.js';
+import {
+  approveVerificationSchema,
+  rejectVerificationSchema,
+  resolveDisputeSchema,
+  suspendUserSchema,
+  reactivateUserSchema,
+} from './admin.validator.js';
 import adminController from './admin.controller.js';
 import { hideReviewSchema } from '../reviews/review.validator.js';
 import reviewController from '../reviews/review.controller.js';
+import auditLogController from '../audit-log/audit-log.controller.js';
 
 const router = express.Router();
 
@@ -22,6 +29,7 @@ router.get(
 router.patch(
   '/verifications/:userId/approve',
   restrictTo(ROLES.ADMIN, ROLES.OPERATOR),
+  validate(approveVerificationSchema),
   adminController.approveVerification
 );
 
@@ -32,12 +40,48 @@ router.patch(
   adminController.rejectVerification
 );
 
+// User account moderation (Admin only)
+router.patch(
+  '/users/:id/suspend',
+  restrictTo(ROLES.ADMIN),
+  validate(suspendUserSchema),
+  adminController.suspendUser
+);
+
+router.patch(
+  '/users/:id/reactivate',
+  restrictTo(ROLES.ADMIN),
+  validate(reactivateUserSchema),
+  adminController.reactivateUser
+);
+
+// Dispute management (Admin only)
+router.get(
+  '/bookings/disputed',
+  restrictTo(ROLES.ADMIN),
+  adminController.getDisputedBookings
+);
+
+router.patch(
+  '/bookings/:id/resolve-dispute',
+  restrictTo(ROLES.ADMIN),
+  validate(resolveDisputeSchema),
+  adminController.resolveDispute
+);
+
 // Review moderation (Admin only)
 router.patch(
   '/reviews/:id/hide',
   restrictTo(ROLES.ADMIN),
   validate(hideReviewSchema),
   reviewController.hideReview
+);
+
+// Audit logs (Admin only)
+router.get(
+  '/audit-logs',
+  restrictTo(ROLES.ADMIN),
+  auditLogController.getAuditLogs
 );
 
 export default router;

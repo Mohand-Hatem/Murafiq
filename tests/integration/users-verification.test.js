@@ -38,7 +38,6 @@ describe('Users & Verification Integration Tests', () => {
   const userId = '60f719b8f1a2c81234567890';
   const clientToken = generateAccessToken({ sub: userId, role: 'client' });
   const operatorToken = generateAccessToken({ sub: '60f719b8f1a2c81234567891', role: 'operator' });
-  const adminToken = generateAccessToken({ sub: '60f719b8f1a2c81234567892', role: 'admin' });
 
   describe('GET /api/v1/users/me', () => {
     it('returns 401 when calling without access token', async () => {

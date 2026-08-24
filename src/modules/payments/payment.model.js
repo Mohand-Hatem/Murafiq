@@ -55,6 +55,12 @@ const paymentSchema = new Schema(
     refundReason: {
       type: String,
     },
+    refundError: {
+      type: String,
+    },
+    refundFailedAt: {
+      type: Date,
+    },
     provider: {
       type: String,
       enum: ['mock', 'paymob'],

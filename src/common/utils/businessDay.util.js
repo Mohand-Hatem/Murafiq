@@ -4,21 +4,33 @@ import { BUSINESS_TIMEZONE } from '../constants/defaults.constant.js';
  * Returns start and end Date objects for the current calendar day in BUSINESS_TIMEZONE ('Africa/Cairo').
  */
 export const getBusinessDayRange = (date = new Date(), timeZone = BUSINESS_TIMEZONE) => {
-  const formatter = new Intl.DateTimeFormat('en-US', {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   });
 
-  const parts = formatter.formatToParts(date);
-  const year = parts.find((p) => p.type === 'year').value;
-  const month = parts.find((p) => p.type === 'month').value;
-  const day = parts.find((p) => p.type === 'day').value;
+  const dateStr = formatter.format(date); // YYYY-MM-DD in target timezone
+  const utcGuess = new Date(`${dateStr}T00:00:00.000Z`);
 
-  // Construct ISO strings at start and end of day in target timezone
-  const startOfDay = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
-  const endOfDay = new Date(`${year}-${month}-${day}T23:59:59.999Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false,
+  }).formatToParts(utcGuess);
+
+  const hourPart = parseInt(parts.find((p) => p.type === 'hour').value, 10) % 24;
+  const minutePart = parseInt(parts.find((p) => p.type === 'minute').value, 10);
+  const offsetMs = (hourPart * 60 + minutePart) * 60 * 1000;
+
+  const startOfDay = new Date(utcGuess.getTime() - offsetMs);
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
 
   return { startOfDay, endOfDay };
 };

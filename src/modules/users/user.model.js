@@ -25,6 +25,7 @@ const userSchema = new Schema(
     isEmailVerified: { type: Boolean, default: false },
     otpCode: { type: String, select: false },
     otpExpiresAt: { type: Date, select: false },
+    otpAttempts: { type: Number, default: 0, select: false },
     refreshTokenHash: { type: String, select: false },
     accountStatus: { type: String, enum: Object.values(ACCOUNT_STATUS), default: ACCOUNT_STATUS.ACTIVE },
     isDeleted: { type: Boolean, default: false },

@@ -11,6 +11,9 @@ import paymentRoutes from '../modules/payments/payment.routes.js';
 import chatRoutes from '../modules/chat/chat.routes.js';
 import notificationRoutes from '../modules/notifications/notification.routes.js';
 import reviewRoutes from '../modules/reviews/review.routes.js';
+import uploadRoutes from '../modules/uploads/upload.routes.js';
+import payoutRoutes from '../modules/payouts/payout.routes.js';
+import { isFirebaseConnected } from '../config/firebase.config.js';
 
 const router = express.Router();
 
@@ -25,16 +28,36 @@ router.use('/payments', paymentRoutes);
 router.use('/chat', chatRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/reviews', reviewRoutes);
+router.use('/uploads', uploadRoutes);
+router.use('/payouts', payoutRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(
   '/health',
-  asyncHandler(async (req, res) => {
-    const isMongoConnected = mongoose.connection.readyState === 1 || process.env.NODE_ENV === 'test';
+  asyncHandler(async (_req, res) => {
+    const isMongoConnected = mongoose.connection.readyState === 1;
+    const firebaseStatus = isFirebaseConnected ? 'connected' : 'unavailable';
+    const redisStatus = 'not_configured';
+
     if (!isMongoConnected) {
-      return res.status(503).json({ success: false, status: 'unhealthy', mongo: 'disconnected' });
+      return res.status(503).json({
+        success: false,
+        status: 'unhealthy',
+        mongo: 'disconnected',
+        firebase: firebaseStatus,
+        redis: redisStatus,
+      });
     }
-    return ApiResponse.success(res, { message: 'Server is healthy', data: { status: 'healthy', mongo: 'connected' } });
+
+    return ApiResponse.success(res, {
+      message: 'Server is healthy',
+      data: {
+        status: 'healthy',
+        mongo: 'connected',
+        firebase: firebaseStatus,
+        redis: redisStatus,
+      },
+    });
   })
 );
 

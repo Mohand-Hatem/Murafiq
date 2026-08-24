@@ -1,21 +1,17 @@
 import http from 'http';
-import { Server } from 'socket.io';
 import mongoose from 'mongoose';
 import app from './app.js';
 import env from './config/env.config.js';
 import { connectDB } from './database/connection.js';
 import { logger } from './config/logger.config.js';
-import registerSocketHandlers from './sockets/index.js';
+import { startOfferExpiryCron } from './jobs/offer-expiry.cron.js';
 
 const PORT = env.PORT || 4000;
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: env.CLIENT_URL || '*', credentials: true },
-});
-registerSocketHandlers(io);
 
 const startServer = async () => {
   await connectDB();
+  startOfferExpiryCron();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${PORT}`);
   });
@@ -28,7 +24,6 @@ if (process.env.NODE_ENV !== 'test') {
 // Graceful shutdown
 const gracefulShutdown = (signal) => {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
-  io.close();
   server.close(async () => {
     logger.info('HTTP server closed.');
     try {

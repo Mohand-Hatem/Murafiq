@@ -42,14 +42,14 @@ export const findClientHistory = async (clientId, queryString = {}) => {
   const baseQuery = Payment.find();
 
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['status', 'currency', 'provider', 'clientId'])
     .sort()
     .select();
 
   await builder.paginate(Payment);
   const payments = await builder.mongooseQuery.populate({
     path: 'bookingId',
-    select: 'serviceType scheduledDate scheduledStartTime status',
+    select: 'scheduledDate scheduledStartMinute scheduledEndMinute price status duration meetingLocation',
   });
 
   return {
@@ -58,10 +58,22 @@ export const findClientHistory = async (clientId, queryString = {}) => {
   };
 };
 
+
+// Used by payouts (cross-module): payments backing a set of bookings, restricted to statuses that
+// still carry a payable stylistPayoutAmount (paid / partially_refunded). Keeps the payouts module
+// off the raw Payment model.
+export const findByBookingIds = async (bookingIds, statuses) => {
+  return Payment.find({
+    bookingId: { $in: bookingIds },
+    status: { $in: statuses },
+  });
+};
+
 export default {
   create,
   findById,
   findByBookingId,
+  findByBookingIds,
   findByTransactionId,
   findByIntentionId,
   updateById,
