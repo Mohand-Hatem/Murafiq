@@ -67,12 +67,32 @@ export const reactivateUser = asyncHandler(async (req, res) => {
   });
 });
 
+export const getAllUsers = asyncHandler(async (req, res) => {
+  const { items, meta } = await adminService.getAllUsers(req.query);
+  return ApiResponse.success(res, {
+    message: 'Users fetched successfully',
+    data: items,
+    meta,
+  });
+});
+
+export const getDashboardStats = asyncHandler(async (req, res) => {
+  const stats = await adminService.getDashboardStats();
+  return ApiResponse.success(res, {
+    message: 'Dashboard statistics retrieved successfully',
+    data: stats,
+  });
+});
+
 export default {
   getVerifications,
+  getAllUsers,
   approveVerification,
   rejectVerification,
   getDisputedBookings,
   resolveDispute,
   suspendUser,
   reactivateUser,
+  getDashboardStats,
 };
+

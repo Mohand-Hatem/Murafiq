@@ -174,3 +174,141 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
  */
+
+/**
+ * @swagger
+ * /admin/users:
+ *   get:
+ *     summary: List and search all platform users (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, email, or phone
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [client, stylist, admin, operator]
+ *         description: Filter by user role
+ *       - in: query
+ *         name: accountStatus
+ *         schema:
+ *           type: string
+ *           enum: [active, suspended, deleted]
+ *         description: Filter by account status
+ *       - in: query
+ *         name: isEmailVerified
+ *         schema:
+ *           type: boolean
+ *         description: Filter by email verification status
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *     responses:
+ *       200:
+ *         description: Users list retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponseVerificationsListSuccess'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin only)
+ */
+
+/**
+ * @swagger
+ * /admin/dashboard/stats:
+ *   get:
+ *     summary: Retrieve platform dashboard statistics and metrics (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Dashboard statistics retrieved successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     users:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         byRole:
+ *                           type: object
+ *                           properties:
+ *                             clients:
+ *                               type: integer
+ *                             stylists:
+ *                               type: integer
+ *                             operators:
+ *                               type: integer
+ *                             admins:
+ *                               type: integer
+ *                         pendingVerifications:
+ *                           type: integer
+ *                     bookings:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         active:
+ *                           type: integer
+ *                         byStatus:
+ *                           type: object
+ *                           properties:
+ *                             confirmed:
+ *                               type: integer
+ *                             inProgress:
+ *                               type: integer
+ *                             completed:
+ *                               type: integer
+ *                             cancelled:
+ *                               type: integer
+ *                             disputed:
+ *                               type: integer
+ *                         openDisputes:
+ *                           type: integer
+ *                     revenueThisMonth:
+ *                       type: object
+ *                       properties:
+ *                         grossVolume:
+ *                           type: number
+ *                         platformCommission:
+ *                           type: number
+ *                         stylistPayouts:
+ *                           type: number
+ *                         transactionCount:
+ *                           type: integer
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin only)
+ */
+
+

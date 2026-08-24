@@ -10,13 +10,15 @@ import { EVENTS } from '../../common/constants/events.constant.js';
 import eventBus from '../../common/events/event-bus.js';
 import env from '../../config/env.config.js';
 import logger from '../../config/logger.config.js';
+import {
+  verifyEmailTemplate,
+  otpTemplate,
+  forgotPasswordTemplate,
+} from '../mail/templates/index.js';
 
 const SALT_ROUNDS = 12;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
-
-const otpEmailHtml = (otp) =>
-  `<p>Your Murafiq verification code is:</p><h2>${otp}</h2><p>This code expires in 10 minutes.</p>`;
 
 const issueTokensFor = async (user) => {
   const payload = { sub: user._id.toString(), role: user.role };
@@ -43,7 +45,8 @@ const register = async ({ name, email, password, role }) => {
   });
 
   try {
-    await mailService.sendMail({ to: user.email, subject: 'Verify your Murafiq account', html: otpEmailHtml(otp) });
+    const { subject, html } = verifyEmailTemplate({ name: user.name, otp });
+    await mailService.sendMail({ to: user.email, subject, html });
   } catch (mailErr) {
     logger.error(`Registration verification email failed for user ${user._id} (${user.email}): ${mailErr.message}`);
   }
@@ -97,7 +100,8 @@ const resendOtp = async ({ email }) => {
   user.otpAttempts = 0;
   await user.save();
 
-  await mailService.sendMail({ to: user.email, subject: 'Your Murafiq verification code', html: otpEmailHtml(otp) });
+  const { subject, html } = otpTemplate({ name: user.name, otp });
+  await mailService.sendMail({ to: user.email, subject, html });
 };
 
 const login = async ({ email, password }) => {
@@ -212,7 +216,8 @@ const forgotPassword = async ({ email }) => {
   user.otpAttempts = 0;
   await user.save();
 
-  await mailService.sendMail({ to: user.email, subject: 'Reset your Murafiq password', html: otpEmailHtml(otp) });
+  const { subject, html } = forgotPasswordTemplate({ name: user.name, otp });
+  await mailService.sendMail({ to: user.email, subject, html });
 };
 
 const resetPassword = async ({ email, otp, newPassword }) => {

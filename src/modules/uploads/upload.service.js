@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+import streamifier from 'streamifier';
 import cloudinary from '../../config/cloudinary.config.js';
 import ApiError from '../../common/utils/ApiError.js';
 
@@ -9,6 +11,25 @@ const ALLOWED_FOLDERS = new Set([
   'wardrobe',
 ]);
 
+/**
+ * Compresses an image buffer in-memory using Sharp.
+ * Capped at 1920x1920 (no upscaling) with format-appropriate compression.
+ */
+export const compressImage = async (buffer, mimeType) => {
+  let pipeline = sharp(buffer).resize(1920, 1920, { fit: 'inside', withoutEnlargement: true });
+
+  if (mimeType === 'image/webp') {
+    pipeline = pipeline.webp({ quality: 82 });
+  } else if (mimeType === 'image/png') {
+    pipeline = pipeline.png({ quality: 85, compressionLevel: 8 });
+  } else {
+    // Default to JPEG with mozjpeg optimization
+    pipeline = pipeline.jpeg({ quality: 85, mozjpeg: true });
+  }
+
+  return pipeline.toBuffer();
+};
+
 export const uploadFile = async (user, folder, file) => {
   if (!ALLOWED_FOLDERS.has(folder)) {
     throw new ApiError(400, `Invalid upload folder '${folder}'. Allowed: ${Array.from(ALLOWED_FOLDERS).join(', ')}`);
@@ -16,6 +37,17 @@ export const uploadFile = async (user, folder, file) => {
 
   if (!file || !file.buffer) {
     throw new ApiError(400, 'No file provided for upload');
+  }
+
+  // Compress image buffers prior to upload
+  let bufferToUpload = file.buffer;
+  if (file.mimetype && file.mimetype.startsWith('image/')) {
+    try {
+      bufferToUpload = await compressImage(file.buffer, file.mimetype);
+    } catch (_err) {
+      // Fallback to original buffer if Sharp cannot decode or non-standard image
+      bufferToUpload = file.buffer;
+    }
   }
 
   const isKyc = folder === 'kyc-documents';
@@ -41,7 +73,7 @@ export const uploadFile = async (user, folder, file) => {
       });
     });
 
-    uploadStream.end(file.buffer);
+    streamifier.createReadStream(bufferToUpload).pipe(uploadStream);
   });
 };
 
@@ -54,6 +86,7 @@ export const getSignedKycUrl = (publicId) => {
 };
 
 export default {
+  compressImage,
   uploadFile,
   getSignedKycUrl,
 };

@@ -44,9 +44,51 @@ export const findVerifications = async (queryString = {}) => {
   };
 };
 
+export const findAllUsers = async (queryString = {}) => {
+  const baseQuery = User.find();
+  const builder = new QueryBuilder(baseQuery, queryString)
+    .filter(['role', 'verification.status', 'accountStatus', 'isEmailVerified'])
+    .search(['name', 'email', 'phone'])
+    .sort()
+    .select();
+
+  await builder.paginate(User);
+  const users = await builder.mongooseQuery;
+
+  return {
+    users,
+    meta: builder.meta,
+  };
+};
+
+export const getUserStats = async () => {
+  const [total, clients, stylists, operators, admins, pendingVerifications] = await Promise.all([
+    User.countDocuments(),
+    User.countDocuments({ role: 'client' }),
+    User.countDocuments({ role: 'stylist' }),
+    User.countDocuments({ role: 'operator' }),
+    User.countDocuments({ role: 'admin' }),
+    User.countDocuments({ 'verification.status': 'pending' }),
+  ]);
+
+  return {
+    total,
+    byRole: {
+      clients,
+      stylists,
+      operators,
+      admins,
+    },
+    pendingVerifications,
+  };
+};
+
 export default {
   findById,
   updateById,
   softDelete,
   findVerifications,
+  findAllUsers,
+  getUserStats,
 };
+

@@ -40,7 +40,13 @@ router.patch(
   adminController.rejectVerification
 );
 
-// User account moderation (Admin only)
+// User management & moderation (Admin only)
+router.get(
+  '/users',
+  restrictTo(ROLES.ADMIN),
+  adminController.getAllUsers
+);
+
 router.patch(
   '/users/:id/suspend',
   restrictTo(ROLES.ADMIN),
@@ -84,4 +90,12 @@ router.get(
   auditLogController.getAuditLogs
 );
 
+// Dashboard statistics (Admin only)
+router.get(
+  '/dashboard/stats',
+  restrictTo(ROLES.ADMIN),
+  adminController.getDashboardStats
+);
+
 export default router;
+

@@ -69,6 +69,44 @@ export const findByBookingIds = async (bookingIds, statuses) => {
   });
 };
 
+export const getRevenueStatsThisMonth = async (startDate, endDate) => {
+  const dateFilter = {};
+  if (startDate) dateFilter.$gte = startDate;
+  if (endDate) dateFilter.$lte = endDate;
+
+  const match = {
+    status: { $in: ['paid', 'partially_refunded'] },
+    ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+  };
+
+  const results = await Payment.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        totalGrossVolume: { $sum: { $subtract: ['$amount', { $ifNull: ['$refundAmount', 0] }] } },
+        totalPlatformCommission: { $sum: '$platformFeeAmount' },
+        totalStylistPayouts: { $sum: '$stylistPayoutAmount' },
+        transactionCount: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const stats = results[0] || {
+    totalGrossVolume: 0,
+    totalPlatformCommission: 0,
+    totalStylistPayouts: 0,
+    transactionCount: 0,
+  };
+
+  return {
+    grossVolume: Math.round(stats.totalGrossVolume * 100) / 100,
+    platformCommission: Math.round(stats.totalPlatformCommission * 100) / 100,
+    stylistPayouts: Math.round(stats.totalStylistPayouts * 100) / 100,
+    transactionCount: stats.transactionCount,
+  };
+};
+
 export default {
   create,
   findById,
@@ -78,4 +116,6 @@ export default {
   findByIntentionId,
   updateById,
   findClientHistory,
+  getRevenueStatsThisMonth,
 };
+

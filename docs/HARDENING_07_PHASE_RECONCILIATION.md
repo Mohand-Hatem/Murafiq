@@ -101,37 +101,42 @@ added, don't re-diff from scratch.
 
 ## Part 2 — Phase-by-phase amendments
 
-### Phase 9 — Uploads & Mail
+### Phase 9 — Uploads & Mail — ✅ DONE (2026-08-25)
 
-**Status after hardening: ~50% already delivered.**
+**Fully delivered.** Both halves built, tested, lint clean. `44 suites / 192 tests`. Kept here for
+context on what was decided along the way — nothing left to do in this phase.
 
 | Piece | State |
 |---|---|
 | Multer middleware, Cloudinary service, `POST /uploads/:folder`, folder allow-list, size/MIME limits | **Done** by `HARDENING_03` Step 1 |
-| Sharp compression (Step 2) | **Not done** — hardening didn't include it |
-| Mail provider interface, Resend/SendGrid providers, provider selection, 5 templates | **Not done** — hardening only fixed the shim's error handling |
+| Upload architecture, private KYC folder, KYC internal-reference intake | **Done** — verified pre-existing, see prior note below |
+| Sharp compression (resize + per-format encode, PDFs correctly skipped) | **Done** |
+| Mail provider interface, Resend provider, SendGrid 501 stub, provider selection, 5 templates | **Done** |
 
-**Conflicts to resolve:**
+**Decisions made along the way:**
 
-1. **Upload architecture contradiction.** `PHASE_09` Step 4 recommends *"a shared middleware + service
-   function imported by each module's own route"* and explicitly argues **against** *"a single generic
-   uploads gateway"*. But `04_ROUTES.md` documents `POST /uploads/:folder` as a real route, and
-   `HARDENING_03` Step 1 builds it that way. **Pick one.** Recommendation: keep the generic endpoint
-   (it's already built and documented) *and* export the service function for modules that need
-   inline upload — they aren't mutually exclusive, and Phase 9's stated concern (per-module permission
-   rules) is handled by each module validating the resulting reference, which is what `HARDENING_03`
-   Step 5 already requires for KYC documents.
-2. **`sharp` and `streamifier` aren't installed.** Step 0 installs `sharp`; Step 3's sample uses
-   `streamifier` without listing it as a dependency. Install both if implementing compression.
-3. **KYC documents must not accept raw URLs.** `HARDENING_03` Step 5 changes verification uploads to
-   accept only an internal Cloudinary reference. Phase 9 must not reintroduce free-form URL intake.
-4. **Private folder for identity documents.** `HARDENING_03` Step 6 requires KYC documents in a
-   private/signed-delivery Cloudinary folder. `PHASE_09` Step 3's folder list
-   (`murafiq/national-id`) treats it like any other public folder. Amend.
+1. **Upload architecture** was never actually in conflict — `upload.service.js` exports
+   `uploadFile()` as a plain function *and* it's wired to `POST /uploads/:folder`; both patterns
+   this section originally worried about already coexisted.
+2. **Private folder for identity documents** was also already correct — `type: 'authenticated'` /
+   `access_mode: 'authenticated'` on the `kyc-documents` folder, plus `getSignedKycUrl()`.
+3. **KYC raw-URL intake** was already closed — `user.validator.js` takes `documentRef`, not a URL.
+4. **SendGrid stays a stub, by decision** — `send()` throws `ApiError(501, 'SendGrid provider not
+   yet implemented')`. Not a placeholder to fill in later without a decision; revisit only if Resend
+   needs a real fallback.
+5. **PDFs are excluded from Sharp compression** — `upload.service.js` only compresses when
+   `file.mimetype.startsWith('image/')`, so `kyc-documents` PDF uploads pass through untouched.
+   This wasn't explicitly speced; it was a correct catch — Sharp cannot decode PDFs and would have
+   corrupted them. **Not yet covered by a test** — see follow-up below.
 
-**Amended scope for Phase 9:** mail module only (interface, Resend provider, SendGrid skeleton,
-provider selection, 5 templates) + optional Sharp compression retrofit into the existing upload
-service. Retitle to `PHASE_09_MAIL.md` or note the upload half as delivered.
+**Follow-ups, not blockers — carry into whichever phase touches these areas next:**
+
+- `welcomeTemplate` and `bookingConfirmationTemplate` are built and unit-tested but **called from
+  nowhere in `src/`.** No welcome email fires on registration; no confirmation email fires on
+  booking creation. Wire these in when touching registration (`auth.service.js`) or booking creation
+  (`booking.service.js`) next — don't let it become an assumed feature that was never actually built.
+- The PDF-skip guard above has no regression test. A future refactor could remove the `startsWith('image/')`
+  check with nothing failing. Worth a one-line test whenever `upload.service.js` is next touched.
 
 ---
 

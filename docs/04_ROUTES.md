@@ -159,12 +159,12 @@
 | PATCH | `/admin/bookings/:id/resolve-dispute` | 🛡️ | ✅ Built | Arbitrate dispute with refund percentage |
 | PATCH | `/admin/reviews/:id/hide` | 🛡️ | ✅ Built | Toggle review visibility — body `{ isHidden: boolean }`; also handles unhide, no separate route |
 | GET | `/admin/audit-logs` | 🛡️ | ✅ Built | Query platform audit log trail |
-| GET | `/admin/users` | 🛡️ | 🔲 Planned | List/search all platform users |
+| GET | `/admin/users` | 🛡️ | ✅ Built | List/search all platform users |
 | PATCH | `/admin/users/:id/suspend` | 🛡️ | ✅ Built | Suspend user account |
 | PATCH | `/admin/users/:id/reactivate` | 🛡️ | ✅ Built | Reactivate user account |
 | GET | `/admin/safety-reports` | 🛡️ | 🔲 Planned | List safety reports |
 | PATCH | `/admin/safety-reports/:id/resolve` | 🛡️ | 🔲 Planned | Resolve safety report |
-| GET | `/admin/dashboard/stats` | 🛡️ | 🔲 Planned | Platform dashboard statistics |
+| GET | `/admin/dashboard/stats` | 🛡️ | ✅ Built | Platform dashboard statistics |
 | GET | `/admin/queues` | 🛡️ | 🔲 Planned | Bull Board background queue UI (Phase 14 — Redis/BullMQ moved there, see `HARDENING_07`) |
 
 ---

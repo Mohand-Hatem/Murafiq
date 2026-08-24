@@ -2,11 +2,17 @@
 
 > **The single source of truth for: "is X actually working right now?"**
 >
-> **Verified 2026-08-24 against the working tree on top of commit `3ace8c8` (uncommitted) — by
+> **Verified 2026-08-25 against the working tree on top of commit `3ace8c8` (uncommitted) — by
 > direct code inspection and a real `npm test`/`npm run lint` run, not by reading other docs.
-> Latest pass: doc-only reconciliation of Phases 9-16 — fixed a nonexistent-event reference in
-> `PHASE_10`/`PHASE_11`, re-scoped Phase 12 to node-cron-only, moved Redis/BullMQ ownership to
-> Phase 14, refreshed six stale sections in `HARDENING_07`. No `src/` files changed this pass.
+> Latest pass: Phase 10 completed — `GET /admin/users` and `GET /admin/dashboard/stats` built.
+> Found and fixed a real bug during review: `getBusinessMonthRange()` computed pure-UTC month
+> boundaries despite claiming Cairo timezone, misattributing ~2-3h of revenue at each month
+> boundary — now reuses `getBusinessDayRange`'s correct per-instant offset math. Added a
+> filter-allow-list regression test for `GET /admin/users`, and a Sharp-compression PDF-skip test
+> from the Phase 9 follow-up. All new tests verified by deliberately re-introducing each bug and
+> confirming the test fails, then restoring the fix and confirming it passes again — not just
+> written and trusted. 47/204 tests pass. Two Phase-9 follow-ups still open, not blockers:
+> `welcomeTemplate`/`bookingConfirmationTemplate` exist but are called from nowhere yet.
 >
 > Every claim in this file was checked against `src/`, `package.json`, and a real test run. If you are
 > an AI assistant, **trust this file over any other doc in `docs/`** — and if you change what's built,
@@ -40,8 +46,8 @@ Legend:
 | 6 — Payments | ✅ Built (see defects) |
 | 7 — Chat & Notifications | ✅ Built (see defects) |
 | 8 — Reviews | ✅ Built |
-| 9 — Uploads & Mail | ✅ **Uploads Built** (Cloudinary + Multer memory storage, signed KYC URLs). Mail shim active. |
-| 10 — Audit Log & Admin | ✅ **Mostly built** (audit log, dispute resolution, suspend/reactivate, review hide/unhide). Remaining: `GET /admin/users`, `GET /admin/dashboard/stats`. |
+| 9 — Uploads & Mail | ✅ **Built** (Cloudinary + Multer memory storage, Sharp in-memory compression, signed KYC URLs, Resend provider, SendGrid 501 stub, and 5 HTML email templates). |
+| 10 — Audit Log & Admin | ✅ **Built** (audit log, dispute resolution, suspend/reactivate, review hide/unhide, `GET /admin/users` listing/search, and `GET /admin/dashboard/stats`). |
 | 11 — Safety & Payouts | ✅ **Payouts Built** (`src/modules/payouts/`, stylist self-serve credentials, admin batch disbursement, ledger balance aggregation, double-payout guards). |
 | 12 — Background Jobs | ⚠️ **Re-scoped, partial** — offer-expiry sweep done via `node-cron`; OTP-cleanup and session-reminder sweeps still to build, same pattern. Redis/BullMQ deliberately moved to Phase 14, not deferred indefinitely — see §6. |
 | 13 — Security/Logging/Docs/Tests | ⚠️ **Hardened** (Swagger protected in prod, OTP lockout, Firebase production fail-safe). |
@@ -49,7 +55,7 @@ Legend:
 | 15 — AI | ⛔ Not built |
 | 16 — Deployment Readiness | ⚠️ **Decision recorded** — single VPS/PM2 path (`ecosystem.config.cjs` + rewritten `PHASE_16_DEPLOYMENT_READINESS.md`). Not yet deployed to a real server. |
 
-**Verified build state:** `npm test` → 42 suites / 179 tests pass (including in-memory MongoDB replica-set integration tests).
+**Verified build state:** `npm test` → 47 suites / 204 tests pass (including in-memory MongoDB replica-set integration tests).
 **`npm run lint` → PASSES** (0 errors, 0 warnings). GitHub Actions CI workflow active.
 
 ---
@@ -69,9 +75,9 @@ Legend:
 | `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), admin access restricted to disputed bookings with audit logs. |
 | `notifications/` | ✅ Active | 3 routes, Mongo feed + FCM multicast with token pruning. |
 | `reviews/` | ✅ Active | Two-way reviews, unique `{bookingId, direction}` index, aggregation-based ratings. |
-| `admin/` | ✅ Active | `GET /verifications`, `PATCH /verifications/:userId/approve`, `PATCH /verifications/:userId/reject`, `PATCH /reviews/:id/hide`, `GET /audit-logs`, `GET /bookings/disputed`, `PATCH /bookings/:id/resolve-dispute`. |
-| `mail/` | ⚠️ Shim only | `mail.service.js` exporting **`sendMail()`** (not `send()`). Throws typed `ApiError(502)`, caught safely on registration. |
-| `uploads/` | ✅ Active | Memory storage multer, Cloudinary upload service, authenticated KYC document storage with signed URLs. |
+| `admin/` | ✅ Active | `GET /verifications`, `PATCH /verifications/:userId/approve`, `PATCH /verifications/:userId/reject`, `PATCH /users/:id/suspend`, `PATCH /users/:id/reactivate`, `PATCH /reviews/:id/hide`, `GET /audit-logs`, `GET /bookings/disputed`, `PATCH /bookings/:id/resolve-dispute`, `GET /users`, `GET /dashboard/stats`. |
+| `mail/` | ✅ Active | Provider pattern (`env.MAIL_PROVIDER`), `ResendProvider` (active), `SendgridProvider` (501 stub), 5 templates in `templates/`, `sendMail({ to, subject, html })`. |
+| `uploads/` | ✅ Active | Memory storage multer, Sharp in-memory compression (1920x1920 max), Cloudinary upload service, authenticated KYC document storage with signed URLs. |
 | `audit-log/` | ✅ Active | Immutable Mongoose schema, QueryBuilder repository, domain event listener, admin querying. Fixed cross-module violation: no longer imports Booking/Payment models directly (see §11a). |
 | `safety/` | ⛔ Not built | `.gitkeep` only. |
 | `ai/` | ⛔ Not built | `.gitkeep` only. |
@@ -86,7 +92,7 @@ Legend:
 **Installed:** `bcrypt`, `cloudinary`, `compression`, `cookie-parser`, `cors`, `dotenv`, `express` (v5),
 `express-async-handler`, `express-mongo-sanitize`, `express-rate-limit`, `firebase-admin`,
 `google-auth-library`, `helmet`, `jsonwebtoken`, `mongodb-memory-server`, `mongoose`, `morgan`,
-`multer`, `node-cron`, `resend`, `swagger-jsdoc`, `swagger-ui-express`, `winston`, `zod`.
+`multer`, `node-cron`, `resend`, `sharp`, `streamifier`, `swagger-jsdoc`, `swagger-ui-express`, `winston`, `zod`.
 
 **Removed (v1 cleanup):** `socket.io` and `uuid` — both had **zero imports** anywhere in `src/`.
 `socket.io` was already an orphaned dependency (`sockets/index.js` was deleted in an earlier pass but
@@ -94,7 +100,7 @@ the server never called `new Server(...)` after that); `uuid` was never used at 
 
 **NOT installed** — verified against `package.json`, regardless of what any other doc claims:
 
-`sharp` · `streamifier` · `bullmq` · `ioredis` · `openai` ·
+`bullmq` · `ioredis` · `openai` ·
 any Pinecone/Qdrant client · `langchain`
 
 > `01_PROJECT_STRUCTURE.md` §2 marks Cloudinary+Multer and BullMQ+Redis as "Active". **They are not
@@ -129,10 +135,11 @@ key above). All are now present in `.env.example`.
 
 | Piece | Status | Notes |
 |---|---|---|
-| `mail.service.js` (Phase-1 shim) | ✅ Active | Real Resend delivery. Exports **`sendMail`** — Phases 9 and 12 wrongly say `send`. |
-| `mail-provider.interface.js` | ⛔ Not built | |
-| `resend.provider.js` / `sendgrid.provider.js` | ⛔ Not built | No `providers/` directory. |
-| Templates (welcome, OTP, verify-email, forgot-password, booking-confirmation) | ⛔ Not built | No `templates/` directory. The OTP email is a string literal at `auth.service.js:17`. |
+| `mail.service.js` | ✅ Active | Provider-selecting facade. Exports **`sendMail({ to, subject, html })`** and `getProvider()` — signature unchanged from the Phase-1 shim, so no caller needed to change. Picks `ResendProvider` or `SendgridProvider` via `env.MAIL_PROVIDER`. |
+| `mail-provider.interface.js` | ✅ Active | Single `send({ to, subject, html })` method, both providers implement it. |
+| `resend.provider.js` | ✅ Active | Real delivery. `MAIL_TO_ADDRESS` dev-sandbox redirect and `ApiError(502)` on failure both carried over from the old shim unchanged. |
+| `sendgrid.provider.js` | ✅ Active (501 stub) | Decided: not a real integration. `send()` throws `ApiError(501, 'SendGrid provider not yet implemented')`. Selectable via `MAIL_PROVIDER=sendgrid`, tested. |
+| Templates (`src/modules/mail/templates/`) | ⚠️ Built, 2 of 5 unused | All 5 exist and are unit-tested. `otpTemplate`, `verifyEmailTemplate`, `forgotPasswordTemplate` are wired into `auth.service.js`'s 3 real call sites — the inline `otpEmailHtml()` string is gone. `welcomeTemplate` and `bookingConfirmationTemplate` are defined and tested but **called from nowhere in `src/`** — no registration-welcome or booking-confirmation email is actually sent yet. Wiring those in is a follow-up, not part of Phase 9's scope. |
 | Queue-based sending | ⛔ Not built | Synchronous. A mail failure currently **500s an otherwise-successful registration** → `HARDENING_03` Step 4. |
 
 > [!WARNING]

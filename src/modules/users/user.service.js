@@ -240,6 +240,14 @@ export const reactivateUser = async (userId, adminId) => {
   return toUserProfileDto(updatedUser);
 };
 
+export const getAllUsers = async (queryString) => {
+  const { users, meta } = await userRepository.findAllUsers(queryString);
+  return {
+    items: users.map(toUserProfileDto),
+    meta,
+  };
+};
+
 export default {
   getProfile,
   updateProfile,
@@ -247,6 +255,7 @@ export default {
   updateProfileImage,
   deleteAccount,
   getVerifications,
+  getAllUsers,
   approveVerification,
   rejectVerification,
   suspendUser,

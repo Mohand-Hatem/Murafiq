@@ -39,6 +39,8 @@
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
     "resend": "^6.18.1",
+    "sharp": "^0.35.3",
+    "streamifier": "^0.1.1",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.19.0",

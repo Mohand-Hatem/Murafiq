@@ -79,12 +79,12 @@ describe('Users & Verification Integration Tests', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('denies operator access to unhandled admin routes (e.g. /api/v1/admin/users)', async () => {
+    it('denies operator access to admin-only routes (e.g. /api/v1/admin/users)', async () => {
       const res = await request(app)
         .get('/api/v1/admin/users')
         .set('Authorization', `Bearer ${operatorToken}`);
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).toBe(403);
     });
 
     it('denies client access to /api/v1/admin/verifications with 403', async () => {

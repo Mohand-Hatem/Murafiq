@@ -123,6 +123,30 @@ export const updateManyPayoutStatus = async (bookingIds, data, session = null) =
   return Booking.updateMany({ _id: { $in: bookingIds } }, data, options);
 };
 
+export const getBookingStats = async () => {
+  const [total, confirmed, inProgress, completed, cancelled, disputed] = await Promise.all([
+    Booking.countDocuments(),
+    Booking.countDocuments({ status: 'confirmed' }),
+    Booking.countDocuments({ status: 'in-progress' }),
+    Booking.countDocuments({ status: 'completed' }),
+    Booking.countDocuments({ status: 'cancelled' }),
+    Booking.countDocuments({ status: 'disputed' }),
+  ]);
+
+  return {
+    total,
+    active: confirmed + inProgress,
+    byStatus: {
+      confirmed,
+      inProgress,
+      completed,
+      cancelled,
+      disputed,
+    },
+    openDisputes: disputed,
+  };
+};
+
 export default {
   create,
   findById,
@@ -133,4 +157,6 @@ export default {
   findStylistBookings,
   findDisputedBookings,
   updateById,
+  getBookingStats,
 };
+
