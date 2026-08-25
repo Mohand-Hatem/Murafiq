@@ -4,22 +4,36 @@
 >
 > **Verified 2026-08-25 against the working tree on top of commit `3ace8c8` (uncommitted) — by
 > direct code inspection and a real `npm test`/`npm run lint` run, not by reading other docs.
-> Latest pass: fixed a startup bug the user hit running `npm run dev` —
-> `firebase.config.js` was written against firebase-admin's old v9-11 namespaced API
-> (`admin.credential.cert`, `admin.apps.length`) but the installed version is `^14.3.0`, which
-> replaced that with a modular API (`firebase-admin/app`, `/firestore`, `/auth`, `/messaging`).
-> This meant Firebase/Firestore/FCM had **never** actually initialized, in any environment, in this
-> project's history — not a credential issue, chat has been silently running on the in-memory mock
-> fallback in every dev run to date. Rewritten to the modular API; confirmed initializing
-> successfully against real `.env` credentials. One follow-up fix mid-repair: a static top-level
-> import of `firebase-admin/auth` broke 18 test suites under Jest (its `jwks-rsa`→`jose` dependency
-> chain is pure-ESM and can't be `require()`'d on this Node version) — restructured to dynamically
-> import the firestore/auth/messaging submodules only inside the branch where initialization
-> actually succeeds, so the test environment (which never initializes) never touches that chain.
-> 47/204 tests still pass. Earlier pass: Phase 10 completed (`GET /admin/users`,
-> `GET /admin/dashboard/stats`), plus a real Cairo-timezone bug fixed in
-> `getBusinessMonthRange()`. Two Phase-9 follow-ups still open, not blockers:
-> `welcomeTemplate`/`bookingConfirmationTemplate` exist but are called from nowhere yet.
+> Latest pass: Open Broadcast Requests feature built end-to-end per
+> `OPEN_BROADCAST_REQUESTS_DESIGN.md` — Direct + Broadcast requests, sealed-bid feed, city/
+> governorate-first notification fanout, direct-uncapped/broadcast-capped offer limits, and the
+> race-condition-safe accept transaction (CAS lock + unique-index defense-in-depth, both verified
+> by deliberately breaking each guard and confirming the concurrency test fails, then restoring and
+> confirming it passes). One real gap found in post-build verification and fixed directly: no
+> endpoint existed for a client to actually see and compare competing offers — the doc had asserted
+> it was "implied" without ever specifying it as a build step, so it never got built. Added
+> `GET /offers/requests/:id` (client-only, ownership-scoped, sorted price-ascending), with its own
+> ownership test verified the same way (sabotaged, confirmed failing, restored, confirmed passing).
+> Also added the missing `Booking.syncIndexes()` call to the migration backfill script.
+> **Second real bug found while re-verifying (not in the original build): `acceptOffer`'s catch
+> block converted a genuine, retryable MongoDB `WriteConflict`/`TransientTransactionError` directly
+> into a permanent, misleading "someone else already won" 409 — reproduced deterministically outside
+> Jest entirely (single non-concurrent accept, no race), root-caused to `code: 112, codeName:
+> 'WriteConflict', errorLabels: ['TransientTransactionError']`, which MongoDB's own driver docs say
+> should be retried, not treated as a business conflict.** Rewrote `acceptOffer` with a bounded
+> retry envelope (5 attempts, small backoff) that retries genuine MongoDB transience but never
+> retries a real `ApiError` (the CAS lock's actual 409 propagates immediately, same as any 400/403/
+> 404). Verified by running the previously-flaky test 10x clean (was failing 5-6 of 8 runs before),
+> and confirmed the retry logic doesn't mask the real race guard by re-running the sabotage-and-
+> restore proof on the CAS lock — still fails 3/3 with the guard removed. One test assertion loosened
+> to match reality: the race test's loser can legitimately see either 409 (hit the CAS lock directly)
+> or 400 (retried after the winner's transaction had already flipped its status to 'rejected') —
+> both are correct, the DB-level invariants (exactly one booking) are what the test actually proves.
+> 51/214 tests pass, stable across repeated full-suite runs. Earlier passes: fixed a firebase-admin
+> v14 API-mismatch startup bug (Firebase had never actually initialized in this project's history);
+> Phase 10 completed; a real Cairo-timezone bug fixed in `getBusinessMonthRange()`. Two Phase-9
+> follow-ups still open, not blockers: `welcomeTemplate`/`bookingConfirmationTemplate` exist but are
+> called from nowhere yet.
 >
 > Every claim in this file was checked against `src/`, `package.json`, and a real test run. If you are
 > an AI assistant, **trust this file over any other doc in `docs/`** — and if you change what's built,
@@ -62,7 +76,7 @@ Legend:
 | 15 — AI | ⛔ Not built |
 | 16 — Deployment Readiness | ⚠️ **Decision recorded** — single VPS/PM2 path (`ecosystem.config.cjs` + rewritten `PHASE_16_DEPLOYMENT_READINESS.md`). Not yet deployed to a real server. |
 
-**Verified build state:** `npm test` → 47 suites / 204 tests pass (including in-memory MongoDB replica-set integration tests).
+**Verified build state:** `npm test` → 51 suites / 214 tests pass (including in-memory MongoDB replica-set integration and concurrency race tests).
 **`npm run lint` → PASSES** (0 errors, 0 warnings). GitHub Actions CI workflow active.
 
 ---
@@ -74,9 +88,9 @@ Legend:
 | `auth/` | ✅ Active | 10 routes. JWT access 15m + refresh 30d, dual cookie/Bearer delivery, bcrypt 12, hashed OTP with 5-attempt lockout, session invalidation on password change, Google ID-token verification. |
 | `users/` | ✅ Active | 5 routes + the verification service backing `/admin/verifications` (using Cloudinary documentRefs). |
 | `stylists/` | ✅ Active | 6 routes incl. `$geoNear` search aggregation, cancellation counter tracking, and payout credentials. |
-| `requests/` | ✅ Active | 5 routes. 48h expiry, configurable verification-tiered daily caps (`DEFAULT_CAPS`). |
-| `offers/` | ✅ Active | 3 routes. 24h expiry, configurable daily stylist cap (`DEFAULT_CAPS`). |
-| `bookings/` | ✅ Active | 7 routes + 48h dispute filing window, admin arbitration resolution, dispute status locks, and scheduling. |
+| `requests/` | ✅ Active | 6 routes (`POST /requests`, `GET /mine`, `GET /incoming`, `GET /feed`, `PATCH /:id/cancel`, `PATCH /:id/decline`). Supports both Direct (1:1) and Open Broadcast requests, Zod discriminated union, sealed-bid feed with location filtering (`governorate`/`city`/`$geoNear`). 48h expiry, daily request caps. |
+| `offers/` | ✅ Active | 4 routes. 24h expiry, unique compound index `{requestId, stylistId}` preventing duplicate bids, uncapped direct offers, `DEFAULT_CAPS.STYLIST_DAILY_OFFERS` (10/day) applied strictly to broadcast bids. `GET /offers/requests/:id` — client-only, ownership-scoped comparison of every competing offer, sorted price-ascending; this was the actual point of broadcast requests and was missing from the initial build (design-doc error, not implementation error — see `OPEN_BROADCAST_REQUESTS_DESIGN.md` §2.3 correction note). `acceptOffer` retries genuine MongoDB transience (`WriteConflict`/`TransientTransactionError`/`LockTimeout`, up to 5 attempts with backoff) instead of misreporting it as a business conflict — a real `ApiError` (the CAS lock's actual 409, or any validation 400/403/404) never retries and propagates immediately. |
+| `bookings/` | ✅ Active | 7 routes + atomic CAS Request status lock on acceptance, `{requestId: 1}` unique index guard, sibling-offer automatic rejection, 48h dispute filing window, admin arbitration resolution, dispute status locks, and scheduling. |
 | `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. |
 | `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). |
 | `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), admin access restricted to disputed bookings with audit logs. Prior to the `firebase.config.js` fix (§5 below), the mock fallback was silently exercised in **every** dev run regardless of credentials — dev now actually talks to real Firestore. |

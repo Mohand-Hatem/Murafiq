@@ -82,8 +82,16 @@ if (env.NODE_ENV !== 'test') {
 const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis });
 if (env.NODE_ENV === 'production') {
   app.use('/api/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.get('/api/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
 } else {
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.get('/api/docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
 }
 
 // API Routes

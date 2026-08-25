@@ -1,4 +1,5 @@
 import requestService from './request.service.js';
+import requestFeedService from './request-feed.service.js';
 
 export const createRequest = asyncHandler(async (req, res) => {
   const requestDoc = await requestService.createRequest(req.user, req.body);
@@ -27,6 +28,15 @@ export const getIncoming = asyncHandler(async (req, res) => {
   });
 });
 
+export const getBroadcastFeed = asyncHandler(async (req, res) => {
+  const result = await requestFeedService.getBroadcastFeed(req.user, req.query);
+  return ApiResponse.success(res, {
+    message: 'Broadcast feed retrieved successfully',
+    data: result.items,
+    meta: result.meta,
+  });
+});
+
 export const cancelRequest = asyncHandler(async (req, res) => {
   const requestDoc = await requestService.cancelRequest(req.user.id, req.params.id);
   return ApiResponse.success(res, {
@@ -47,6 +57,8 @@ export default {
   createRequest,
   getMine,
   getIncoming,
+  getBroadcastFeed,
   cancelRequest,
   declineRequest,
 };
+

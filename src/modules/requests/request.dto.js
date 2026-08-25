@@ -12,6 +12,7 @@ export const toPublicRequestDto = (requestDoc) => {
     client,
     stylist,
     title: doc.title,
+    visibility: doc.visibility || 'direct',
     date: doc.date || null,
     time: doc.time || null,
     meetingLocation: doc.meetingLocation || null,

@@ -2,6 +2,7 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import notificationService from './notification.service.js';
 import requestRepository from '../requests/request.repository.js';
+import stylistRepository from '../stylists/stylist.repository.js';
 import offerRepository from '../offers/offer.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import logger from '../../config/logger.config.js';
@@ -15,12 +16,14 @@ class NotificationListener {
     if (this.registered) return;
     this.registered = true;
 
-    // 1. Request Created -> Notify Stylist
+    // 1. Request Created -> Notify Stylist (Direct or Broadcast)
     eventBus.on(EVENTS.REQUEST_CREATED, async ({ requestId }) => {
       try {
         if (!requestId) return;
         const request = await requestRepository.findById(requestId);
-        if (request?.stylistId) {
+        if (!request) return;
+
+        if (request.visibility === 'direct' && request.stylistId) {
           const stylistUserId = request.stylistId._id || request.stylistId;
           await notificationService.send(stylistUserId, {
             type: 'request',
@@ -28,11 +31,32 @@ class NotificationListener {
             body: 'You have received a new styling request from a client.',
             relatedEntityId: request._id,
           });
+        } else if (request.visibility === 'broadcast') {
+          const nearbyStylists = await stylistRepository.findVerifiedInArea({
+            governorate: request.meetingLocation?.governorate,
+            city: request.meetingLocation?.city,
+            fallbackCoordinates: request.meetingLocation?.location?.coordinates,
+            fallbackRadiusKm: 10,
+            limit: 50,
+          });
+          const locationLabel =
+            request.meetingLocation?.city || request.meetingLocation?.governorate || 'your area';
+          await Promise.allSettled(
+            nearbyStylists.map((s) =>
+              notificationService.send(s.userId, {
+                type: 'request',
+                title: 'New Open Request Near You',
+                body: `A client posted "${request.title}" in ${locationLabel}.`,
+                relatedEntityId: request._id,
+              })
+            )
+          );
         }
       } catch (err) {
         logger.error(`Notification error on REQUEST_CREATED: ${err.message}`);
       }
     });
+
 
     // 2. Request Declined -> Notify Client
     eventBus.on(EVENTS.REQUEST_DECLINED, async ({ requestId }) => {

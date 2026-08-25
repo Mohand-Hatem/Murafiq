@@ -213,14 +213,14 @@
  *                 type: array
  *                 items:
  *                   type: object
- *                   required: [type, url]
+ *                   required: [type, documentRef]
  *                   properties:
  *                     type:
  *                       type: string
  *                       enum: [national_id_front, national_id_back, selfie_with_id, police_clearance_certificate]
- *                     url:
+ *                     documentRef:
  *                       type: string
- *                       format: uri
+ *                       example: "https://res.cloudinary.com/.../murafiq/kyc-documents/sample.jpg"
  *     responses:
  *       200:
  *         description: Documents uploaded, status set to pending

@@ -83,6 +83,16 @@ export const expireOldRequests = async () => {
   );
 };
 
+export const lockAndAccept = async (requestId, session = null) => {
+  const options = { returnDocument: 'after' };
+  if (session) options.session = session;
+  return Request.findOneAndUpdate(
+    { _id: requestId, status: { $in: ['pending', 'offered'] } },
+    { $set: { status: 'accepted' } },
+    options
+  );
+};
+
 export default {
   create,
   findById,
@@ -91,4 +101,6 @@ export default {
   countDailyClientRequests,
   updateById,
   expireOldRequests,
+  lockAndAccept,
 };
+

@@ -71,6 +71,7 @@ const bookingSchema = new Schema(
 );
 
 bookingSchema.index({ offerId: 1 }, { unique: true });
+bookingSchema.index({ requestId: 1 }, { unique: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });

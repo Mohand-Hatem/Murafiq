@@ -27,6 +27,18 @@ export const findByRequestId = async (requestId, session = null) => {
   ]);
 };
 
+// Full offer comparison for the request's own client — a broadcast request can have many
+// competing offers (findByRequestId above only ever returns one, a leftover from the pre-broadcast
+// 1:1 model). Sorted cheapest-first since price comparison is the primary reason a client views this.
+export const findAllByRequestId = async (requestId) => {
+  return Offer.find({ requestId })
+    .sort({ price: 1 })
+    .populate([
+      { path: 'stylistId', select: 'name profileImage' },
+      { path: 'clientId', select: 'name profileImage' },
+    ]);
+};
+
 export const findActiveForClient = async (stylistId, clientId, session = null) => {
   const query = Offer.findOne({ stylistId, clientId, status: 'pending' });
   if (session) query.session(session);
@@ -36,6 +48,7 @@ export const findActiveForClient = async (stylistId, clientId, session = null) =
 export const countDailyStylistOffers = async (stylistId, startOfDay, endOfDay) => {
   return Offer.countDocuments({
     stylistId,
+    requestVisibility: 'broadcast',
     createdAt: { $gte: startOfDay, $lte: endOfDay },
   });
 };
@@ -57,12 +70,39 @@ export const expireOldOffers = async () => {
   );
 };
 
+export const findSiblingPendingOffers = async (requestId, winningOfferId, session = null) => {
+  const query = Offer.find({
+    requestId,
+    _id: { $ne: winningOfferId },
+    status: 'pending',
+  });
+  if (session) query.session(session);
+  return query;
+};
+
+export const rejectSiblingOffers = async (requestId, winningOfferId, session = null) => {
+  const options = session ? { session } : {};
+  return Offer.updateMany(
+    {
+      requestId,
+      _id: { $ne: winningOfferId },
+      status: 'pending',
+    },
+    { $set: { status: 'rejected' } },
+    options
+  );
+};
+
 export default {
   create,
   findById,
   findByRequestId,
+  findAllByRequestId,
   findActiveForClient,
   countDailyStylistOffers,
   updateById,
   expireOldOffers,
+  findSiblingPendingOffers,
+  rejectSiblingOffers,
 };
+

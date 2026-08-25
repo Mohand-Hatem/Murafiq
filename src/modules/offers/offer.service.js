@@ -21,12 +21,14 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
     throw new ApiError(404, 'Request not found');
   }
 
-  const reqStylistId = reqDoc.stylistId._id?.toString() || reqDoc.stylistId.toString();
-  if (reqStylistId !== (stylistUser._id || stylistUser.id).toString()) {
-    throw new ApiError(403, 'Forbidden');
+  if (reqDoc.visibility === 'direct') {
+    const reqStylistId = reqDoc.stylistId?._id?.toString() || reqDoc.stylistId?.toString();
+    if (reqStylistId !== (stylistUser._id || stylistUser.id).toString()) {
+      throw new ApiError(403, 'Forbidden');
+    }
   }
 
-  if (reqDoc.status !== 'pending') {
+  if (reqDoc.status !== 'pending' && reqDoc.status !== 'offered') {
     throw new ApiError(400, `Cannot send offer for request in '${reqDoc.status}' status`);
   }
 
@@ -36,25 +38,27 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
     throw new ApiError(400, 'Request has expired');
   }
 
-  // 2. Check Stylist Daily Offer Cap (Africa/Cairo)
-  const { startOfDay, endOfDay } = getBusinessDayRange();
-  const dailyCount = await offerRepository.countDailyStylistOffers(
-    stylistUser._id || stylistUser.id,
-    startOfDay,
-    endOfDay
-  );
-
-  const maxDailyOffers = DEFAULT_CAPS.STYLIST_DAILY_OFFERS;
-  if (dailyCount >= maxDailyOffers) {
-    throw new ApiError(
-      403,
-      `Daily offer limit reached (${maxDailyOffers}/day). Try again tomorrow.`
+  // Check Stylist Daily Offer Cap only for broadcast offers
+  if (reqDoc.visibility === 'broadcast') {
+    const { startOfDay, endOfDay } = getBusinessDayRange();
+    const dailyCount = await offerRepository.countDailyStylistOffers(
+      stylistUser._id || stylistUser.id,
+      startOfDay,
+      endOfDay
     );
+
+    const maxDailyOffers = DEFAULT_CAPS.STYLIST_DAILY_OFFERS;
+    if (dailyCount >= maxDailyOffers) {
+      throw new ApiError(
+        403,
+        `Daily broadcast offer limit reached (${maxDailyOffers}/day). Try again tomorrow.`
+      );
+    }
   }
 
   const reqClientId = reqDoc.clientId._id?.toString() || reqDoc.clientId.toString();
 
-  // 3. Cross-request "one active offer per client" rule
+  // Cross-request "one active offer per client" rule
   const activeOffer = await offerRepository.findActiveForClient(
     stylistUser._id || stylistUser.id,
     reqClientId
@@ -66,15 +70,24 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
   // 24-hour offer expiration window
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  const newOffer = await offerRepository.create({
-    requestId,
-    stylistId: stylistUser._id || stylistUser.id,
-    clientId: reqClientId,
-    price: offerData.price,
-    duration: offerData.duration,
-    message: offerData.message,
-    expiresAt,
-  });
+  let newOffer;
+  try {
+    newOffer = await offerRepository.create({
+      requestId,
+      stylistId: stylistUser._id || stylistUser.id,
+      clientId: reqClientId,
+      requestVisibility: reqDoc.visibility || 'direct',
+      price: offerData.price,
+      duration: offerData.duration,
+      message: offerData.message,
+      expiresAt,
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      throw new ApiError(409, 'You have already submitted an offer for this request.');
+    }
+    throw err;
+  }
 
   // Transition request status to 'offered'
   await requestRepository.updateById(requestId, { status: 'offered' });
@@ -84,7 +97,24 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
   return toPublicOfferDto(newOffer);
 };
 
-export const acceptOffer = async (clientUser, offerId) => {
+// MongoDB can abort an operation for reasons that have nothing to do with a real competing offer —
+// e.g. `WriteConflict` / `TransientTransactionError` from ordinary storage-engine catalog activity,
+// or a lock-acquisition timeout on a plain read under contention. MongoDB's own driver docs say the
+// correct response to a transient-labeled error is to retry, not treat it as a business conflict.
+// The ACTUAL "someone else already won" case is the CAS lock in createBookingFromOffer returning
+// null, which already throws a real ApiError(409, ...) directly — that one propagates immediately,
+// every other ApiError (403/400/404 from validation) does too. Only genuine MongoDB transience retries.
+const isTransientMongoError = (err) =>
+  err.code === 112 || // WriteConflict
+  err.code === 24 || // LockTimeout
+  err.hasErrorLabel?.('TransientTransactionError') ||
+  err.message?.includes('WriteConflict') ||
+  err.message?.includes('Unable to acquire') ||
+  err.message?.includes('catalog changes');
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const acceptOfferOnce = async (clientUser, offerId) => {
   const offerDoc = await offerRepository.findById(offerId);
   if (!offerDoc) {
     throw new ApiError(404, 'Offer not found');
@@ -104,25 +134,46 @@ export const acceptOffer = async (clientUser, offerId) => {
     throw new ApiError(400, 'Offer has expired');
   }
 
-  let bookingDoc;
   let session;
   try {
     if (mongoose.connection?.readyState === 1) {
       session = await mongoose.startSession();
       session.startTransaction();
-      bookingDoc = await bookingService.createBookingFromOffer(offerId, session);
+      const bookingDoc = await bookingService.createBookingFromOffer(offerId, session);
       await session.commitTransaction();
-    } else {
-      bookingDoc = await bookingService.createBookingFromOffer(offerId, null);
+      return bookingDoc;
     }
+    return await bookingService.createBookingFromOffer(offerId, null);
   } catch (err) {
     if (session) {
-      try { await session.abortTransaction(); } catch (_) {}
+      try {
+        await session.abortTransaction();
+      } catch (_) {}
     }
     throw err;
   } finally {
     if (session) {
       try { session.endSession(); } catch (_) {}
+    }
+  }
+};
+
+export const acceptOffer = async (clientUser, offerId) => {
+  const MAX_TRANSIENT_RETRIES = 5;
+  const RETRY_BACKOFF_MS = 50;
+  let bookingDoc;
+
+  for (let attempt = 1; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    try {
+      bookingDoc = await acceptOfferOnce(clientUser, offerId);
+      break; // success
+    } catch (err) {
+      // A real business error (statusCode already set by an ApiError — the CAS lock's genuine 409,
+      // or a 400/403/404 from validation) never retries, regardless of attempts remaining.
+      if (err.statusCode || !isTransientMongoError(err) || attempt === MAX_TRANSIENT_RETRIES) {
+        throw err;
+      }
+      await sleep(RETRY_BACKOFF_MS * attempt); // small backoff so the contention actually clears
     }
   }
 
@@ -156,8 +207,27 @@ export const rejectOffer = async (clientUser, offerId) => {
   return toPublicOfferDto(updatedOffer);
 };
 
+// The request's own client comparing competing offers — the actual decision point a broadcast
+// request exists for. Full price/stylist comparison, intentionally: sealed-bid (§2.3 of the design
+// doc) hides offers from other STYLISTS, never from the client whose request they're bidding on.
+export const getOffersForRequest = async (clientUser, requestId) => {
+  const reqDoc = await requestRepository.findById(requestId);
+  if (!reqDoc) {
+    throw new ApiError(404, 'Request not found');
+  }
+
+  const reqClientId = reqDoc.clientId._id?.toString() || reqDoc.clientId?.toString();
+  if (reqClientId !== (clientUser._id || clientUser.id).toString()) {
+    throw new ApiError(403, 'Forbidden');
+  }
+
+  const offers = await offerRepository.findAllByRequestId(requestId);
+  return offers.map(toPublicOfferDto);
+};
+
 export default {
   createOffer,
   acceptOffer,
   rejectOffer,
+  getOffersForRequest,
 };

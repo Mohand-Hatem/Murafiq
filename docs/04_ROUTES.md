@@ -67,9 +67,10 @@
 
 | Method | Route | Auth | Status | Description |
 |---|---|---|---|---|
-| POST | `/requests` | 👤 | ✅ Built | Create a request targeted at a stylist (daily capped) |
+| POST | `/requests` | 👤 | ✅ Built | Create a direct (1:1) or open broadcast request |
 | GET | `/requests/mine` | 👤 | ✅ Built | Client's own submitted requests |
-| GET | `/requests/incoming` | 💇 | ✅ Built | Incoming requests targeted at this stylist |
+| GET | `/requests/incoming` | 💇 | ✅ Built | Incoming direct requests targeted at this stylist |
+| GET | `/requests/feed` | 💇 | ✅ Built | Stylist open broadcast request feed with geo/area filters |
 | PATCH | `/requests/:id/cancel` | 👤 | ✅ Built | Cancel a pending request |
 | PATCH | `/requests/:id/decline` | 💇 | ✅ Built | Stylist declines a pending request |
 
@@ -80,6 +81,7 @@
 | Method | Route | Auth | Status | Description |
 |---|---|---|---|---|
 | POST | `/offers/requests/:id` | 💇 | ✅ Built | Stylist sends an offer on a request (daily capped) |
+| GET | `/offers/requests/:id` | 👤 | ✅ Built | Client's own request: full offer comparison, sorted cheapest first (sealed-bid applies to other stylists, not the client) |
 | PATCH | `/offers/:id/accept` | 👤 | ✅ Built | Accept offer → atomic booking transaction |
 | PATCH | `/offers/:id/reject` | 👤 | ✅ Built | Reject an offer |
 

@@ -15,24 +15,25 @@ export const createRequest = async (clientUser, requestData) => {
     throw new ApiError(403, 'Your identity must be verified before creating requests');
   }
 
-  const { stylistId, meetingLocation, ...restData } = requestData;
+  const { stylistId, meetingLocation, visibility = 'direct', ...restData } = requestData;
 
-  // 2. Check target stylist's account & verification status
-  const targetStylist = await userRepository.findById(stylistId);
-  if (!targetStylist || targetStylist.role !== ROLES.STYLIST) {
-    throw new ApiError(404, 'Target stylist not found');
-  }
-  if (targetStylist.verification?.status !== 'verified') {
-    throw new ApiError(400, 'Target stylist is not identity-verified');
+  // 2. For direct requests: check target stylist's account & verification status
+  if (visibility === 'direct') {
+    const targetStylist = await userRepository.findById(stylistId);
+    if (!targetStylist || targetStylist.role !== ROLES.STYLIST) {
+      throw new ApiError(404, 'Target stylist not found');
+    }
+    if (targetStylist.verification?.status !== 'verified') {
+      throw new ApiError(400, 'Target stylist is not identity-verified');
+    }
+
+    const stylistProfile = await stylistRepository.findByUserId(stylistId);
+    if (!stylistProfile) {
+      throw new ApiError(400, 'Target stylist has not completed onboarding');
+    }
   }
 
-  // 3. Check completed StylistProfile
-  const stylistProfile = await stylistRepository.findByUserId(stylistId);
-  if (!stylistProfile) {
-    throw new ApiError(400, 'Target stylist has not completed onboarding');
-  }
-
-  // 4. Check Client Daily Request Cap (verified: 5/day, unverified: 2/day in Africa/Cairo)
+  // 3. Check Client Daily Request Cap (verified: 5/day, unverified: 2/day in Africa/Cairo)
   const { startOfDay, endOfDay } = getBusinessDayRange();
   const dailyCount = await requestRepository.countDailyClientRequests(
     clientUser._id || clientUser.id,
@@ -74,7 +75,8 @@ export const createRequest = async (clientUser, requestData) => {
 
   const requestDoc = await requestRepository.create({
     clientId: clientUser._id || clientUser.id,
-    stylistId,
+    visibility,
+    stylistId: visibility === 'direct' ? stylistId : null,
     meetingLocation: formattedLocation,
     expiresAt,
     ...restData,

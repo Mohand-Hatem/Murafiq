@@ -5,7 +5,19 @@ const { Schema } = mongoose;
 const requestSchema = new Schema(
   {
     clientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    stylistId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    visibility: {
+      type: String,
+      enum: ['direct', 'broadcast'],
+      required: true,
+      default: 'direct',
+    },
+    stylistId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: function () {
+        return this.visibility === 'direct';
+      },
+    },
     title: { type: String, required: true, trim: true },
     date: Date,
     time: String,
@@ -39,7 +51,15 @@ const requestSchema = new Schema(
 requestSchema.index({ clientId: 1, createdAt: -1 });
 requestSchema.index({ stylistId: 1, createdAt: -1 });
 requestSchema.index({ expiresAt: 1, status: 1 });
+requestSchema.index({ 'meetingLocation.location': '2dsphere' });
+requestSchema.index({
+  visibility: 1,
+  status: 1,
+  'meetingLocation.governorate': 1,
+  createdAt: -1,
+});
 
 const Request = mongoose.model('Request', requestSchema);
 
 export default Request;
+

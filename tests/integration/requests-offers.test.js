@@ -107,6 +107,7 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
     findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockRequestDoc)),
     countDailyClientRequests: jest.fn().mockImplementation(() => Promise.resolve(clientRequestCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
+    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'accepted' })),
     findMine: jest.fn().mockResolvedValue({ items: [mockRequestDoc], meta: { total: 1 } }),
     findIncoming: jest.fn().mockResolvedValue({ items: [mockRequestDoc], meta: { total: 1 } }),
     expireOldRequests: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
@@ -120,6 +121,8 @@ jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => (
     findActiveForClient: jest.fn().mockImplementation(() => Promise.resolve(activeOfferStore)),
     countDailyStylistOffers: jest.fn().mockImplementation(() => Promise.resolve(stylistOfferCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockOfferDoc, ...data })),
+    findSiblingPendingOffers: jest.fn().mockResolvedValue([]),
+    rejectSiblingOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     expireOldOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
   },
 }));
@@ -220,7 +223,8 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.price).toBe(250);
     });
 
-    it('should enforce stylist daily offer cap (max 10/day)', async () => {
+    it('should enforce stylist daily offer cap on broadcast requests (max 10/day)', async () => {
+      mockRequestDoc.visibility = 'broadcast';
       stylistOfferCount = 10; // Already sent 10 offers today!
 
       const res = await request(app)
@@ -232,7 +236,8 @@ describe('Phase 4 Integration — Requests & Offers', () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/Daily offer limit reached/i);
+      expect(res.body.message).toMatch(/Daily broadcast offer limit reached/i);
+      mockRequestDoc.visibility = 'direct';
     });
 
     it('should enforce cross-request one active offer per client rule (409)', async () => {

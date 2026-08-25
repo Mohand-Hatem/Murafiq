@@ -32,6 +32,12 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     throw new ApiError(404, 'Associated request not found');
   }
 
+  // Layer 1: Atomic CAS lock on the parent Request
+  const lockedRequest = await requestRepository.lockAndAccept(requestDoc._id, session);
+  if (!lockedRequest) {
+    throw new ApiError(409, 'This request has already been accepted via another offer.');
+  }
+
   // Calculate start and end minute offsets
   const startMinute = timeToMinutes(requestDoc.time || '10:00');
   const endMinute = startMinute + (offer.duration || 60);
@@ -51,7 +57,7 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     throw new ApiError(409, 'This time slot is already booked for this stylist');
   }
 
-  // Create booking with duplicate-offer protection
+  // Create booking with duplicate-offer / duplicate-request protection
   let bookingDoc;
   try {
     bookingDoc = await bookingRepository.create(
@@ -72,6 +78,9 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     );
   } catch (err) {
     if (err.code === 11000) {
+      if (err.keyPattern?.requestId) {
+        throw new ApiError(409, 'A booking has already been created for this request.');
+      }
       throw new ApiError(409, 'This offer has already been booked');
     }
     throw err;
@@ -116,9 +125,18 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     session
   );
 
-  // Update Request & Offer statuses to 'accepted'
-  await requestRepository.updateById(requestDoc._id, { status: 'accepted' }, session);
+  // Update winning Offer status to 'accepted'
   await offerRepository.updateById(offer._id, { status: 'accepted' }, session);
+
+  // Close all competing sibling offers on this request
+  const siblingOffers = await offerRepository.findSiblingPendingOffers(
+    requestDoc._id,
+    offer._id,
+    session
+  );
+  if (siblingOffers && siblingOffers.length > 0) {
+    await offerRepository.rejectSiblingOffers(requestDoc._id, offer._id, session);
+  }
 
   // Initialize closed chat room (unlocked upon payment)
   try {

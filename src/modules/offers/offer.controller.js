@@ -25,8 +25,17 @@ export const rejectOffer = asyncHandler(async (req, res) => {
   });
 });
 
+export const getOffersForRequest = asyncHandler(async (req, res) => {
+  const offers = await offerService.getOffersForRequest(req.user, req.params.id);
+  return ApiResponse.success(res, {
+    message: 'Offers retrieved successfully',
+    data: offers,
+  });
+});
+
 export default {
   createOffer,
   acceptOffer,
   rejectOffer,
+  getOffersForRequest,
 };

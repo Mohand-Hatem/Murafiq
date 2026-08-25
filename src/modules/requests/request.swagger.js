@@ -59,6 +59,10 @@
  *           type: array
  *           items:
  *             type: string
+ *         visibility:
+ *           type: string
+ *           enum: [direct, broadcast]
+ *           example: direct
  *         status:
  *           type: string
  *           enum: [pending, offered, accepted, rejected, expired, cancelled]
@@ -110,7 +114,7 @@
  * @swagger
  * /requests:
  *   post:
- *     summary: Create a targeted 1-on-1 request (Verified Client only, max 2/day)
+ *     summary: Create a direct or open broadcast request (Verified Client only)
  *     tags: [Requests]
  *     security:
  *       - bearerAuth: []
@@ -119,52 +123,55 @@
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [stylistId, title]
- *             properties:
- *               stylistId:
- *                 type: string
- *               title:
- *                 type: string
- *               date:
- *                 type: string
- *                 format: date-time
- *               time:
- *                 type: string
- *                 example: "14:00"
- *               meetingLocation:
- *                 type: object
+ *             oneOf:
+ *               - type: object
+ *                 required: [visibility, stylistId, title]
  *                 properties:
- *                   address:
+ *                   visibility:
  *                     type: string
- *                   country:
+ *                     enum: [direct]
+ *                   stylistId:
  *                     type: string
- *                   governorate:
+ *                   title:
  *                     type: string
- *                   city:
+ *                   date:
  *                     type: string
- *                   area:
+ *                     format: date-time
+ *                   time:
  *                     type: string
- *                   lat:
- *                     type: number
- *                   lng:
- *                     type: number
- *               description:
- *                 type: string
- *               budgetRange:
- *                 type: object
+ *                   meetingLocation:
+ *                     type: object
+ *                   description:
+ *                     type: string
+ *                   budgetRange:
+ *                     type: object
+ *                   images:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *               - type: object
+ *                 required: [visibility, title]
  *                 properties:
- *                   min:
- *                     type: number
- *                     minimum: 100
- *                   max:
- *                     type: number
- *                     minimum: 100
- *               images:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uri
+ *                   visibility:
+ *                     type: string
+ *                     enum: [broadcast]
+ *                   title:
+ *                     type: string
+ *                   date:
+ *                     type: string
+ *                     format: date-time
+ *                   time:
+ *                     type: string
+ *                   meetingLocation:
+ *                     type: object
+ *                   description:
+ *                     type: string
+ *                   budgetRange:
+ *                     type: object
+ *                   images:
+ *                     type: array
+ *                     items:
+ *                       type: string
  *     responses:
  *       201:
  *         description: Request created successfully
@@ -173,17 +180,73 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseRequestSuccess'
  *       400:
- *         description: Target stylist not verified or onboarding incomplete / Validation error
+ *         description: Validation error / Target stylist not verified
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
  *       403:
- *         description: Client identity not verified OR daily request cap reached (2/day)
+ *         description: Client identity not verified OR daily request cap reached
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /requests/feed:
+ *   get:
+ *     summary: Get open broadcast requests feed (Stylist only)
+ *     tags: [Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: governorate
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: city
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: lat
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: lng
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: radiusKm
+ *         schema:
+ *           type: number
+ *           default: 10
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           example: "createdAt:desc"
+ *     responses:
+ *       200:
+ *         description: Broadcast feed retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponseRequestsListSuccess'
+ *       403:
+ *         description: Only stylists can access the broadcast feed
  */
 
 /**

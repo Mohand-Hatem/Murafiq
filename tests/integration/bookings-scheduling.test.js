@@ -88,6 +88,7 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
   default: {
     findById: jest.fn().mockImplementation(() => Promise.resolve(mockRequestDoc)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
+    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'accepted' })),
   },
 }));
 
@@ -95,6 +96,8 @@ jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => (
   default: {
     findById: jest.fn().mockImplementation(() => Promise.resolve(mockOfferDoc)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockOfferDoc, ...data })),
+    findSiblingPendingOffers: jest.fn().mockResolvedValue([]),
+    rejectSiblingOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
   },
 }));
 

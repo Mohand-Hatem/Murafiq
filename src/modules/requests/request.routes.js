@@ -15,8 +15,10 @@ router.post('/', restrictTo(ROLES.CLIENT), validate(createRequestSchema), reques
 router.get('/mine', restrictTo(ROLES.CLIENT), requestController.getMine);
 router.patch('/:id/cancel', restrictTo(ROLES.CLIENT), requestController.cancelRequest);
 
-// Stylist-only incoming requests & decline
+// Stylist-only incoming requests, broadcast feed & decline
+router.get('/feed', restrictTo(ROLES.STYLIST), requestController.getBroadcastFeed);
 router.get('/incoming', restrictTo(ROLES.STYLIST), requestController.getIncoming);
 router.patch('/:id/decline', restrictTo(ROLES.STYLIST), requestController.declineRequest);
 
 export default router;
+
