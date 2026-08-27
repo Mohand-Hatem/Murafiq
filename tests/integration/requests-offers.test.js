@@ -223,9 +223,9 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.price).toBe(250);
     });
 
-    it('should enforce stylist daily offer cap on broadcast requests (max 10/day)', async () => {
+    it('should enforce stylist daily offer cap on broadcast requests (max 5/day)', async () => {
       mockRequestDoc.visibility = 'broadcast';
-      stylistOfferCount = 10; // Already sent 10 offers today!
+      stylistOfferCount = 5; // Already sent 5 offers today!
 
       const res = await request(app)
         .post(`/api/v1/offers/requests/${mockRequestDoc._id}`)

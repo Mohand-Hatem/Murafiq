@@ -149,8 +149,8 @@ describe('Open Broadcast Requests — Integration Tests', () => {
     expect(res.body.success).toBe(true);
   });
 
-  it('should enforce daily offer cap on broadcast offers (max 10/day)', async () => {
-    stylistOfferCount = 10; // Already sent 10 broadcast offers today
+  it('should enforce daily offer cap on broadcast offers (max 5/day)', async () => {
+    stylistOfferCount = 5; // Already sent 5 broadcast offers today
 
     const res = await request(app)
       .post(`/api/v1/offers/requests/${mockBroadcastRequestDoc._id}`)
