@@ -7,8 +7,12 @@ import {
   approveVerificationSchema,
   rejectVerificationSchema,
   resolveDisputeSchema,
+  resolveNoShowSchema,
   suspendUserSchema,
   reactivateUserSchema,
+  restrictUserSchema,
+  blockUserSchema,
+  unblockUserSchema,
 } from './admin.validator.js';
 import adminController from './admin.controller.js';
 import { hideReviewSchema } from '../reviews/review.validator.js';
@@ -61,6 +65,33 @@ router.patch(
   adminController.reactivateUser
 );
 
+router.route('/users/:id/block')
+  .post(restrictTo(ROLES.ADMIN), validate(blockUserSchema), adminController.blockUser)
+  .patch(restrictTo(ROLES.ADMIN), validate(blockUserSchema), adminController.blockUser);
+
+router.route('/users/:id/unblock')
+  .post(restrictTo(ROLES.ADMIN), validate(unblockUserSchema), adminController.unblockUser)
+  .patch(restrictTo(ROLES.ADMIN), validate(unblockUserSchema), adminController.unblockUser);
+
+router.patch(
+  '/users/:id/restrict',
+  restrictTo(ROLES.ADMIN),
+  validate(restrictUserSchema),
+  adminController.restrictUser
+);
+
+router.patch(
+  '/users/:id/unrestrict',
+  restrictTo(ROLES.ADMIN),
+  adminController.unrestrictUser
+);
+
+router.patch(
+  '/users/:id/revoke-sessions',
+  restrictTo(ROLES.ADMIN),
+  adminController.revokeUserSessions
+);
+
 // Dispute management (Admin only)
 router.get(
   '/bookings/disputed',
@@ -75,12 +106,34 @@ router.patch(
   adminController.resolveDispute
 );
 
+// Arbitration of a CONTESTED no-show. An uncontested report settles on its own via the
+// response window / auto-resolution sweep and never reaches this endpoint.
+router.patch(
+  '/bookings/:id/resolve-no-show',
+  restrictTo(ROLES.ADMIN),
+  validate(resolveNoShowSchema),
+  adminController.resolveNoShow
+);
+
 // Review moderation (Admin only)
 router.patch(
   '/reviews/:id/hide',
   restrictTo(ROLES.ADMIN),
   validate(hideReviewSchema),
   reviewController.hideReview
+);
+
+// Financial Ledger Statements & Reconciliation (Admin only)
+router.get(
+  '/ledger/statements',
+  restrictTo(ROLES.ADMIN),
+  adminController.getLedgerStatements
+);
+
+router.get(
+  '/ledger/reconciliation',
+  restrictTo(ROLES.ADMIN),
+  adminController.runLedgerReconciliation
 );
 
 // Audit logs (Admin only)

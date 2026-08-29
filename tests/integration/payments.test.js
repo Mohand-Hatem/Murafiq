@@ -83,6 +83,34 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
   },
 }));
 
+/**
+ * The ledger must be mocked here for the same reason every repository above is.
+ *
+ * This suite mocks the whole persistence layer and never opens a database connection, so
+ * an unmocked `ledgerService.postEntry()` reached the real `LedgerEntry` model, Mongoose
+ * buffered the insert against a connection that will never arrive, and the operation sat
+ * there until the 10-second buffering timeout fired. The dual-write try/catch then
+ * swallowed it as "[Ledger Dual-Write Warning] ... buffering timed out after 10000ms".
+ *
+ * That warning was noise here, but it was hiding a genuine signal: the same message is
+ * what a REAL ledger failure produces in production. Keeping the test output clean is what
+ * makes that message meaningful when it appears for real.
+ *
+ * `postEntry` is asserted on rather than merely silenced, so these tests still prove the
+ * ledger is invoked with the right arguments.
+ */
+const mockPostEntry = jest.fn().mockResolvedValue({ _id: '60f719b8f1a2c81234567866' });
+jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
+  default: {
+    postEntry: mockPostEntry,
+    egpToPiastres: (egp) => Math.round(egp * 100),
+    piastresToEgp: (p) => p / 100,
+  },
+  postEntry: mockPostEntry,
+  egpToPiastres: (egp) => Math.round(egp * 100),
+  piastresToEgp: (p) => p / 100,
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {

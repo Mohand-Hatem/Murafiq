@@ -55,7 +55,7 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
       title: 'Real In-Memory Styling Session',
       date: new Date('2026-09-01T00:00:00.000Z'),
       time: '10:00',
-      status: 'pending',
+      status: 'OPEN',
     });
 
     // Create real offer
@@ -65,7 +65,7 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
       stylistId: stylistUser._id,
       price: 1000,
       duration: 60,
-      status: 'pending',
+      status: 'PENDING',
     });
   });
 
@@ -101,7 +101,7 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
       title: 'Conflicting Request',
       date: new Date('2026-09-01T00:00:00.000Z'),
       time: '10:00',
-      status: 'pending',
+      status: 'OPEN',
     });
 
     const secondOffer = await Offer.create({
@@ -110,7 +110,7 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
       stylistId: stylistUser._id,
       price: 1200,
       duration: 60,
-      status: 'pending',
+      status: 'PENDING',
     });
 
     // 3. Attempting to accept conflicting offer must fail with 409
@@ -119,25 +119,26 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
     );
   });
 
-  it('retains 25% platform fee and sets PARTIALLY_REFUNDED status on <24h cancellation', async () => {
+  it('retains 20% fee and sets PARTIALLY_REFUNDED status on <24h cancellation', async () => {
     // Set scheduled date within 4 hours
     const nearFuture = new Date(Date.now() + 4 * 60 * 60 * 1000);
     await Request.findByIdAndUpdate(requestDoc._id, { date: nearFuture });
 
     const booking = await offerService.acceptOffer(clientUser, offerDoc._id.toString());
+    const bookingId = booking.id || booking._id;
 
     // Mark payment paid
-    await Payment.findOneAndUpdate({ bookingId: booking._id }, { status: 'paid', paidAt: new Date() });
+    await Payment.findOneAndUpdate({ bookingId }, { status: 'paid', paidAt: new Date() });
 
     // Cancel booking as client < 24h before
-    await bookingService.cancelBooking(clientUser, booking._id.toString(), {
+    await bookingService.cancelBooking(clientUser, bookingId.toString(), {
       reason: 'Emergency reschedule',
     });
 
-    const updatedPayment = await Payment.findOne({ bookingId: booking._id });
+    const updatedPayment = await Payment.findOne({ bookingId });
     expect(updatedPayment.status).toBe('partially_refunded');
-    expect(updatedPayment.refundAmount).toBe(750.0);
-    expect(updatedPayment.platformFeeAmount).toBe(250.0);
+    expect(updatedPayment.refundAmount).toBe(800.0);
+    expect(updatedPayment.platformFeeAmount).toBe(200.0);
     expect(updatedPayment.stylistPayoutAmount).toBe(0.0);
 
     // Ledger invariant holds

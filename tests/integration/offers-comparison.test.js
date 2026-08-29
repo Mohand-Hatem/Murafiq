@@ -71,7 +71,7 @@ describe('Offer Comparison — GET /offers/requests/:id (client-only, ownership-
       clientId: ownerClient._id,
       visibility: 'broadcast',
       title: 'Competitive Makeup Session',
-      status: 'offered',
+      status: 'OPEN',
       date: new Date('2026-10-01T12:00:00.000Z'),
       time: '12:00',
       expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
@@ -84,7 +84,7 @@ describe('Offer Comparison — GET /offers/requests/:id (client-only, ownership-
       requestVisibility: 'broadcast',
       price: 700,
       duration: 60,
-      status: 'pending',
+      status: 'PENDING',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
@@ -95,7 +95,7 @@ describe('Offer Comparison — GET /offers/requests/:id (client-only, ownership-
       requestVisibility: 'broadcast',
       price: 550,
       duration: 45,
-      status: 'pending',
+      status: 'PENDING',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
   });

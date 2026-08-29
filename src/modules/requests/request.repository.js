@@ -1,4 +1,5 @@
 import Request from './request.model.js';
+import { REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
 
 export const create = async (data) => {
   const reqDoc = await Request.create(data);
@@ -68,18 +69,23 @@ export const countDailyClientRequests = async (clientId, startOfDay, endOfDay) =
   });
 };
 
-export const updateById = async (id, data) => {
-  return Request.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate([
+export const updateById = async (id, data, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Request.findByIdAndUpdate(id, data, options).populate([
     { path: 'clientId', select: 'name profileImage' },
     { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
+// An unanswered request is PAUSED, not expired — the client can reactivate it. This is
+// the §8 rule: 'expired' used to be terminal and stranded the request permanently.
 export const expireOldRequests = async () => {
   const now = new Date();
   return Request.updateMany(
-    { status: 'pending', expiresAt: { $lt: now } },
-    { $set: { status: 'expired' } }
+    { status: REQUEST_STATUS.OPEN, expiresAt: { $lt: now } },
+    { $set: { status: REQUEST_STATUS.PAUSED, pausedAt: now } }
   );
 };
 
@@ -87,10 +93,25 @@ export const lockAndAccept = async (requestId, session = null) => {
   const options = { returnDocument: 'after' };
   if (session) options.session = session;
   return Request.findOneAndUpdate(
-    { _id: requestId, status: { $in: ['pending', 'offered'] } },
-    { $set: { status: 'accepted' } },
+    { _id: requestId, status: REQUEST_STATUS.OPEN },
+    { $set: { status: REQUEST_STATUS.FULFILLED } },
     options
   );
+};
+
+export const findAutoPausableRequests = async (now = new Date()) => {
+  return Request.find({
+    status: REQUEST_STATUS.OPEN,
+    offerCount: { $lte: 0 },
+    autoPauseAt: { $lte: now, $ne: null },
+  });
+};
+
+export const findPausedByClientId = async (clientId) => {
+  return Request.find({
+    clientId,
+    status: REQUEST_STATUS.PAUSED,
+  });
 };
 
 export default {
@@ -102,5 +123,6 @@ export default {
   updateById,
   expireOldRequests,
   lockAndAccept,
+  findAutoPausableRequests,
+  findPausedByClientId,
 };
-

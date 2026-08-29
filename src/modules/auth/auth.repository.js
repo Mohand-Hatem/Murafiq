@@ -6,19 +6,19 @@ import User from '../users/user.model.js';
 
 const findByEmail = (email, { withSecrets = false } = {}) => {
   const query = User.findOne({ email: email.toLowerCase() });
-  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt +refreshTokenHash');
+  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt');
   return query;
 };
 
 const findById = (id, { withSecrets = false } = {}) => {
   const query = User.findById(id);
-  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt +refreshTokenHash');
+  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt');
   return query;
 };
 
 const findByGoogleId = (googleId, { withSecrets = false } = {}) => {
   const query = User.findOne({ googleId });
-  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt +refreshTokenHash');
+  if (withSecrets) query.select('+passwordHash +otpCode +otpExpiresAt');
   return query;
 };
 

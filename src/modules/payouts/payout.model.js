@@ -7,6 +7,14 @@ const payoutSchema = new Schema(
     stylistId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     bookingIds: [{ type: Schema.Types.ObjectId, ref: 'Booking', required: true }],
     amount: { type: Number, required: true, min: 0 },
+    grossAmount: { type: Number, min: 0 },
+    deductions: [
+      {
+        penaltyId: { type: Schema.Types.ObjectId, ref: 'Penalty' },
+        amountMinor: { type: Number, min: 0 },
+        reasonType: String,
+      },
+    ],
     currency: { type: String, default: 'EGP' },
     status: {
       type: String,

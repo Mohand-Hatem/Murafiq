@@ -35,8 +35,15 @@
 - Layered: `Route → Validator → Controller → Service → Repository → Model`. Swagger
   annotations live in `<module>.swagger.js`, never inline in `<module>.routes.js`.
 - **No cross-module Mongoose model imports.** A module calls another module's
-  *service*, never its model directly. The one exception: `auth.repository.js` may
-  import `user.model.js` (documented exception — Auth/Users share `User`). Chat
+  *service*, never its model directly. Two documented exceptions:
+  (1) `auth.repository.js` may import `user.model.js` (Auth/Users share `User`);
+  (2) `subscriptions/entitlement.service.js` may import `request.model.js` and
+  `offer.model.js` **for read-only `countDocuments` capacity checks only**. Routing
+  those counts through `requestService`/`offerService` would be circular — both of
+  those services call `entitlementService` on every create — and breaking the cycle
+  with lazy imports or an injected registry would be more fragile than the exception.
+  This exception does not extend to writes: entitlement must never mutate another
+  module's documents. Chat
   follows the same isolation rule for Firestore: only `chat.service.js` touches
   `firebase-admin`; other modules that need chat data call `chatService`.
 - **Provider pattern** for anything with a real/expensive/external version: Payments
@@ -78,9 +85,10 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - **Time storage:** Booking/ScheduleBlock times are **integer minutes-since-midnight**
   (`timeToMinutes()`/`minutesToTime()` from `common/utils/timeUtils.js`), never a raw
   string — string comparison silently breaks overlap detection.
-- **Money:** decimal EGP, 2 decimal places, `round2()` helper. Piastres conversion
-  happens **only** inside `paymob.provider.js` at the external boundary — never in
-  models/services/DTOs. See "Payments" below for the full invariant set.
+- **Money:** decimal EGP, 2 decimal places, `round2()` helper in existing operational models (Payment, Booking, StylistProfile).
+  Integer piastres (`amountMinor`) is stored **strictly in the ledger** (`LedgerEntry`) for zero-drift reconciliation.
+  The conversion boundary happens at `ledger.service.postEntry()` (`egpToPiastres`) and at external Paymob boundaries.
+  See "Payments" below for the full invariant set.
 - **Location:** GeoJSON `[lng, lat]` order (reverse of how Google Maps returns it) —
   a recurring off-by-order bug source. `2dsphere` index required on any location field
   used in geo queries.
@@ -135,9 +143,13 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - Daily caps enforced at domain level, not HTTP rate-limiting: 2 requests/day per
   client, 5 offers/day per stylist, both counted regardless of eventual status
   (cancelled/expired still count).
-- **One active (`pending`) offer per stylist–client pair at a time**, across all of
-  that client's requests — not just "one offer per request." Check via the
-  `{stylistId, clientId, status}` index before creating a new offer.
+- **Multiple simultaneous offers are allowed** — a stylist may hold several live offers
+  to the same client and up to 3 on the same request. The former "one active
+  (`pending`) offer per stylist–client pair" rule and the `{requestId, stylistId}`
+  unique index were both removed by the Business Rules Revision (§7). Limits are now
+  entitlement-based: `offers.daily` (a counter that resets on the Cairo business day)
+  and `offers.active` (a live count of `PENDING` offers) — two separate mechanisms,
+  resolved only through `entitlement.service`.
 - Offer acceptance and booking creation are **one transaction, one service call** —
   never split into accept-then-listen-for-event for the core write.
 - Expiry is checked two ways: lazily on read, and proactively swept (Phase 12). Always

@@ -1,4 +1,5 @@
 import Offer from './offer.model.js';
+import { OFFER_STATUS } from '../../common/constants/statuses.constant.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -27,9 +28,7 @@ export const findByRequestId = async (requestId, session = null) => {
   ]);
 };
 
-// Full offer comparison for the request's own client — a broadcast request can have many
-// competing offers (findByRequestId above only ever returns one, a leftover from the pre-broadcast
-// 1:1 model). Sorted cheapest-first since price comparison is the primary reason a client views this.
+// Full offer comparison for the request's own client — sorted cheapest-first
 export const findAllByRequestId = async (requestId) => {
   return Offer.find({ requestId })
     .sort({ price: 1 })
@@ -40,23 +39,30 @@ export const findAllByRequestId = async (requestId) => {
 };
 
 export const findActiveForClient = async (stylistId, clientId, session = null) => {
-  const query = Offer.findOne({ stylistId, clientId, status: 'pending' });
+  const query = Offer.findOne({ stylistId, clientId, status: OFFER_STATUS.PENDING });
   if (session) query.session(session);
   return query;
+};
+
+export const countByStylistAndRequest = async (stylistId, requestId) => {
+  return Offer.countDocuments({
+    stylistId,
+    requestId,
+    status: { $in: [OFFER_STATUS.PENDING, OFFER_STATUS.ACCEPTED] },
+  });
 };
 
 export const countDailyStylistOffers = async (stylistId, startOfDay, endOfDay) => {
   return Offer.countDocuments({
     stylistId,
-    requestVisibility: 'broadcast',
     createdAt: { $gte: startOfDay, $lte: endOfDay },
   });
 };
 
 export const updateById = async (id, data, session = null) => {
-  const query = Offer.findByIdAndUpdate(id, data, { new: true, runValidators: true });
-  if (session) query.session(session);
-  return query.populate([
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+  return Offer.findByIdAndUpdate(id, data, options).populate([
     { path: 'stylistId', select: 'name profileImage' },
     { path: 'clientId', select: 'name profileImage' },
   ]);
@@ -65,8 +71,14 @@ export const updateById = async (id, data, session = null) => {
 export const expireOldOffers = async () => {
   const now = new Date();
   return Offer.updateMany(
-    { status: 'pending', expiresAt: { $lt: now } },
-    { $set: { status: 'expired' } }
+    {
+      status: OFFER_STATUS.PENDING,
+      $or: [
+        { expiresAt: { $lt: now } },
+        { longStopExpiresAt: { $lt: now } },
+      ],
+    },
+    { $set: { status: OFFER_STATUS.EXPIRED } }
   );
 };
 
@@ -74,23 +86,27 @@ export const findSiblingPendingOffers = async (requestId, winningOfferId, sessio
   const query = Offer.find({
     requestId,
     _id: { $ne: winningOfferId },
-    status: 'pending',
+    status: OFFER_STATUS.PENDING,
   });
   if (session) query.session(session);
   return query;
 };
 
-export const rejectSiblingOffers = async (requestId, winningOfferId, session = null) => {
+export const closeSiblingOffers = async (requestId, winningOfferId, session = null) => {
   const options = session ? { session } : {};
   return Offer.updateMany(
     {
       requestId,
       _id: { $ne: winningOfferId },
-      status: 'pending',
+      status: OFFER_STATUS.PENDING,
     },
-    { $set: { status: 'rejected' } },
+    { $set: { status: OFFER_STATUS.CLOSED } },
     options
   );
+};
+
+export const rejectSiblingOffers = async (requestId, winningOfferId, session = null) => {
+  return closeSiblingOffers(requestId, winningOfferId, session);
 };
 
 export default {
@@ -99,10 +115,11 @@ export default {
   findByRequestId,
   findAllByRequestId,
   findActiveForClient,
+  countByStylistAndRequest,
   countDailyStylistOffers,
   updateById,
   expireOldOffers,
   findSiblingPendingOffers,
+  closeSiblingOffers,
   rejectSiblingOffers,
 };
-

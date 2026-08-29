@@ -70,13 +70,93 @@ Legend:
 | 9 — Uploads & Mail | ✅ **Built** (Cloudinary + Multer memory storage, Sharp in-memory compression, signed KYC URLs, Resend provider, SendGrid 501 stub, and 5 HTML email templates). |
 | 10 — Audit Log & Admin | ✅ **Built** (audit log, dispute resolution, suspend/reactivate, review hide/unhide, `GET /admin/users` listing/search, and `GET /admin/dashboard/stats`). |
 | 11 — Safety & Payouts | ✅ **Payouts Built** (`src/modules/payouts/`, stylist self-serve credentials, admin batch disbursement, ledger balance aggregation, double-payout guards). |
-| 12 — Background Jobs | ⚠️ **Re-scoped, partial** — offer-expiry sweep done via `node-cron`; OTP-cleanup and session-reminder sweeps still to build, same pattern. Redis/BullMQ deliberately moved to Phase 14, not deferred indefinitely — see §6. |
+| 12 — Background Jobs | ✅ **Complete** — offer-expiry sweep, request 48h auto-pause sweep, OTP-cleanup sweep, and session-reminder sweeps active via `node-cron` with single-instance guards (all sweeps closed in Stage R4). Redis/BullMQ deliberately assigned to Phase 14. |
 | 13 — Security/Logging/Docs/Tests | ⚠️ **Hardened** (Swagger protected in prod, OTP lockout, Firebase production fail-safe). |
 | 14 — Wardrobe | ⛔ Not built — the module does not exist. Now also owns installing Redis + BullMQ (moved from Phase 12) — see `HARDENING_07` Part 2. |
 | 15 — AI | ⛔ Not built |
 | 16 — Deployment Readiness | ⚠️ **Decision recorded** — single VPS/PM2 path (`ecosystem.config.cjs` + rewritten `PHASE_16_DEPLOYMENT_READINESS.md`). Not yet deployed to a real server. |
 
-**Verified build state:** `npm test` → 51 suites / 214 tests pass (including in-memory MongoDB replica-set integration and concurrency race tests).
+> [!NOTE]
+> **Business Rules Revision — Stages R0 through R12: 100% COMPLETE & VERIFIED.** `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`
+> (added 2026-08-27) is a cross-cutting revision of business rules across Phases 1–13, **not a Phase 17**
+> — it does not extend the build sequence and does not wait on Phases 14–16. Its stages are `R0`–`R12`.
+> **Stage R0 (Corrections), Stage R1 (Domain Foundation), Stage R2 (Financial Ledger), Stage R3 (Subscriptions & Entitlements Engine), Stage R4 (Request Lifecycle Revision), Stage R5 (Offer Lifecycle Revision), Stage R6 (Cancellation, Refunds & Penalties), Stage R7 (Safety & Real-Time Content Moderation), Stage R8 (Reviews & Reliability Scoring), Stage R9 (Disputes & Arbitration Enforcement), Stage R10 (Geo / Location Engine & Egyptian Administrative Hierarchy), Stage R11 (Admin & Operations Controls), and Stage R12 (Final Verification, Full 73-Suite Regression & Rollout Hardening) are 100% complete, passing, and verified.** All blocking business values are now decided (see its Decisions
+> Log); two human sign-offs remain before the moderation enforcement cutover.
+
+> [!NOTE]
+> **Revision correction pass — 2026-08-28.** A review of the first implementation pass found seven
+> further defects, all now fixed and covered by tests. **`npm test` → 75 suites / 373 tests pass,
+> `npm run lint` clean, `src/app.js` boots.**
+> 1. **Client late-cancellation split had been invented.** The constants carried a 15% stylist
+>    compensation and a 5% platform fee; §H specifies **platform 20% / client 80% / stylist 0**.
+>    This changed revenue on every late cancellation. Now pinned by
+>    `tests/unit/no-show.policy.test.js`, verified by sabotage-and-restore.
+> 2. **Stylist early-cancellation penalty was missing** — `calculateCancellationOutcome` returned
+>    `penaltyAmount: 0` for `EARLY_STYLIST_CANCEL` instead of the specified 3%.
+> 3. **Penalty ledger writes silently failed.** `entryType: 'PENALTY'` is not in the `LedgerEntry`
+>    enum (`PENALTY_ASSESSMENT` is), so every entry failed validation into a catch block — the
+>    penalty was recorded on `Penalty` but never in the ledger that is meant to be the audit truth.
+> 4. **Enums were widened but never narrowed, and no status backfill existed.** `pending` and `OPEN`
+>    were simultaneously valid, with ~23 dual-casing checks scattered through the services. Added the
+>    status migration to `scripts/backfill-revision-foundation.js` (raw-driver so it bypasses the
+>    narrowed enums, idempotent, with a completeness guard that throws if anything is left behind),
+>    narrowed both enums, and replaced every literal with `REQUEST_STATUS` / `OFFER_STATUS`.
+> 5. **`offered` was still being written** alongside `offerCount` — two sources of truth for one fact.
+>    Removed. `firstOfferAt` was declared but never written or read; it is now set atomically via
+>    `$min` (correct under concurrent offer creation) and drives edit-immutability.
+> 6. **`rejectOffer` still reset the parent request to open-with-no-offers**, discarding the sibling
+>    bids the client was actively comparing.
+> 7. **No yearly plans existed** — all 9 were monthly. Added 7 yearly variants derived from their
+>    monthly counterpart so entitlements can never drift between billing cycles.
+>
+> **Second correction pass (same day).** Four further gaps closed, all verified:
+> 8. **Access-token revocation did not work.** `User.tokenVersion` was incremented in three places but
+>    was **never written into the JWT and never checked** by `auth.middleware.js` — so suspending,
+>    restricting or banning a user left their access token fully working until it expired. The
+>    counter incremented into the void. Now stamped as the `tv` claim, checked on every request via
+>    a 30s in-process cache (`common/utils/tokenVersionCache.js`), invalidated immediately on
+>    revocation. `suspendUser` and moderation's auto-suspend/auto-restrict also failed to revoke;
+>    both fixed. Covered by `tests/integration/token-revocation.test.js` (verified by sabotage).
+> 9. **Coupons could be issued but never spent.** `redeemCoupon` existed and nothing called it.
+>    Now wired into `POST /payments/:bookingId/initialize` via an optional `couponCode`; the
+>    discount is recomputed server-side, `Payment` gained `couponCode`/`discountAmount`/`grossAmount`,
+>    and a `COUPON_DISCOUNT` ledger entry is posted. **The platform absorbs the discount, not the
+>    stylist** — their agreed price is untouched.
+> 10. **Admin no-show arbitration was unreachable** — `adminResolveNoShow` had no route.
+>     Added `PATCH /admin/bookings/:id/resolve-no-show`.
+> 11. **The "Report message" flow was missing.** It is the only cover for threats and harassment
+>     with no ML classifier in the pipeline (§I.2), so the spec makes it mandatory. Added
+>     `moderationService.reportContent` and `POST /chat/:conversationId/report`; records a PENDING
+>     event for review and never enforces on its own.
+>
+> **`firestore.rules` message-create is now `if false`** — but see the deploy-order warning in the
+> file itself: it must ship AFTER the mobile client that sends via REST, or every message send
+> breaks instantly.
+>
+> **The migration has now actually been run**, against a seeded legacy database in a throwaway
+> replica set. It exposed a further bug: the `offerCount` backfill read through the Mongoose model,
+> whose schema default of `0` masked genuinely-absent fields, so the `=== undefined` check could
+> never fire — it reported success while leaving `offerCount` unset, which would have made the
+> auto-pause sweep pause requests that had live offers. Rewritten to read through the raw driver and
+> to recompute `offerCount` from the offers themselves, with a completeness guard that throws.
+> Verified: `pending`/`offered`→`OPEN`, `expired`→`PAUSED`, and losing bids correctly split into
+> `CLOSED` (a sibling won) vs `REJECTED` (the client declined).
+>
+> Also built in an earlier pass, neither of which existed beyond a bare model: the **no-show flow**
+> (`src/modules/bookings/no-show.service.js` — filing gated on a grace window and the reporter's own
+> check-in, a response window for the accused, auto-resolution sweep, admin arbitration) and the
+> **coupon module** (repository, service, controller, routes, validator; issuance idempotent on
+> `{sourceBookingId, issuedReason}`, redemption via CAS).
+
+> [!NOTE]
+> **Defects surfaced by the Revision analysis pass (2026-08-27) & status:**
+> 1. ✅ **`Payment.refundedAt` silent drop fixed (Stage R0):** Added `refundedAt: Date` to `paymentSchema` in `src/modules/payments/payment.model.js`.
+> 2. ✅ **The broadcast feed defeats multi-offer bidding fixed (Stage R4):** `request-feed.service.js` updated to query `status: { $in: ['pending', 'offered', 'OPEN'] }`, unexpired 48h timer, keeping broadcast requests in stylists' feeds across multiple competing bids.
+> 3. ✅ **`docs/MONEY_AND_LEDGER.md` §3 corrected (Stage R0):** Updated to reflect actual 2-tier cancellation policy (100% at ≥24h, 75% under, per `statuses.constant.js:25` and `booking.service.js:500-511`).
+> 4. ✅ **`BOOKING_STATUS.PENDING` removed (Stage R0):** Deleted dead constant from `statuses.constant.js`.
+> 5. ✅ **`DEFAULT_CAPS.CLIENT_DAILY_REQUESTS_UNVERIFIED` removed (Stage R0):** Deleted dead config and simplified `request.service.js` cap check.
+
+**Verified build state:** `npm test` → 78 suites / 387 tests pass (including in-memory MongoDB replica-set integration, ledger dual-write integration, entitlement quota checks, broadcast multi-bid integration, offer lifecycle tests, cancellation tiers, moderation scanner, reviews reliability scoring, dispute arbitration, Egyptian geo engine, admin/operator operations tests, and public client profile/mutual discovery tests).
 **`npm run lint` → PASSES** (0 errors, 0 warnings). GitHub Actions CI workflow active.
 
 ---
@@ -85,22 +165,24 @@ Legend:
 
 | Module | Status | Notes |
 |---|---|---|
-| `auth/` | ✅ Active | 10 routes. JWT access 15m + refresh 30d, dual cookie/Bearer delivery, bcrypt 12, hashed OTP with 5-attempt lockout, session invalidation on password change, Google ID-token verification. |
-| `users/` | ✅ Active | 5 routes + the verification service backing `/admin/verifications` (using Cloudinary documentRefs). |
-| `stylists/` | ✅ Active | 6 routes incl. `$geoNear` search aggregation, cancellation counter tracking, and payout credentials. |
-| `requests/` | ✅ Active | 6 routes (`POST /requests`, `GET /mine`, `GET /incoming`, `GET /feed`, `PATCH /:id/cancel`, `PATCH /:id/decline`). Supports both Direct (1:1) and Open Broadcast requests, Zod discriminated union, sealed-bid feed with location filtering (`governorate`/`city`/`$geoNear`). 48h expiry, daily request caps. |
-| `offers/` | ✅ Active | 4 routes. 24h expiry, unique compound index `{requestId, stylistId}` preventing duplicate bids, uncapped direct offers, `DEFAULT_CAPS.STYLIST_DAILY_OFFERS` (5/day) applied strictly to broadcast bids. `GET /offers/requests/:id` — client-only, ownership-scoped comparison of every competing offer, sorted price-ascending; this was the actual point of broadcast requests and was missing from the initial build (design-doc error, not implementation error — see `OPEN_BROADCAST_REQUESTS_DESIGN.md` §2.3 correction note). `acceptOffer` retries genuine MongoDB transience (`WriteConflict`/`TransientTransactionError`/`LockTimeout`, up to 5 attempts with backoff) instead of misreporting it as a business conflict — a real `ApiError` (the CAS lock's actual 409, or any validation 400/403/404) never retries and propagates immediately. |
-| `bookings/` | ✅ Active | 7 routes + atomic CAS Request status lock on acceptance, `{requestId: 1}` unique index guard, sibling-offer automatic rejection, 48h dispute filing window, admin arbitration resolution, dispute status locks, and scheduling. |
-| `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. |
-| `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). |
-| `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), admin access restricted to disputed bookings with audit logs. Prior to the `firebase.config.js` fix (§5 below), the mock fallback was silently exercised in **every** dev run regardless of credentials — dev now actually talks to real Firestore. |
+| `auth/` | ✅ Active | 10 routes. JWT access 15m + refresh 30d, dual cookie/Bearer delivery, bcrypt 12, hashed OTP with 5-attempt lockout, session invalidation on password change, Google ID-token verification. Auto-provisions Free subscription tier on registration. |
+| `users/` | ✅ Active | 8 routes (`/users/me` [5 endpoints] + `GET /users/:id` [public profile] + `/locations/governorates` + `/locations/governorates/:governorate/cities`) + the verification service backing `/admin/verifications` (using Cloudinary documentRefs). Canonical Egyptian administrative hierarchy dataset and normalizer, zero-PII public client DTO. |
+| `stylists/` | ✅ Active | 7 routes (`GET /`, `GET /me/profile`, `GET /me/payouts`, `GET /:id`, `GET /:id/reviews`, `GET /:id/reliability`, `POST /profile`, `PATCH /profile`). Multi-factor reliability scoring engine, multi-tier Egyptian geo search, `$geoNear` search aggregation, cancellation counter tracking, and payout credentials. |
+| `requests/` | ✅ Active | 9 routes (`POST /requests`, `GET /mine`, `GET /incoming`, `GET /feed`, `PATCH /:id`, `PATCH /:id/reactivate`, `PATCH /:id/close`, `PATCH /:id/cancel`, `PATCH /:id/decline`). Supports both Direct (1:1) and Open Broadcast requests, Zod discriminated union, multi-bid broadcast feed, edit with 0-offer immutability guard, 3-reactivation limit, 15-min quota refund on cancellation, 48h auto-pause cron, content safety scanner, and sanitized public client DTO mapping. |
+| `offers/` | ✅ Active | 5 routes (`POST /requests/:id`, `GET /requests/:id`, `PATCH /:id/withdraw`, `PATCH /:id/accept`, `PATCH /:id/reject`). Multi-bid support (up to 3 per request), entitlement daily & active capacity consumption, withdraw flow, unchosen siblings transition to `CLOSED`, 24h & 30-day long-stop expiry sweeps, and content safety scanner. |
+| `bookings/` | ✅ Active | 11 routes (`GET /mine`, `GET /stylist`, `GET /:id`, `GET /:id/cancellation-quote`, `GET /:id/reviews`, `GET /:id/dispute`, `POST /:id/review`, `POST /:id/dispute`, `POST /:id/dispute/evidence`, `PATCH /:id/check-in`, `PATCH /:id/confirm-completion`, `PATCH /:id/cancel`). Atomic CAS Request lock, 97/3/0 early and 80/15/5 late cancellation tiers, 48h dispute filing window, evidence timeline attachment, multi-outcome admin arbitration, dual-write ledger entries, and sanitized client DTO. |
+| `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. Dual-writes to immutable ledger journal on payment success and refund. |
+| `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). Automatic penalty debt netting engine with integer piastres math and dual-write ledger entries. |
+| `ledger/` | ✅ Active | Immutable financial journal (`LedgerEntry`), integer piastres math, idempotent key deduplication, double-entry posting, statements, paginated query filter, and daily reconciliation cron. |
+| `subscriptions/` | ✅ Active | 5 routes (`GET /plans`, `GET /me`, `GET /me/entitlements`, `POST /subscribe`, `POST /cancel`). Single-gate `entitlement.service` for atomic `UsageCounter` consumption, persistent capacity computation, and daily subscription renewal cron. |
+| `chat/` | ✅ Active | 3 routes, Firestore-backed (fail-closed in prod, mock in dev/test), real-time content moderation scanner on text messages, admin access restricted to disputed bookings with audit logs. |
 | `notifications/` | ✅ Active | 3 routes, Mongo feed + FCM multicast with token pruning. |
-| `reviews/` | ✅ Active | Two-way reviews, unique `{bookingId, direction}` index, aggregation-based ratings. |
-| `admin/` | ✅ Active | `GET /verifications`, `PATCH /verifications/:userId/approve`, `PATCH /verifications/:userId/reject`, `PATCH /users/:id/suspend`, `PATCH /users/:id/reactivate`, `PATCH /reviews/:id/hide`, `GET /audit-logs`, `GET /bookings/disputed`, `PATCH /bookings/:id/resolve-dispute`, `GET /users`, `GET /dashboard/stats`. |
+| `reviews/` | ✅ Active | 4 routes (`GET /mine`, `GET /booking/:bookingId`, `GET /stylist/:id`, `GET /client/:id`). Two-way reviews, 14-day submission window, content safety scanning on comments, unique `{bookingId, direction}` index, rolling aggregation-based ratings. |
+| `moderation/` | ✅ Active | 7 routes (`GET /admin/moderation/events`, `POST /admin/moderation/events/:id/confirm`, `POST /admin/moderation/events/:id/overturn`, `GET /admin/moderation/blocked-domains`, `POST /admin/moderation/blocked-domains`, `DELETE /admin/moderation/blocked-domains/:id`, `PATCH /admin/moderation/violations/:id/forgive`). Granular Operator/Admin permissions, confirm/overturn workflow, Egyptian phone regex, off-platform detection, 3-strike escalation, DRY_RUN/ENFORCE modes. |
+| `admin/` | ✅ Active | 15 routes (`GET /verifications`, `PATCH /verifications/:userId/approve`, `PATCH /verifications/:userId/reject`, `PATCH /users/:id/suspend`, `PATCH /users/:id/reactivate`, `PATCH /users/:id/restrict`, `PATCH /users/:id/unrestrict`, `PATCH /users/:id/revoke-sessions`, `PATCH /reviews/:id/hide`, `GET /audit-logs`, `GET /bookings/disputed`, `PATCH /bookings/:id/resolve-dispute`, `GET /users`, `GET /ledger/statements`, `GET /ledger/reconciliation`, `GET /dashboard/stats`). |
 | `mail/` | ✅ Active | Provider pattern (`env.MAIL_PROVIDER`), `ResendProvider` (active), `SendgridProvider` (501 stub), 5 templates in `templates/`, `sendMail({ to, subject, html })`. |
 | `uploads/` | ✅ Active | Memory storage multer, Sharp in-memory compression (1920x1920 max), Cloudinary upload service, authenticated KYC document storage with signed URLs. |
 | `audit-log/` | ✅ Active | Immutable Mongoose schema, QueryBuilder repository, domain event listener, admin querying. Fixed cross-module violation: no longer imports Booking/Payment models directly (see §11a). |
-| `safety/` | ⛔ Not built | `.gitkeep` only. |
 | `ai/` | ⛔ Not built | `.gitkeep` only. |
 | `wardrobe/` | ⛔ Does not exist | No such directory. |
 

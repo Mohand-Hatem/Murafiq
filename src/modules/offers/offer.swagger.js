@@ -199,3 +199,31 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseOfferSuccess'
  */
+
+/**
+ * @swagger
+ * /offers/{id}/withdraw:
+ *   patch:
+ *     summary: Withdraw a pending offer (Stylist owner only)
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Offer withdrawn successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponseOfferSuccess'
+ *       400:
+ *         description: Cannot withdraw non-pending offer
+ *       403:
+ *         description: Only the authoring stylist can withdraw their offer
+ */
+

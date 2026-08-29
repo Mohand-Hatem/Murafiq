@@ -1,10 +1,7 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
-import bcrypt from 'bcrypt';
-import { generateRefreshToken } from '../../src/common/utils/generateTokens.js';
 
 const userId = '60f719b8f1a2c81234567890';
-const rawRefreshToken = generateRefreshToken({ sub: userId, role: 'client' });
 
 const mockUser = {
   _id: { toString: () => userId },
@@ -13,7 +10,6 @@ const mockUser = {
   role: 'client',
   isEmailVerified: true,
   accountStatus: 'active',
-  refreshTokenHash: await bcrypt.hash(rawRefreshToken, 4),
   toObject: function () {
     return this;
   },
@@ -39,31 +35,14 @@ describe('Auth Integration — POST /api/v1/auth/refresh-token', () => {
     jest.clearAllMocks();
   });
 
-  it('returns 200 with populated user and rotated tokens in body for mobile client', async () => {
-    const res = await request(app)
-      .post('/api/v1/auth/refresh-token')
-      .set('x-client-type', 'mobile')
-      .send({ refreshToken: rawRefreshToken });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.user).toBeDefined();
-    expect(res.body.data.user.email).toBe('auth@test.com');
-    expect(res.body.data.accessToken).toBeDefined();
-    expect(res.body.data.refreshToken).toBeDefined();
-  });
-
-  it('returns 200 with cookie delivery on web client', async () => {
-    const res = await request(app)
-      .post('/api/v1/auth/refresh-token')
-      .set('Cookie', [`refreshToken=${rawRefreshToken}`]);
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.user).toBeDefined();
-    expect(res.body.data.user.email).toBe('auth@test.com');
-    expect(res.headers['set-cookie']).toBeDefined();
-  });
+  // NOTE: the refresh HAPPY PATHS deliberately live in tests/integration/auth.sessions.test.js
+  // against a real MongoDB replica set and the real User schema — not here.
+  //
+  // This suite mocks `auth.repository`, and a mocked repository is exactly how a completely
+  // broken refresh flow once shipped with a green test run: the mock returned a fake user
+  // carrying a `refreshTokenHash` field that did not exist on the schema at all, so nothing
+  // ever exercised persistence. Only the negative cases below — which fail before touching
+  // the database — are meaningful with mocks.
 
   it('returns 401 when no refresh token is provided', async () => {
     const res = await request(app).post('/api/v1/auth/refresh-token');

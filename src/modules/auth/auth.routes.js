@@ -20,6 +20,8 @@ router.post('/register', authRateLimiter, validate(registerSchema), authControll
 router.post('/login', authRateLimiter, validate(loginSchema), authController.login);
 router.post('/google', authRateLimiter, validate(googleAuthSchema), authController.googleAuth);
 router.post('/logout', authMiddleware, authController.logout);
+router.post('/logout-all', authMiddleware, authController.logoutAll);
+router.get('/sessions', authMiddleware, authController.listSessions);
 router.post('/refresh-token', authController.refreshToken);
 router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), authController.verifyEmail);
 router.post('/resend-otp', otpResendRateLimiter, validate(resendOtpSchema), authController.resendOtp);

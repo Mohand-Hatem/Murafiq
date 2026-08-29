@@ -43,6 +43,47 @@ export const reactivateUserSchema = {
     .strict(),
 };
 
+export const restrictUserSchema = {
+  params: z
+    .object({
+      id: objectIdField,
+    })
+    .strict(),
+  body: z
+    .object({
+      durationDays: z.number().int().min(1).max(365).optional().default(7),
+      reason: z.string().trim().optional(),
+    })
+    .strict(),
+};
+
+export const blockUserSchema = {
+  params: z
+    .object({
+      id: objectIdField,
+    })
+    .strict(),
+  body: z
+    .object({
+      reason: z.string().trim().min(1, 'Block reason is required'),
+    })
+    .strict(),
+};
+
+export const unblockUserSchema = {
+  params: z
+    .object({
+      id: objectIdField,
+    })
+    .strict(),
+  body: z
+    .object({
+      notes: z.string().trim().optional(),
+    })
+    .strict()
+    .optional(),
+};
+
 export const resolveDisputeSchema = {
   params: z
     .object({
@@ -51,7 +92,15 @@ export const resolveDisputeSchema = {
     .strict(),
   body: z
     .object({
-      outcome: z.enum(['completed', 'cancelled']),
+      outcome: z.enum([
+        'completed',
+        'cancelled',
+        'refund_full',
+        'payout_stylist',
+        'split',
+        'partial_refund',
+        'dismissed',
+      ]),
       refundPercentage: z.number().min(0).max(100).optional().default(0),
       resolutionNotes: z.string().trim().min(1, 'Resolution notes are required'),
     })
@@ -64,4 +113,14 @@ export default {
   resolveDisputeSchema,
   suspendUserSchema,
   reactivateUserSchema,
+  restrictUserSchema,
+};
+
+export const resolveNoShowSchema = {
+  body: z
+    .object({
+      upheld: z.boolean(),
+      notes: z.string().trim().max(2000).optional(),
+    })
+    .strict(),
 };

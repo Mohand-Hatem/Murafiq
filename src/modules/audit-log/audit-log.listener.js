@@ -158,6 +158,109 @@ export const register = () => {
       },
     });
   });
+
+  // AGENTS.md: "if a new money/admin-affecting event is added, add it to AUDIT_EVENT_MAP."
+  // The five below all move money or terminate a booking and were previously unaudited —
+  // a cancellation could issue a refund and assess a penalty with no audit trail at all.
+
+  eventBus.on(EVENTS.BOOKING_CANCELLED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.cancelledByUserId || null,
+      actorRole: payload.cancelledBy || 'system',
+      action: 'booking.cancelled',
+      targetType: 'Booking',
+      targetId: payload.bookingId,
+      metadata: {
+        cancelledBy: payload.cancelledBy,
+        stylistId: payload.stylistId,
+        refundPercentage: payload.refundPercentage,
+        penaltyAmount: payload.penaltyAmount,
+        tier: payload.tier,
+      },
+    });
+  });
+
+  eventBus.on(EVENTS.NO_SHOW_REPORTED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.reportedBy,
+      actorRole: payload.reportedAgainst === 'stylist' ? 'client' : 'stylist',
+      action: 'booking.no_show_reported',
+      targetType: 'Booking',
+      targetId: payload.bookingId,
+      metadata: { reportedAgainst: payload.reportedAgainst },
+    });
+  });
+
+  eventBus.on(EVENTS.NO_SHOW_RESOLVED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: null,
+      actorRole: 'system',
+      action: 'booking.no_show_resolved',
+      targetType: 'Booking',
+      targetId: payload.bookingId,
+      metadata: {
+        against: payload.against,
+        clientRefundPercentage: payload.clientRefundPercentage,
+        stylistPercentage: payload.stylistPercentage,
+        platformPercentage: payload.platformPercentage,
+      },
+    });
+  });
+
+  eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.clientId,
+      actorRole: 'client',
+      action: 'payment.succeeded',
+      targetType: 'Payment',
+      targetId: payload.paymentId,
+      metadata: { bookingId: payload.bookingId, amount: payload.amount },
+    });
+  });
+
+  eventBus.on(EVENTS.PAYMENT_FAILED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.clientId,
+      actorRole: 'client',
+      action: 'payment.failed',
+      targetType: 'Payment',
+      targetId: payload.paymentId,
+      metadata: { bookingId: payload.bookingId, reason: payload.reason },
+    });
+  });
+
+  eventBus.on(EVENTS.SUBSCRIPTION_ACTIVATED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.userId,
+      actorRole: 'system',
+      action: 'subscription.activated',
+      targetType: 'Subscription',
+      targetId: payload.userId,
+      metadata: { planCode: payload.planCode, billingCycle: payload.billingCycle },
+    });
+  });
+
+  eventBus.on(EVENTS.SUBSCRIPTION_CANCELLED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.userId,
+      actorRole: 'system',
+      action: 'subscription.cancelled',
+      targetType: 'Subscription',
+      targetId: payload.userId,
+      metadata: { planCode: payload.planCode, currentPeriodEnd: payload.currentPeriodEnd },
+    });
+  });
+
+  eventBus.on(EVENTS.SUBSCRIPTION_EXPIRED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.userId,
+      actorRole: 'system',
+      action: 'subscription.expired',
+      targetType: 'Subscription',
+      targetId: payload.userId,
+      metadata: { previousPlanCode: payload.previousPlanCode, downgradedTo: payload.downgradedTo },
+    });
+  });
 };
 
 export default { register };

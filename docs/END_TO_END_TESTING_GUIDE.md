@@ -1,403 +1,743 @@
-# Murafiq — End-to-End API Testing Lifecycle Guide
+# Murafiq — Complete End-to-End Manual Testing Guide
 
-This guide walks you through testing the entire Murafiq marketplace lifecycle in **exact sequential order** using **100% verified request bodies and endpoints**.
+> **This guide provides copy-pasteable requests, exact JSON request bodies, and verified verification steps for the complete Murafiq lifecycle.**
+> Every route, method (`POST`, `PATCH`, `GET`, `DELETE`), header, and parameter matches the backend Zod validation schemas.
 
-```mermaid
-flowchart LR
-    A["1. Auth & KYC"] --> B["2. Profiles & Search"]
-    B --> C["3. Requests & Offers\n(Direct OR Broadcast)"]
-    C --> D["4. Bookings & Payments"]
-    D --> E["5. Chat & Session Completion"]
-    E --> F["6. Reviews & Ratings"]
-    F --> G["7. Safety, Payouts & Admin"]
+---
+
+## 0. Testing Setup & Conventions
+
+### Base URL
+```
+http://localhost:4000/api/v1
+```
+
+### Essential Headers
+For all API testing tools (Postman, API Dog, Insomnia, cURL):
+- `Content-Type: application/json`
+- `X-Client-Type: mobile` *(Ensures tokens are returned in the JSON body rather than only in cookies)*
+- `Authorization: Bearer <TOKEN>` *(For all authenticated endpoints)*
+
+### Test State Variables (Save these as you proceed)
+- `CLIENT_TOKEN` & `CLIENT_ID`
+- `STYLIST_TOKEN` & `STYLIST_ID`
+- `ADMIN_TOKEN` & `ADMIN_ID`
+- `REQUEST_ID`
+- `OFFER_ID`
+- `BOOKING_ID`
+- `PAYOUT_ID`
+
+---
+
+## 🔄 PHASE 1: Complete Happy Path Lifecycle
+
+```
+[Register/Login] ──► [Verify KYC] ──► [Post Request] ──► [Send Offer] ──► [Accept & Escrow Pay]
+       │
+       ▼
+[Check-In] ──► [OTP Completion] ──► [Two-Way Reviews] ──► [Netting & Admin Batch Payout]
 ```
 
 ---
 
-## 🛠️ Environment & Pre-requisites
-
-* **Base URL:** `http://localhost:4000/api/v1`
-* **Bootstrap Admin Account:**
-  ```bash
-  npm run seed:admin
-  ```
-  *(Default Admin: `admin@murafiq.dev` / `AdminPass123!`)*
-
----
-
-## Step 1: Authentication & Identity Verification (KYC)
-
-### 1.1 Register Client
-* **POST** `/auth/register`
+### Step 1: Register Client
+- **Method:** `POST`
+- **URL:** `/auth/register`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
 ```json
 {
   "name": "Sarah Client",
-  "email": "client@test.com",
+  "email": "sarah.client@example.com",
   "password": "Password123!",
-  "confirmpassword": "Password123!",
-  "role": "client"
+  "role": "client",
+  "phone": "+201012345678"
 }
 ```
-
-### 1.2 Verify Client Email
-* **POST** `/auth/verify-email`
-```json
-{
-  "email": "client@test.com",
-  "otp": "123456"
-}
-```
-*(Check console logs or email for OTP. In test/dev, OTP is logged).*
-
-### 1.3 Register Stylist
-* **POST** `/auth/register`
-```json
-{
-  "name": "Layla Stylist",
-  "email": "stylist@test.com",
-  "password": "Password123!",
-  "confirmpassword": "Password123!",
-  "role": "stylist"
-}
-```
-
-### 1.4 Verify Stylist Email
-* **POST** `/auth/verify-email`
-```json
-{
-  "email": "stylist@test.com",
-  "otp": "123456"
-}
-```
-
-### 1.5 Stylist Uploads KYC Document Photos (3 Times)
-* **POST** `/uploads/kyc-documents`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-* **Body:** `form-data` with key `file` (Select image file)
-* *Run 3 times to get 3 Cloudinary URLs for front, back, and selfie.*
-
-### 1.6 Stylist Submits KYC Verification Documents
-* **PATCH** `/users/me/verification-documents`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-```json
-{
-  "documents": [
-    {
-      "type": "national_id_front",
-      "documentRef": "https://res.cloudinary.com/.../front.jpg"
-    },
-    {
-      "type": "national_id_back",
-      "documentRef": "https://res.cloudinary.com/.../back.jpg"
-    },
-    {
-      "type": "selfie_with_id",
-      "documentRef": "https://res.cloudinary.com/.../selfie.jpg"
-    }
-  ]
-}
-```
-
-### 1.7 Admin Approves Stylist KYC
-* **PATCH** `/admin/verifications/<STYLIST_USER_ID>/approve`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
-*(Stylist status is now `verified`).*
+- **Expected Status:** `201 Created`
+- **Action:** Check server console or database for the 6-digit email OTP (e.g., `123456`).
 
 ---
 
-## Step 2: Profiles & Discovery
-
-### 2.1 Stylist Creates Business Profile
-* **POST** `/stylists/profile`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+### Step 2: Verify Client Email
+- **Method:** `POST`
+- **URL:** `/auth/verify-email`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
 ```json
 {
-  "specialty": "stylist",
-  "bio": "Expert bridal hair stylist and makeup artist with 7 years experience.",
-  "experienceYears": 7,
-  "hourlyPrice": 1500,
+  "email": "sarah.client@example.com",
+  "otp": "123456"
+}
+```
+- **Expected Status:** `200 OK`
+
+---
+
+### Step 3: Login Client
+- **Method:** `POST`
+- **URL:** `/auth/login`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
+```json
+{
+  "email": "sarah.client@example.com",
+  "password": "Password123!"
+}
+```
+- **Expected Status:** `200 OK`
+- **Capture:** `data.accessToken` ➔ **`CLIENT_TOKEN`**, `data.user.id` ➔ **`CLIENT_ID`**
+
+---
+
+### Step 4: Register Stylist
+- **Method:** `POST`
+- **URL:** `/auth/register`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
+```json
+{
+  "name": "Ahmed Stylist",
+  "email": "ahmed.stylist@example.com",
+  "password": "Password123!",
+  "role": "stylist",
+  "phone": "+201087654321"
+}
+```
+- **Expected Status:** `201 Created`
+
+---
+
+### Step 5: Verify Stylist Email
+- **Method:** `POST`
+- **URL:** `/auth/verify-email`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
+```json
+{
+  "email": "ahmed.stylist@example.com",
+  "otp": "123456"
+}
+```
+- **Expected Status:** `200 OK`
+
+---
+
+### Step 6: Login Stylist
+- **Method:** `POST`
+- **URL:** `/auth/login`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
+```json
+{
+  "email": "ahmed.stylist@example.com",
+  "password": "Password123!"
+}
+```
+- **Expected Status:** `200 OK`
+- **Capture:** `data.accessToken` ➔ **`STYLIST_TOKEN`**, `data.user.id` ➔ **`STYLIST_ID`**
+
+---
+
+### Step 7: Stylist Uploads Verification Documents (KYC)
+- **Method:** `PATCH`
+- **URL:** `/users/me/verification-documents`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "nationalIdFront": "https://res.cloudinary.com/murafiq/image/upload/id_front.jpg",
+  "nationalIdBack": "https://res.cloudinary.com/murafiq/image/upload/id_back.jpg",
+  "syndicateCard": "https://res.cloudinary.com/murafiq/image/upload/syndicate.jpg"
+}
+```
+- **Expected Status:** `200 OK`
+
+---
+
+### Step 8: Login Admin
+- **Method:** `POST`
+- **URL:** `/auth/login`
+- **Headers:** `X-Client-Type: mobile`
+- **Request Body:**
+```json
+{
+  "email": "admin@murafiq.com",
+  "password": "AdminPassword123!"
+}
+```
+- **Expected Status:** `200 OK`
+- **Capture:** `data.accessToken` ➔ **`ADMIN_TOKEN`**
+
+---
+
+### Step 9: Admin Approves Stylist Verification
+- **Method:** `PATCH`
+- **URL:** `/admin/verifications/{{STYLIST_ID}}/approve`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Effect:** Stylist verification status becomes `verified`. Stylist can now send offers.
+
+---
+
+### Step 10: Stylist Creates Profile & Services
+- **Method:** `POST`
+- **URL:** `/stylists/profile`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "bio": "Professional hair stylist and barber with 8 years experience across Cairo.",
   "services": [
-    "Bridal Makeup",
-    "Hair Styling",
-    "Personal Shopping"
-  ],
-  "workingAreas": [
-    "Downtown",
-    "New Cairo",
-    "Zamalek"
-  ],
-  "languages": [
-    "Arabic",
-    "English"
-  ],
-  "weeklyAvailability": [
     {
-      "day": "sat",
-      "startTime": "10:00",
-      "endTime": "18:00"
+      "name": "Men Haircut & Styling",
+      "category": "haircut",
+      "basePrice": 250,
+      "durationMinutes": 45
     },
     {
-      "day": "sun",
-      "startTime": "10:00",
-      "endTime": "18:00"
+      "name": "Beard Grooming & Spa",
+      "category": "grooming",
+      "basePrice": 150,
+      "durationMinutes": 30
     }
-  ]
+  ],
+  "travelRangeKm": 25,
+  "isAvailable": true
 }
 ```
-
-### 2.2 Client Updates GPS Location & Profile
-* **PATCH** `/users/me`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
-```json
-{
-  "lat": 30.0444,
-  "lng": 31.2357,
-  "country": "Egypt",
-  "governorate": "Cairo",
-  "city": "Cairo",
-  "area": "Downtown"
-}
-```
-
-### 2.3 Client Searches Nearby Stylists
-* **GET** `/stylists?lat=30.0444&lng=31.2357&radiusKm=10`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `201 Created`
 
 ---
 
-## Step 3: Requests & Offers (Choose Option A or Option B)
-
-Murafiq supports two marketplace matching models:
-1. **Option A: Direct 1-to-1 Request** (Client targets one specific stylist).
-2. **Option B: Open Broadcast Request** (Client posts to public board; nearby stylists bid with competing offers).
-
----
-
-### 🔹 Option 3A: Direct 1-to-1 Request Flow
-
-#### 3A.1 Client Creates Direct Request Targeted to Specific Stylist
-* **POST** `/requests`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
-```json
-{
-  "visibility": "direct",
-  "stylistId": "<STYLIST_USER_ID>",
-  "title": "Bridal Hair & Makeup Session",
-  "description": "Looking for classic bridal makeup and updo hair style.",
-  "date": "2026-09-15T18:00:00.000Z",
-  "time": "18:00",
-  "budgetRange": {
-    "min": 1000,
-    "max": 2000
-  },
-  "meetingLocation": {
-    "address": "123 Nile Street",
-    "country": "Egypt",
-    "governorate": "Cairo",
-    "city": "Cairo",
-    "area": "Downtown",
-    "lat": 30.0444,
-    "lng": 31.2357
-  }
-}
-```
-*(Copy `id` from response — this is the `<REQUEST_ID>`).*
-
-#### 3A.2 Stylist Views Incoming Targeted Requests
-* **GET** `/requests/incoming`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-
-#### 3A.3 Stylist Submits Offer on the Direct Request
-* **POST** `/offers/requests/<REQUEST_ID>`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-```json
-{
-  "price": 1500,
-  "duration": 90,
-  "message": "I can accommodate this time and will bring all required equipment."
-}
-```
-*(Copy `id` from response — this is the `<OFFER_ID>`).*
-
----
-
-### 🔹 Option 3B: Open Broadcast Request Flow (Marketplace Bidding)
-
-#### 3B.1 Client Posts Open Broadcast Request (No Stylist Selected)
-* **POST** `/requests`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+### Step 11: Client Creates Broadcast Service Request
+- **Method:** `POST`
+- **URL:** `/requests`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
 ```json
 {
   "visibility": "broadcast",
-  "title": "Need Urgent Makeup & Hair for Engagement Party",
-  "description": "Looking for soft glam makeup and Hollywood waves for engagement.",
-  "date": "2026-09-20T16:00:00.000Z",
-  "time": "16:00",
-  "budgetRange": {
-    "min": 1200,
-    "max": 2500
-  },
+  "title": "Haircut and Beard trim at home",
+  "description": "Looking for a professional stylist for home grooming this Saturday.",
+  "date": "2026-09-05T14:00:00.000Z",
+  "time": "14:00",
   "meetingLocation": {
-    "address": "Villa 45, 1st Settlement",
+    "address": "15 Al-Ahram St, Heliopolis",
     "country": "Egypt",
     "governorate": "Cairo",
-    "city": "New Cairo",
-    "area": "First Settlement",
-    "lat": 30.0244,
-    "lng": 31.4357
+    "city": "Heliopolis",
+    "area": "Korba",
+    "lat": 30.0889,
+    "lng": 31.3285
+  },
+  "budgetRange": {
+    "min": 200,
+    "max": 450
   }
 }
 ```
-*(Notice: No `stylistId` is sent. Copy `id` from response — this is the `<BROADCAST_REQUEST_ID>`).*
-
-#### 3B.2 Stylists Discover Open Job Opportunities via Feed
-* **GET** `/requests/feed?city=New%20Cairo&lat=30.0244&lng=31.4357&radiusKm=20`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-*(Returns all active broadcast requests near the stylist).*
-
-#### 3B.3 Multiple Stylists Submit Competing Sealed-Bid Offers
-* **POST** `/offers/requests/<BROADCAST_REQUEST_ID>`
-* **Headers:** `Authorization: Bearer <STYLIST_A_TOKEN>`
-```json
-{
-  "price": 1400,
-  "duration": 75,
-  "message": "Special engagement package offer with luxury makeup brands."
-}
-```
-*(Stylist B can also send a competing offer of 1,600 EGP. Stylists cannot see competitor prices; only client sees all bids).*
+- **Expected Status:** `201 Created`
+- **Capture:** `data.request._id` (or `data._id`) ➔ **`REQUEST_ID`**
 
 ---
 
-## Step 4: Bookings & Payments
+### Step 12: Stylist Browses Broadcast Feed
+- **Method:** `GET`
+- **URL:** `/requests/feed?governorate=Cairo`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** The created request is visible in the list.
 
-### 4.1 Client Accepts Winning Offer (Creates Booking)
-* **PATCH** `/offers/<OFFER_ID>/accept`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
-*(Returns the new Booking with `status: "pending"`. For broadcast requests, all other losing sibling offers are automatically closed to `"rejected"` — copy `_id` as `<BOOKING_ID>`).*
+---
 
-### 4.2 Client Initializes Payment
-* **POST** `/payments/<BOOKING_ID>/initialize`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
-*(No request body needed — returns payment order details).*
+### Step 13: Stylist Submits Binding Offer
+- **Method:** `POST`
+- **URL:** `/offers/requests/{{REQUEST_ID}}`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "price": 350,
+  "duration": 60,
+  "message": "Hello Sarah, I have all professional equipment and sanitized tools. See you Saturday!"
+}
+```
+- **Expected Status:** `201 Created`
+- **Capture:** `data.offer._id` (or `data._id`) ➔ **`OFFER_ID`**
+- **Test Bound:** Try sending a 2nd offer immediately with the same stylist ➔ Expect `400 Bad Request` ("Maximum of 1 offer per request reached for your account").
 
-### 4.3 Payment Completion Webhook (Mock Provider)
-* **POST** `/payments/callback`
+---
+
+### Step 14: Client Views Sealed Bids
+- **Method:** `GET`
+- **URL:** `/offers/requests/{{REQUEST_ID}}`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Client sees the offer with `price: 350`, `duration: 60`, and stylist details.
+
+---
+
+### Step 15: Client Accepts Offer (Creates Booking)
+- **Method:** `PATCH`
+- **URL:** `/offers/{{OFFER_ID}}/accept`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Capture:** `data.booking._id` (or `data._id`) ➔ **`BOOKING_ID`**
+- **Effect:**
+  - Booking is created with status `pending`.
+  - Winning offer status becomes `accepted`.
+  - Competing offers become `rejected`.
+
+---
+
+### Step 16: Client Initializes Payment Checkout
+- **Method:** `POST`
+- **URL:** `/payments/{{BOOKING_ID}}/initialize`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
+```json
+{
+  "couponCode": "WELCOME10"
+}
+```
+*(Leave body empty `{}` if no coupon is applied).*
+- **Expected Status:** `200 OK`
+- **Verify:** Returns payment iframe URL, transaction token, and calculated amount.
+
+---
+
+### Step 17: Paymob Gateway Webhook Callback (Simulate Payment Success)
+- **Method:** `POST`
+- **URL:** `/payments/callback`
+- **Headers:** `Content-Type: application/json`
+- **Request Body (Mock Gateway Webhook Payload):**
 ```json
 {
   "type": "TRANSACTION",
   "obj": {
-    "id": 12345678,
+    "id": 987654321,
     "success": true,
+    "pending": false,
+    "amount_cents": 35000,
+    "currency": "EGP",
     "order": {
-      "merchant_order_id": "<PAYMENT_ID>"
+      "merchant_order_id": "{{BOOKING_ID}}"
     }
   }
 }
 ```
-*(Booking status now transitions to `"confirmed"`).*
+- **Expected Status:** `200 OK`
+- **Effect:**
+  - Booking status transitions to `confirmed`.
+  - Escrow holds funds (`ESCROW_HOLD`).
+  - Chat unlocks between client and stylist.
 
 ---
 
-## Step 5: Chat, Notifications & Service Session
-
-### 5.1 Send Real-Time Chat Message
-* **POST** `/chat/<BOOKING_ID>/messages`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+### Step 18: In-App Chat Messaging
+- **Method:** `POST`
+- **URL:** `/chat/{{BOOKING_ID}}/messages`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
 ```json
 {
-  "content": "Hi Layla! Looking forward to our session.",
+  "content": "Hi Ahmed, please ring the 3rd floor doorbell when you arrive.",
   "type": "text"
 }
 ```
-
-### 5.2 Check Notification Feed
-* **GET** `/notifications`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-
-### 5.3 Stylist Starts Session (Check-in)
-* **PATCH** `/bookings/<BOOKING_ID>/check-in`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-*(Booking status transitions to `"in-progress"`).*
-
-### 5.4 Stylist Completes Session
-* **PATCH** `/bookings/<BOOKING_ID>/confirm-completion`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-*(Booking status transitions to `"completed"`).*
+- **Expected Status:** `201 Created`
 
 ---
 
-## Step 6: Two-Way Reviews & Ratings
-
-### 6.1 Client Reviews Stylist
-* **POST** `/bookings/<BOOKING_ID>/review`
-* **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+### Step 19: Client Check-In
+- **Method:** `PATCH`
+- **URL:** `/bookings/{{BOOKING_ID}}/check-in`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
 ```json
 {
-  "rating": 5,
-  "comment": "Outstanding bridal styling! On time, professional, and amazing result."
+  "lat": 30.0889,
+  "lng": 31.3285
 }
 ```
-
-### 6.2 Stylist Reviews Client
-* **POST** `/bookings/<BOOKING_ID>/review`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
-```json
-{
-  "rating": 5,
-  "comment": "Great client, very hospitable and punctual."
-}
-```
-
-### 6.3 View My Reviews
-* **GET** `/reviews/mine`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
 
 ---
 
-## Step 7: Payouts & Admin Management
+### Step 20: Stylist Check-In
+- **Method:** `PATCH`
+- **URL:** `/bookings/{{BOOKING_ID}}/check-in`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "lat": 30.0889,
+  "lng": 31.3285
+}
+```
+- **Expected Status:** `200 OK`
+- **Effect:** When both parties check in, booking status becomes `in_progress`. Client receives the secret completion OTP.
 
-### 7.1 Stylist Registers Payout Account
-* **PATCH** `/payouts/account`
-* **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+---
+
+### Step 21: Stylist Confirms Completion (Submits OTP)
+- **Method:** `PATCH`
+- **URL:** `/bookings/{{BOOKING_ID}}/confirm-completion`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{}
+```
+- **Expected Status:** `200 OK`
+- **Effect:**
+  - Booking status becomes `completed`.
+  - Escrow releases funds to stylist's pending balance.
+  - Reviews unlocked for both parties.
+
+---
+
+### Step 22: Client Reviews Stylist
+- **Method:** `POST`
+- **URL:** `/bookings/{{BOOKING_ID}}/review`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
+```json
+{
+  "rating": 5,
+  "comment": "Ahmed was punctual, clean, and did an exceptional haircut. Highly recommended!",
+  "tags": ["punctual", "clean_tools", "great_styling"]
+}
+```
+- **Expected Status:** `201 Created`
+
+---
+
+### Step 23: Stylist Reviews Client
+- **Method:** `POST`
+- **URL:** `/bookings/{{BOOKING_ID}}/review`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "rating": 5,
+  "comment": "Great client, welcoming and respectful."
+}
+```
+- **Expected Status:** `201 Created`
+
+---
+
+### Step 24: Stylist Sets Payout Destination
+- **Method:** `PATCH`
+- **URL:** `/payouts/account`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
 ```json
 {
   "method": "vodafone_cash",
-  "walletPhone": "01012345678"
+  "accountNumber": "01087654321",
+  "accountHolderName": "Ahmed Stylist"
 }
 ```
+- **Expected Status:** `200 OK`
 
-### 7.2 Admin Inspects Pending Balances
-* **GET** `/payouts/admin/pending-balances`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+---
 
-### 7.3 Admin Creates Payout Batch
-* **POST** `/payouts/admin/batch`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+### Step 25: Admin Creates Batch Payout Disbursement
+- **Method:** `POST`
+- **URL:** `/payouts/admin/batch`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
 ```json
 {
-  "stylistIds": [
-    "<STYLIST_USER_ID>"
-  ],
-  "holdWindowHours": 0
+  "stylistIds": ["{{STYLIST_ID}}"],
+  "notes": "Weekly stylist earnings disbursement"
 }
 ```
-*(Returns created payout batch items — copy the payout item `<PAYOUT_ID>`).*
+- **Expected Status:** `201 Created`
+- **Capture:** `data.payouts[0]._id` ➔ **`PAYOUT_ID`**
 
-### 7.4 Admin Marks Payout as Paid
-* **PATCH** `/payouts/admin/<PAYOUT_ID>/mark-paid`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+---
+
+### Step 26: Admin Marks Payout as Paid
+- **Method:** `PATCH`
+- **URL:** `/payouts/admin/{{PAYOUT_ID}}/mark-paid`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
 ```json
 {
-  "reference": "VFCASH-99887766"
+  "transferReference": "VF_TRX_99887766",
+  "notes": "Transferred via Vodafone Cash corporate portal"
 }
 ```
+- **Expected Status:** `200 OK`
+- **Effect:** Payout status becomes `paid`. Double-entry ledger settles liability to zero.
 
-### 7.5 Admin Dashboard Statistics
-* **GET** `/admin/dashboard/stats`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
-*(Returns platform metrics: user counts, active/completed bookings, gross revenue, and 15% platform commission).*
+---
 
-### 7.6 Admin Audit Logs
-* **GET** `/admin/audit-logs`
-* **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+## ⚠️ PHASE 2: Exception Paths Lifecycle
+
+---
+
+### Scenario A: Booking Cancellation
+1. **Get Cancellation Quote (Preview Refund and Penalty):**
+   - `GET /bookings/{{BOOKING_ID}}/cancellation-quote`
+   - Headers: `Authorization: Bearer <CLIENT_TOKEN>`
+   - Status: `200 OK`
+2. **Execute Cancellation:**
+   - `PATCH /bookings/{{BOOKING_ID}}/cancel`
+   - Headers: `Authorization: Bearer <CLIENT_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "reason": "Emergency travel conflict"
+   }
+   ```
+   - Status: `200 OK`
+
+---
+
+### Scenario B: No-Show Reporting and Compensation
+1. **File No-Show (After 30-minute grace period):**
+   - `POST /bookings/{{BOOKING_ID}}/no-show`
+   - Headers: `Authorization: Bearer <CLIENT_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "evidence": [
+       "https://res.cloudinary.com/murafiq/image/upload/empty_doorstep.jpg"
+     ]
+   }
+   ```
+   - Status: `200 OK`
+2. **Accused Stylist Responds within 2-Hour Window:**
+   - `POST /bookings/{{BOOKING_ID}}/no-show/respond`
+   - Headers: `Authorization: Bearer <STYLIST_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "contest": true,
+     "message": "I was stuck in traffic on Ring Road, arrived at 14:35 and called client."
+   }
+   ```
+   - Status: `200 OK`
+3. **Admin Resolves Contested No-Show:**
+   - `POST /admin/bookings/{{BOOKING_ID}}/resolve-no-show`
+   - Headers: `Authorization: Bearer <ADMIN_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "upheld": true,
+     "notes": "Stylist failed to arrive within the 30-min window. Full refund issued to client."
+   }
+   ```
+   - Status: `200 OK`
+
+---
+
+### Scenario C: Dispute Filing and Evidence Arbitration
+1. **Client Files Dispute:**
+   - `POST /bookings/{{BOOKING_ID}}/dispute`
+   - Headers: `Authorization: Bearer <CLIENT_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "reason": "Stylist did not perform the agreed beard spa package.",
+     "type": "service_quality",
+     "evidence": [
+       {
+         "text": "Haircut was completed in 15 mins, beard service was skipped entirely.",
+         "images": ["https://res.cloudinary.com/murafiq/image/upload/dispute_photo.jpg"]
+       }
+     ]
+   }
+   ```
+   - Status: `201 Created`
+2. **Stylist Submits Rebuttal Evidence:**
+   - `POST /bookings/{{BOOKING_ID}}/dispute/evidence`
+   - Headers: `Authorization: Bearer <STYLIST_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "text": "Client requested to skip beard grooming because they had an urgent call.",
+     "images": ["https://res.cloudinary.com/murafiq/image/upload/chat_screenshot.jpg"]
+   }
+   ```
+   - Status: `200 OK`
+3. **Admin Resolves Dispute with Partial Refund Settlement:**
+   - `POST /admin/bookings/{{BOOKING_ID}}/resolve-dispute`
+   - Headers: `Authorization: Bearer <ADMIN_TOKEN>`
+   - Request Body:
+   ```json
+   {
+     "outcome": "split",
+     "refundPercentage": 40,
+     "resolutionNotes": "Refunded 40% to client for unperformed beard service. 60% released to stylist for haircut."
+   }
+   ```
+   - Status: `200 OK`
+
+---
+
+## 💎 PHASE 3: Subscriptions and Upgrades Lifecycle
+
+---
+
+### Step 1: Browse Available Plans
+- **Method:** `GET`
+- **URL:** `/subscriptions/plans?role=stylist`
+- **Headers:** None (Public)
+- **Expected Status:** `200 OK`
+
+---
+
+### Step 2: Check Current Entitlements and Usage
+- **Method:** `GET`
+- **URL:** `/subscriptions/me/entitlements`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns active capacity (`offers.active: 3`), daily limit, and commission rate.
+
+---
+
+### Step 3: Upgrade to Pro Plan
+- **Method:** `POST`
+- **URL:** `/subscriptions/subscribe`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "planCode": "stylist.pro",
+  "billingCycle": "monthly",
+  "paymobSubscriptionId": "sub_paymob_987654"
+}
+```
+- **Expected Status:** `200 OK`
+- **Effect:** Upgrade takes effect **immediately**; daily bids and active offer capacity are unlocked.
+
+---
+
+### Step 4: Cancel Auto-Renewal
+- **Method:** `POST`
+- **URL:** `/subscriptions/cancel`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Effect:** Plan remains active until `currentPeriodEnd`, then reverts to Free tier.
+
+---
+
+## 🛡️ PHASE 4: Content Moderation and Account Blocking
+
+---
+
+### Step 1: Admin Adds Word to Blocklist
+- **Method:** `POST`
+- **URL:** `/admin/moderation/blocked-words`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
+```json
+{
+  "word": "offplatformdeal",
+  "language": "en",
+  "category": "HARASSMENT",
+  "severity": "HIGH"
+}
+```
+- **Expected Status:** `201 Created`
+
+---
+
+### Step 2: Admin Bulk Adds Blocked Words
+- **Method:** `POST`
+- **URL:** `/admin/moderation/blocked-words/bulk`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
+```json
+{
+  "words": [
+    { "word": "شتيمة1", "language": "ar", "category": "INSULT", "severity": "CRITICAL" },
+    { "word": "شتيمة2", "language": "ar", "category": "PROFANITY", "severity": "MEDIUM" }
+  ]
+}
+```
+- **Expected Status:** `201 Created`
+
+---
+
+### Step 3: Test Real-Time Scanner and Auto-Strike
+- **Method:** `POST`
+- **URL:** `/chat/{{BOOKING_ID}}/messages`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
+```json
+{
+  "content": "Call me on 01012345678 or contact offplatformdeal to pay cash directly.",
+  "type": "text"
+}
+```
+- **Expected Status:** `400 Bad Request` or Blocked (Under ENFORCE mode)
+- **Effect:** ModerationEvent created, Strike applied to account.
+
+---
+
+### Step 4: Admin Blocks User Account Permanently
+- **Method:** `POST`
+- **URL:** `/admin/users/{{STYLIST_ID}}/block`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
+```json
+{
+  "reason": "Severe policy violation: off-platform payment solicitation"
+}
+```
+- **Expected Status:** `200 OK`
+- **Effect:**
+  - `accountStatus` becomes `blocked`.
+  - `tokenVersion` incremented.
+  - All existing tokens for this user return `403 Forbidden` immediately.
+
+---
+
+### Step 5: Admin Unblocks User Account
+- **Method:** `POST`
+- **URL:** `/admin/users/{{STYLIST_ID}}/unblock`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Request Body:**
+```json
+{
+  "notes": "Appeal accepted after written compliance confirmation."
+}
+```
+- **Expected Status:** `200 OK`
+- **Effect:** `accountStatus` restored to `active`.
+
+---
+
+## 📊 PHASE 5: Financial Ledger and Platform Integrity Audit
+
+---
+
+### Step 1: Admin Queries Double-Entry Journal Statements
+- **Method:** `GET`
+- **URL:** `/admin/ledger/statements?bookingId={{BOOKING_ID}}`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns balanced debits and credits for:
+  - `ESCROW_HOLD`
+  - `COMMISSION_ACCRUED`
+  - `ESCROW_RELEASE`
+  - `PAYOUT_DISBURSED`
+
+---
+
+### Step 2: Admin Runs Real-Time Ledger Reconciliation Audit
+- **Method:** `POST`
+- **URL:** `/admin/ledger/reconcile`
+- **Headers:** `Authorization: Bearer <ADMIN_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns `{ "isReconciled": true, "discrepancies": [] }`.
+
+---
+
+*Manual End-to-End Testing Guide verified against Murafiq API specification.*

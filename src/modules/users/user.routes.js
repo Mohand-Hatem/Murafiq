@@ -26,4 +26,7 @@ router.patch(
 );
 router.delete('/me', userController.deleteMe);
 
+// Public profile endpoint (client or stylist)
+router.get('/:id', userController.getPublicProfile);
+
 export default router;

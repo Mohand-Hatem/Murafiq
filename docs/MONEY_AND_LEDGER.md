@@ -29,25 +29,24 @@ $$\text{Stylist Payout Amount} = \text{round2}(\text{Gross Amount} - \text{Platf
 
 ## 3. Cancellation Policy & Refund Tiers
 
-Refunds upon cancellation depend strictly on the **cancelling party** and the **time remaining before scheduled start**:
+Refunds upon cancellation depend strictly on the **cancelling party** and the **time remaining before scheduled start**. The boundary constant is `CANCELLATION_POLICY.FULL_REFUND_HOURS = 24` in `statuses.constant.js`.
+
+> **Note:** These percentages describe the policy **currently implemented** in `booking.service.js:500-511`. A future revision (R6) will update them — see `docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md` §C.7 and §H for the planned policy.
 
 ### Client Cancellations:
-- **> 24 hours before start:** 100% refund to client.
+- **≥ 24 hours before start** (`hoursUntilSession >= FULL_REFUND_HOURS`): **100% refund** to client.
   - `Payment.status = 'refunded'`
   - `Payment.refundAmount = 1000.00`
   - `Payment.platformFeeAmount = 0.00`
   - `Payment.stylistPayoutAmount = 0.00`
-- **Between 12 and 24 hours before start:** 50% refund to client.
+- **< 24 hours before start** (`hoursUntilSession < FULL_REFUND_HOURS`): **75% refund** to client (`CANCELLATION_POLICY.PARTIAL_REFUND_PERCENTAGE = 75`).
   - `Payment.status = 'partially_refunded'`
-  - `Payment.refundAmount = 500.00`
-  - `Payment.platformFeeAmount = 75.00` (15% of retained 500 EGP)
-  - `Payment.stylistPayoutAmount = 425.00` (85% of retained 500 EGP)
-- **< 12 hours before start:** 0% refund to client (Stylist & Platform retain full amount).
-  - `Payment.status = 'paid'` (no refund write)
-  - `Payment.stylistPayoutAmount = 850.00`
+  - `Payment.refundAmount = 750.00`
+  - `Payment.platformFeeAmount = 37.50` (15% of retained 250 EGP)
+  - `Payment.stylistPayoutAmount = 212.50` (85% of retained 250 EGP)
 
-### Stylist Cancellations:
-- **Any time / No-show:** 100% refund to client.
+### Stylist or Admin Cancellations:
+- **Any time:** **100% refund** to client.
   - `Payment.status = 'refunded'`
   - `Payment.refundAmount = 1000.00`
   - `Payment.stylistPayoutAmount = 0.00`

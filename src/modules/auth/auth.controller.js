@@ -4,6 +4,24 @@ import { isMobileClient, setAuthCookies, clearAuthCookies } from '../../common/u
 
 // Web (default): tokens as httpOnly cookies only. Mobile (X-Client-Type: mobile): tokens in the
 // response body only, no cookies — see PHASE_01_AUTH.md step 5.
+/**
+ * A human-readable label for the "your devices" list. Derived from headers the client
+ * already sends — no fingerprinting, no extra data collection beyond what identifies the
+ * device to its owner.
+ */
+const deviceLabelFrom = (req) => {
+  const explicit = req.headers['x-device-name'];
+  if (explicit) return String(explicit).slice(0, 80);
+  const ua = String(req.headers['user-agent'] || '');
+  if (isMobileClient(req)) return ua ? `Mobile — ${ua.slice(0, 60)}` : 'Mobile device';
+  if (/iPhone|iPad/i.test(ua)) return 'iOS browser';
+  if (/Android/i.test(ua)) return 'Android browser';
+  if (/Chrome/i.test(ua)) return 'Chrome';
+  if (/Firefox/i.test(ua)) return 'Firefox';
+  if (/Safari/i.test(ua)) return 'Safari';
+  return ua ? ua.slice(0, 60) : 'Unknown device';
+};
+
 const respondWithTokens = (req, res, { statusCode, message, user, accessToken, refreshToken }) => {
   const data = { user: toPublicUser(user) };
 
@@ -40,19 +58,40 @@ export const resendOtp = asyncHandler(async (req, res) => {
 });
 
 export const login = asyncHandler(async (req, res) => {
-  const { user, accessToken, refreshToken } = await authService.login(req.body);
+  const { user, accessToken, refreshToken } = await authService.login(req.body, {
+    deviceLabel: deviceLabelFrom(req),
+  });
   return respondWithTokens(req, res, { message: 'Login successful.', user, accessToken, refreshToken });
 });
 
 export const googleAuth = asyncHandler(async (req, res) => {
-  const { user, accessToken, refreshToken } = await authService.googleLogin(req.body);
+  const { user, accessToken, refreshToken } = await authService.googleLogin(req.body, {
+    deviceLabel: deviceLabelFrom(req),
+  });
   return respondWithTokens(req, res, { message: 'Google sign-in successful.', user, accessToken, refreshToken });
 });
 
+// Current-device logout. The refresh token identifies WHICH session to end, so other
+// devices stay signed in.
 export const logout = asyncHandler(async (req, res) => {
-  await authService.logout(req.user.id);
+  const incoming = isMobileClient(req) ? req.body?.refreshToken : req.cookies?.refreshToken;
+  await authService.logout(req.user.id, incoming);
   clearAuthCookies(res);
   return ApiResponse.success(res, { message: 'Logged out successfully.' });
+});
+
+// Sign out everywhere: clears all sessions and bumps tokenVersion so outstanding access
+// tokens are rejected immediately rather than lingering until they expire.
+export const logoutAll = asyncHandler(async (req, res) => {
+  await authService.logoutAll(req.user.id);
+  clearAuthCookies(res);
+  return ApiResponse.success(res, { message: 'Signed out of all devices.' });
+});
+
+// The user's own active devices. Token hashes are never included.
+export const listSessions = asyncHandler(async (req, res) => {
+  const sessions = await authService.listSessions(req.user.id);
+  return ApiResponse.success(res, { message: 'Active sessions retrieved.', data: sessions });
 });
 
 export const refreshToken = asyncHandler(async (req, res) => {

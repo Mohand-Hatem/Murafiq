@@ -10,6 +10,30 @@ export const createRequest = asyncHandler(async (req, res) => {
   });
 });
 
+export const editRequest = asyncHandler(async (req, res) => {
+  const requestDoc = await requestService.editRequest(req.user.id, req.params.id, req.body);
+  return ApiResponse.success(res, {
+    message: 'Request updated successfully',
+    data: requestDoc,
+  });
+});
+
+export const reactivateRequest = asyncHandler(async (req, res) => {
+  const requestDoc = await requestService.reactivateRequest(req.user.id, req.params.id);
+  return ApiResponse.success(res, {
+    message: 'Request reactivated successfully',
+    data: requestDoc,
+  });
+});
+
+export const closeRequest = asyncHandler(async (req, res) => {
+  const requestDoc = await requestService.closeRequest(req.user.id, req.params.id);
+  return ApiResponse.success(res, {
+    message: 'Request closed successfully',
+    data: requestDoc,
+  });
+});
+
 export const getMine = asyncHandler(async (req, res) => {
   const result = await requestService.getMine(req.user.id, req.query);
   return ApiResponse.success(res, {
@@ -55,10 +79,12 @@ export const declineRequest = asyncHandler(async (req, res) => {
 
 export default {
   createRequest,
+  editRequest,
+  reactivateRequest,
+  closeRequest,
   getMine,
   getIncoming,
   getBroadcastFeed,
   cancelRequest,
   declineRequest,
 };
-

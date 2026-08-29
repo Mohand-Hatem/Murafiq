@@ -24,8 +24,12 @@ const stylistProfileSchema = new Schema(
     ],
     rating: { type: Number, default: 0 },
     totalReviews: { type: Number, default: 0 },
+    reliabilityScore: { type: Number, default: 100 },
+    reliabilityTier: { type: String, default: 'standard' },
     completedSessions: { type: Number, default: 0 },
     cancelledSessions: { type: Number, default: 0 },
+    noShowCount: { type: Number, default: 0 },
+    lateCancelCount: { type: Number, default: 0 },
     gender: { type: String, enum: ['male', 'female'] },
 
     payoutAccount: {
@@ -52,6 +56,7 @@ const stylistProfileSchema = new Schema(
 
 stylistProfileSchema.index({ location: '2dsphere' });
 stylistProfileSchema.index({ rating: -1 });
+stylistProfileSchema.index({ reliabilityScore: -1 });
 stylistProfileSchema.index({ hourlyPrice: 1 });
 stylistProfileSchema.index({ experienceYears: -1 });
 stylistProfileSchema.index({ completedSessions: -1 });

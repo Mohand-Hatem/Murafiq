@@ -15,6 +15,14 @@ const envSchema = z.object({
   MONGO_URI: secret('mongodb://127.0.0.1:27017/murafiq'),
   JWT_ACCESS_SECRET: secret('dev_access_secret_change_me_in_prod'),
   JWT_REFRESH_SECRET: secret('dev_refresh_secret_change_me_in_prod'),
+  // Token lifetimes, previously hardcoded in generateTokens.js. Any `ms`-style string
+  // jsonwebtoken accepts ('15m', '30d', '2h'). The access token is deliberately short:
+  // it is the only credential that cannot be revoked without the tokenVersion check.
+  ACCESS_TOKEN_EXPIRES_IN: z.string().default('15m'),
+  REFRESH_TOKEN_EXPIRES_IN: z.string().default('30d'),
+  // Hard ceiling on simultaneous signed-in devices. The oldest session is evicted past
+  // this, so a user cannot accumulate credentials indefinitely.
+  MAX_SESSIONS_PER_USER: z.string().default('10').transform(Number),
   // ID-token verification only needs the audience (client ID) — no client secret, since there's
   // no server-side authorization-code exchange (the client hands us an already-signed ID token).
   GOOGLE_CLIENT_ID: secret('dev-google-client-id.apps.googleusercontent.com'),

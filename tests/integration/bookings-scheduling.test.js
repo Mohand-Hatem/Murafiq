@@ -35,7 +35,7 @@ const mockRequestDoc = {
   title: 'Personal Shopping Session',
   time: '10:00',
   date: new Date(),
-  status: 'pending',
+  status: 'OPEN',
   toObject: function () {
     return this;
   },
@@ -48,7 +48,7 @@ const mockOfferDoc = {
   clientId: mockClient,
   price: 250,
   duration: 120,
-  status: 'pending',
+  status: 'PENDING',
   expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -88,7 +88,7 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
   default: {
     findById: jest.fn().mockImplementation(() => Promise.resolve(mockRequestDoc)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
-    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'accepted' })),
+    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'FULFILLED' })),
   },
 }));
 

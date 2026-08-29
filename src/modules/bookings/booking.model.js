@@ -26,9 +26,22 @@ const bookingSchema = new Schema(
     duration: { type: Number, required: true }, // in minutes
     status: {
       type: String,
-      enum: ['confirmed', 'in-progress', 'completed', 'cancelled', 'disputed'],
+      // Booking statuses stay lowercase-hyphen to match the pre-existing values
+      // ('confirmed', 'in-progress'); the uppercase duplicates were never written.
+      enum: [
+        'confirmed',
+        'in-progress',
+        'completed',
+        'cancelled',
+        'disputed',
+        'no-show-stylist',
+        'no-show-client',
+      ],
       default: 'confirmed',
     },
+    isFrozen: { type: Boolean, default: false },
+    frozenReason: String,
+    frozenAt: Date,
     checkInAt: Date,
     checkInLocation: {
       lat: Number,
@@ -51,6 +64,19 @@ const bookingSchema = new Schema(
       default: 'unpaid',
     },
     payoutId: { type: Schema.Types.ObjectId, ref: 'Payout' },
+
+    noShowDetails: {
+      reportedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      reportedAt: Date,
+      // Which side is accused. Stored rather than derived from reportedBy so the
+      // settlement path can never mis-attribute the penalty if the relation changes.
+      reportedAgainst: { type: String, enum: ['client', 'stylist'] },
+      respondedAt: Date,
+      response: String,
+      confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      confirmedAt: Date,
+      evidence: [{ type: String, trim: true }],
+    },
 
     disputeDetails: {
       raisedBy: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -75,6 +101,7 @@ bookingSchema.index({ requestId: 1 }, { unique: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
+bookingSchema.index({ isFrozen: 1, payoutStatus: 1 });
 
 const Booking = mongoose.model('Booking', bookingSchema);
 

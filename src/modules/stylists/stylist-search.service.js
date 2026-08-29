@@ -1,9 +1,12 @@
 import StylistProfile from './stylist-profile.model.js';
 import { toPublicStylistDto } from './stylist.dto.js';
 import { escapeRegex } from '../../common/query-builder/QueryBuilder.js';
+import { normalizeGovernorate } from '../../common/utils/geo.util.js';
+import ApiError from '../../common/utils/ApiError.js';
 
 const ALLOWED_SORT_FIELDS = [
   'rating',
+  'reliabilityScore',
   'hourlyPrice',
   'experienceYears',
   'completedSessions',
@@ -29,7 +32,16 @@ export const searchStylists = async (queryParams = {}) => {
     matchQuery.country = new RegExp(`^${escapeRegex(queryParams.country)}$`, 'i');
   }
   if (queryParams.governorate) {
-    matchQuery.governorate = new RegExp(`^${escapeRegex(queryParams.governorate)}$`, 'i');
+    const normalizedGov = normalizeGovernorate(queryParams.governorate);
+    if (normalizedGov) {
+      matchQuery.$or = [
+        { governorate: new RegExp(`^${escapeRegex(normalizedGov.nameEn)}$`, 'i') },
+        { governorate: new RegExp(`^${escapeRegex(normalizedGov.nameAr)}$`, 'i') },
+        { governorate: new RegExp(`^${escapeRegex(queryParams.governorate)}$`, 'i') },
+      ];
+    } else {
+      matchQuery.governorate = new RegExp(`^${escapeRegex(queryParams.governorate)}$`, 'i');
+    }
   }
   if (queryParams.city) {
     matchQuery.city = new RegExp(`^${escapeRegex(queryParams.city)}$`, 'i');

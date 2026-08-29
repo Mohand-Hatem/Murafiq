@@ -307,8 +307,239 @@
  *                           type: integer
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiErrorResponse'
  *       403:
  *         description: Forbidden (admin only)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiErrorResponse'
  */
+
+/**
+ * @swagger
+ * /admin/users/{id}/restrict:
+ *   patch:
+ *     summary: Restrict user chat privileges (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               durationDays:
+ *                 type: integer
+ *                 default: 7
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User restricted successfully
+ */
+
+/**
+ * @swagger
+ * /admin/users/{id}/unrestrict:
+ *   patch:
+ *     summary: Remove restriction and restore user account (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User unrestricted successfully
+ */
+
+/**
+ * @swagger
+ * /admin/users/{id}/revoke-sessions:
+ *   patch:
+ *     summary: Instantly invalidate all active sessions for a user (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User sessions revoked successfully
+ */
+
+/**
+ * @swagger
+ * /admin/users/{id}/block:
+ *   post:
+ *     summary: Block user account permanently with immediate session revocation (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: "Serious safety and policy violation"
+ *     responses:
+ *       200:
+ *         description: User account blocked successfully
+ *   patch:
+ *     summary: Block user account permanently with immediate session revocation (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User account blocked successfully
+ */
+
+/**
+ * @swagger
+ * /admin/users/{id}/unblock:
+ *   post:
+ *     summary: Unblock user account and restore active status (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notes:
+ *                 type: string
+ *                 example: "Appeal reviewed and granted by admin"
+ *     responses:
+ *       200:
+ *         description: User account unblocked successfully
+ *   patch:
+ *     summary: Unblock user account and restore active status (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User account unblocked successfully
+ */
+
+/**
+ * @swagger
+ * /admin/ledger/statements:
+ *   get:
+ *     summary: Query financial double-entry ledger journal statements (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: entryType
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: accountType
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: bookingId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Ledger statements retrieved successfully
+ */
+
+/**
+ * @swagger
+ * /admin/ledger/reconciliation:
+ *   get:
+ *     summary: Run on-demand financial ledger reconciliation assertion (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Reconciliation results (isBalanced flag and delta)
+ */
+
 
 

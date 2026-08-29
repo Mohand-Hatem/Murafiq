@@ -33,3 +33,14 @@ export default {
   getMessagesSchema,
   sendMessageSchema,
 };
+
+export const reportMessageSchema = {
+  body: z
+    .object({
+      reportedUserId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid user id'),
+      messageId: z.string().trim().max(128).optional(),
+      reason: z.string().trim().min(3).max(1000),
+      snippet: z.string().trim().max(500).optional(),
+    })
+    .strict(),
+};

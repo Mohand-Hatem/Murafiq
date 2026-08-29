@@ -2,15 +2,17 @@ import reviewRepository from './review.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import stylistRepository from '../stylists/stylist.repository.js';
 import userRepository from '../users/user.repository.js';
+import moderationService from '../moderation/moderation.service.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
+import ApiError from '../../common/utils/ApiError.js';
 import logger from '../../config/logger.config.js';
 
 class ReviewService {
   /**
    * Submit a two-way review for a completed booking
    */
-  async createReview(callerUser, bookingId, { rating, comment }) {
+  async createReview(callerUser, bookingId, { rating, comment, tags }) {
     const booking = await bookingRepository.findById(bookingId);
     if (!booking) {
       throw new ApiError(404, 'Booking not found');
@@ -18,6 +20,13 @@ class ReviewService {
 
     if (booking.status !== 'completed') {
       throw new ApiError(400, 'Reviews can only be submitted for completed bookings');
+    }
+
+    // 14-day completion time-window guard
+    const completedAt = booking.completedAt || booking.updatedAt;
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    if (Date.now() - new Date(completedAt).getTime() > fourteenDaysMs) {
+      throw new ApiError(400, 'The 14-day window to submit a review for this booking has expired.');
     }
 
     const callerId = String(callerUser._id || callerUser.id);
@@ -48,6 +57,13 @@ class ReviewService {
       throw new ApiError(400, 'Rating must be an integer between 1 and 5');
     }
 
+    // Content Safety Moderation Scan on review comments
+    if (comment) {
+      await moderationService.scanAndEnforce(callerId, 'PROFILE', comment, {
+        bookingId: booking._id.toString(),
+      });
+    }
+
     const review = await reviewRepository.create({
       bookingId: booking._id,
       raterId: callerId,
@@ -55,6 +71,7 @@ class ReviewService {
       direction,
       rating: numRating,
       comment: comment ? comment.trim() : undefined,
+      tags: Array.isArray(tags) ? tags : undefined,
     });
 
     eventBus.emit(EVENTS.REVIEW_SUBMITTED, {
@@ -70,6 +87,26 @@ class ReviewService {
   }
 
   /**
+   * Get reviews for a specific booking
+   */
+  async getBookingReviews(bookingId, callerUser) {
+    const booking = await bookingRepository.findById(bookingId);
+    if (!booking) {
+      throw new ApiError(404, 'Booking not found');
+    }
+
+    const callerId = String(callerUser._id || callerUser.id);
+    const clientId = String(booking.clientId._id || booking.clientId);
+    const stylistId = String(booking.stylistId._id || booking.stylistId);
+
+    if (callerId !== clientId && callerId !== stylistId && callerUser.role !== 'admin') {
+      throw new ApiError(403, 'You do not have access to this booking');
+    }
+
+    return reviewRepository.findByBookingId(bookingId);
+  }
+
+  /**
    * Get public reviews for a stylist
    */
   async getStylistReviews(stylistProfileIdOrUserId, queryString = {}) {
@@ -82,6 +119,13 @@ class ReviewService {
     }
 
     return reviewRepository.findStylistReviews(stylistUserId, queryString);
+  }
+
+  /**
+   * Get public reviews for a client (written by stylists)
+   */
+  async getClientReviews(clientUserId, queryString = {}) {
+    return reviewRepository.findClientReviews(clientUserId, queryString);
   }
 
   /**

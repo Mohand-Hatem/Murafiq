@@ -26,8 +26,42 @@ const userSchema = new Schema(
     otpCode: { type: String, select: false },
     otpExpiresAt: { type: Date, select: false },
     otpAttempts: { type: Number, default: 0, select: false },
-    refreshTokenHash: { type: String, select: false },
     accountStatus: { type: String, enum: Object.values(ACCOUNT_STATUS), default: ACCOUNT_STATUS.ACTIVE },
+
+    // Global credential-invalidation stamp, embedded in every access token as `tv` and
+    // checked on every request. Bumped only when ALL previously issued credentials must
+    // die at once: password reset/change, logout-all, admin revocation, suspension,
+    // blocking, and moderation enforcement. NOT bumped by ordinary single-device logout.
+    tokenVersion: { type: Number, default: 0 },
+
+    // One entry per signed-in device. Replaces the previous single `refreshTokenHash`
+    // scalar, which allowed only one session per user — a mobile login silently killed
+    // the web session. (That field was also missing from this schema entirely, so
+    // Mongoose strict mode discarded every write to it and refresh was fully broken.)
+    //
+    // `select: false`: these are credentials. They must never ride along on an ordinary
+    // user read, and no DTO exposes them.
+    sessions: {
+      type: [
+        new Schema(
+          {
+            // SHA-256, NOT bcrypt. Refresh tokens are high-entropy signed JWTs, so the
+            // slow salted hashing that protects low-entropy passwords buys nothing here
+            // — and a salted hash cannot be matched by equality, which would make the
+            // atomic single-round-trip rotation below impossible.
+            tokenHash: { type: String, required: true },
+            deviceLabel: { type: String, trim: true, default: 'Unknown device' },
+            createdAt: { type: Date, default: Date.now },
+            lastUsedAt: { type: Date, default: Date.now },
+            expiresAt: { type: Date, required: true },
+          },
+          { _id: true }
+        ),
+      ],
+      default: [],
+      select: false,
+    },
+    chatRestrictedUntil: { type: Date, default: null },
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
 

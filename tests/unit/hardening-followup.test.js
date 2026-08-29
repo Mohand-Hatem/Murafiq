@@ -23,6 +23,9 @@ const stylistId = '60f719b8f1a2c81234567892';
 const bookingId = '60f719b8f1a2c81234567893';
 const adminId = '60f719b8f1a2c81234567890';
 const reviewId = '60f719b8f1a2c81234567894';
+// Must be a real 24-hex ObjectId: paymentId is an ObjectId ref on LedgerEntry, so a
+// placeholder like 'pay1' fails schema casting when the ledger dual-write runs.
+const paymentId = '60f719b8f1a2c81234567895';
 
 // jest.spyOn on these singleton repository/service objects leaks across describe
 // blocks in this file unless explicitly restored — clearAllMocks() only resets call
@@ -167,7 +170,7 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
 
   it('rejects with 409 when the booking payoutStatus is processing', async () => {
     jest.spyOn(paymentRepository, 'findByBookingId').mockResolvedValue({
-      _id: 'pay1',
+      _id: paymentId,
       status: 'paid',
       amount: 1000,
       bookingId,
@@ -185,7 +188,7 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
 
   it('allows the refund when the booking payoutStatus is unpaid', async () => {
     jest.spyOn(paymentRepository, 'findByBookingId').mockResolvedValue({
-      _id: 'pay1',
+      _id: paymentId,
       status: 'paid',
       amount: 1000,
       bookingId,
@@ -196,7 +199,7 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
       payoutStatus: 'unpaid',
     });
     jest.spyOn(paymentRepository, 'updateById').mockResolvedValue({
-      _id: 'pay1',
+      _id: paymentId,
       status: 'refunded',
       bookingId,
       clientId,

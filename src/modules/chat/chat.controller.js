@@ -1,3 +1,4 @@
+import moderationService from '../moderation/moderation.service.js';
 import chatService from './chat.service.js';
 import { toMessageDto, toConversationDto } from './chat.dto.js';
 
@@ -45,7 +46,23 @@ export const sendMessage = asyncHandler(async (req, res) => {
   });
 });
 
+export const reportMessage = asyncHandler(async (req, res) => {
+  const result = await moderationService.reportContent(req.user.id, {
+    conversationId: req.params.conversationId,
+    messageId: req.body.messageId,
+    reportedUserId: req.body.reportedUserId,
+    reason: req.body.reason,
+    snippet: req.body.snippet,
+  });
+  return ApiResponse.success(res, {
+    statusCode: 201,
+    message: 'Report submitted. Our team will review it.',
+    data: result,
+  });
+});
+
 export default {
+  reportMessage,
   getChatToken,
   getMessages,
   sendMessage,

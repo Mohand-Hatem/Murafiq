@@ -9,6 +9,11 @@ const auditLogSchema = new Schema(
     action: { type: String, required: true },
     targetType: { type: String, required: true },
     targetId: { type: String, required: true },
+    severity: {
+      type: String,
+      enum: ['info', 'warn', 'critical'],
+      default: 'info',
+    },
     metadata: { type: Schema.Types.Mixed, default: {} },
     ip: { type: String },
   },

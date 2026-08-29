@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+import ApiError from '../../src/common/utils/ApiError.js';
 
 const mockVerifiedClient = {
   _id: '60f719b8f1a2c81234567891',
@@ -34,7 +35,7 @@ const mockBroadcastRequestDoc = {
   visibility: 'broadcast',
   stylistId: null,
   title: 'Open Bridal Styling Request',
-  status: 'pending',
+  status: 'OPEN',
   expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -49,7 +50,7 @@ const mockBroadcastOfferDoc = {
   requestVisibility: 'broadcast',
   price: 500,
   duration: 90,
-  status: 'pending',
+  status: 'PENDING',
   expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -91,9 +92,39 @@ jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => (
     create: jest.fn().mockImplementation((data) => Promise.resolve({ ...mockBroadcastOfferDoc, ...data })),
     findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockBroadcastOfferDoc)),
     findActiveForClient: jest.fn().mockResolvedValue(null),
+    countByStylistAndRequest: jest.fn().mockResolvedValue(0),
     countDailyStylistOffers: jest.fn().mockImplementation(() => Promise.resolve(stylistOfferCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockBroadcastOfferDoc, ...data })),
     expireOldOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+  },
+}));
+
+jest.unstable_mockModule('../../src/modules/subscriptions/entitlement.service.js', () => ({
+  default: {
+    capacity: jest.fn().mockImplementation((_userId, metric) => {
+      if (metric === 'offers.active') {
+        return Promise.resolve({
+          limit: 5,
+          used: stylistOfferCount,
+          available: Math.max(0, 5 - stylistOfferCount),
+          hasCapacity: stylistOfferCount < 5,
+        });
+      }
+      return Promise.resolve({
+        limit: 5,
+        used: clientRequestCount,
+        available: Math.max(0, 5 - clientRequestCount),
+        hasCapacity: clientRequestCount < 5,
+      });
+    }),
+    consume: jest.fn().mockImplementation((_userId, metric) => {
+      if (metric === 'offers.daily' && stylistOfferCount >= 5) {
+        throw new ApiError(403, 'Daily broadcast offer limit reached (5/day). Try again tomorrow.');
+      }
+      return Promise.resolve({ success: true });
+    }),
+    refundQuota: jest.fn().mockResolvedValue({}),
+    hasFeature: jest.fn().mockResolvedValue(false),
   },
 }));
 
@@ -161,6 +192,6 @@ describe('Open Broadcast Requests — Integration Tests', () => {
       });
 
     expect(res.status).toBe(403);
-    expect(res.body.message).toMatch(/Daily broadcast offer limit reached/i);
+    expect(res.body.message).toMatch(/offer limit reached|capacity reached/i);
   });
 });

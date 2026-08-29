@@ -4,11 +4,14 @@ import userRepository from '../users/user.repository.js';
 import MockProvider from './providers/mock.provider.js';
 import PaymobProvider from './providers/paymob.provider.js';
 import env from '../../config/env.config.js';
+import logger from '../../config/logger.config.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { PAYMENT_STATUS } from '../../common/constants/statuses.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
+import couponService from '../coupons/coupon.service.js';
+import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
@@ -53,7 +56,7 @@ export const createPendingPayment = async (
   );
 };
 
-export const initializePayment = async (user, bookingId) => {
+export const initializePayment = async (user, bookingId, { couponCode = null } = {}) => {
   const booking = await bookingRepository.findById(bookingId);
   if (!booking) {
     throw new ApiError(404, 'Booking not found');
@@ -90,6 +93,56 @@ export const initializePayment = async (user, bookingId) => {
 
   if (payment.status === PAYMENT_STATUS.PAID) {
     throw new ApiError(400, 'This booking has already been paid for');
+  }
+
+  // Apply a coupon, if one was supplied and has not already been applied to this
+  // payment. The discount is recomputed here from the stored percentage and the
+  // booking's own price — a client-supplied amount is never trusted (§15).
+  // Redemption is a CAS inside couponService, so two concurrent checkouts cannot both
+  // consume the same coupon.
+  if (couponCode && !payment.couponCode) {
+    const { discountAmount } = await couponService.redeemCoupon(
+      clientIdStr,
+      couponCode,
+      booking._id,
+      booking.price
+    );
+
+    // Floor at zero: a discount can never make the platform owe the client money here.
+    const discountedAmount = round2(Math.max(0, booking.price - discountAmount));
+    const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
+
+    // The platform absorbs the discount, not the stylist. The stylist agreed a price
+    // with the client and must be paid against it — a marketing or compensation cost
+    // is the platform's to bear, and silently deducting it from the stylist's payout
+    // would be taking money from someone who had no part in the decision.
+    const stylistPayoutAmount = round2(booking.price - booking.price * (platformFeePercentage / 100));
+    const platformFeeAmount = round2(discountedAmount - stylistPayoutAmount);
+
+    payment = await paymentRepository.updateById(payment._id, {
+      couponCode: String(couponCode).toUpperCase(),
+      discountAmount,
+      grossAmount: booking.price,
+      amount: discountedAmount,
+      platformFeeAmount,
+      stylistPayoutAmount,
+    });
+
+    try {
+      await ledgerService.postEntry({
+        idempotencyKey: `coupon:redeem:${booking._id}:${String(couponCode).toUpperCase()}`,
+        entryType: 'COUPON_DISCOUNT',
+        accountType: 'PLATFORM',
+        direction: 'DEBIT',
+        amountMinor: egpToPiastres(discountAmount),
+        bookingId: booking._id,
+        paymentId: payment._id,
+        correlationId: `booking_${booking._id}`,
+        notes: `Coupon ${String(couponCode).toUpperCase()} applied to booking #${booking._id}`,
+      });
+    } catch (ledgerErr) {
+      logger.error(`[Ledger] coupon discount entry failed: ${ledgerErr.message}`);
+    }
   }
 
   const provider = getProvider();
@@ -137,6 +190,16 @@ export const handleWebhook = async (payload, query = {}) => {
     return payment; // Idempotent return
   }
 
+  // Providers retry failure callbacks too. Without this, every redelivery of the same
+  // failure re-emitted PAYMENT_FAILED — which now also writes an audit entry, so a
+  // retrying provider would fill the audit log with duplicates of one real event.
+  const isFailureCallback = !(result.success || result.status === 'paid');
+  const sameTransaction =
+    !result.transactionId || String(result.transactionId) === String(payment.providerTransactionId);
+  if (payment.status === PAYMENT_STATUS.FAILED && isFailureCallback && sameTransaction) {
+    return payment; // Idempotent return for a redelivered failure
+  }
+
   if (result.success || result.status === 'paid') {
     const updated = await paymentRepository.updateById(payment._id, {
       status: PAYMENT_STATUS.PAID,
@@ -144,10 +207,46 @@ export const handleWebhook = async (payload, query = {}) => {
       providerTransactionId: result.transactionId || payment.providerTransactionId,
     });
 
+    const amountMinor = ledgerService.egpToPiastres(updated.amount);
+    const paymentIdStr = updated._id.toString();
+    const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
+    const clientIdStr = (updated.clientId?._id || updated.clientId || '').toString();
+
+    // Dual-write to ledger: Client DEBIT, Escrow CREDIT
+    try {
+      await ledgerService.postEntry({
+        idempotencyKey: `payment:paid:client:${paymentIdStr}`,
+        entryType: 'PAYMENT',
+        accountType: 'CLIENT',
+        direction: 'DEBIT',
+        amountMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        accountId: clientIdStr || null,
+        correlationId: `payment_${paymentIdStr}`,
+        notes: 'Client payment received into escrow hold',
+      });
+
+      await ledgerService.postEntry({
+        idempotencyKey: `payment:paid:escrow:${paymentIdStr}`,
+        entryType: 'ESCROW_HOLD',
+        accountType: 'ESCROW',
+        direction: 'CREDIT',
+        amountMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        correlationId: `payment_${paymentIdStr}`,
+        notes: 'Escrow hold for booking',
+      });
+    } catch (ledgerErr) {
+      // Ledger dual-write logging without failing the webhook response
+      console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
+    }
+
     eventBus.emit(EVENTS.PAYMENT_SUCCEEDED, {
       paymentId: updated._id.toString(),
-      bookingId: updated.bookingId._id ? updated.bookingId._id.toString() : updated.bookingId.toString(),
-      clientId: updated.clientId._id ? updated.clientId._id.toString() : updated.clientId.toString(),
+      bookingId: bookingIdStr,
+      clientId: clientIdStr,
       amount: updated.amount,
     });
 
@@ -244,9 +343,43 @@ export const processRefund = async ({ bookingId, refundPercentage = 100, reason 
 
   const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
   const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
+  const paymentIdStr = (updated._id || updated.id || payment._id).toString();
+
+  // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund)
+  try {
+    const refundMinor = ledgerService.egpToPiastres(refundAmount);
+    const sanitizedReason = (reason || 'standard').replace(/\s+/g, '_');
+
+    await ledgerService.postEntry({
+      idempotencyKey: `refund:escrow:${paymentIdStr}:${sanitizedReason}`,
+      entryType: 'ESCROW_RELEASE',
+      accountType: 'ESCROW',
+      direction: 'DEBIT',
+      amountMinor: refundMinor,
+      bookingId: bookingIdStr || null,
+      paymentId: paymentIdStr,
+      correlationId: `refund_${paymentIdStr}`,
+      notes: reason || 'Booking refund release from escrow',
+    });
+
+    await ledgerService.postEntry({
+      idempotencyKey: `refund:client:${paymentIdStr}:${sanitizedReason}`,
+      entryType: 'REFUND',
+      accountType: 'CLIENT',
+      direction: 'CREDIT',
+      amountMinor: refundMinor,
+      bookingId: bookingIdStr || null,
+      paymentId: paymentIdStr,
+      accountId: clientIdStr || null,
+      correlationId: `refund_${paymentIdStr}`,
+      notes: reason || 'Client refund credit',
+    });
+  } catch (ledgerErr) {
+    console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
+  }
 
   eventBus.emit(EVENTS.PAYMENT_REFUNDED, {
-    paymentId: (updated._id || updated.id || payment._id).toString(),
+    paymentId: paymentIdStr,
     bookingId: bookingIdStr,
     clientId: clientIdStr,
     refundAmount,

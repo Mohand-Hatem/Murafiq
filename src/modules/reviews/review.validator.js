@@ -15,6 +15,7 @@ export const createReviewSchema = {
         .min(1, 'Rating must be at least 1')
         .max(5, 'Rating cannot exceed 5'),
       comment: z.string().trim().max(1000, 'Comment cannot exceed 1000 characters').optional(),
+      tags: z.array(z.string().trim().max(50)).max(10).optional(),
     })
     .strict(),
 };

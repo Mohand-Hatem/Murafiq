@@ -24,6 +24,12 @@ Rule for every phase: **do not start writing code for a phase until the previous
 | 15 | `PHASE_15_AI_SKELETON.md` | AI assistant module (chat/tools/agent) — includes outfit-suggestion tool built on Phase 14's closet index | 5, 14 |
 | 16 | `PHASE_16_DEPLOYMENT_READINESS.md` | Final review, env checklist, deployment prep | 13, 15 |
 
+> **Not a phase — see `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`.** A cross-cutting revision of business rules (subscriptions/entitlements, financial ledger, request/offer lifecycle, cancellation & no-show policy, chat moderation, coupons, stylist reliability) is specified in `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`, with `REVISION_HANDOFF.md` as its implementation brief.
+>
+> It is **deliberately not numbered as Phase 17.** The `PHASE_XX` files are a build sequence that adds modules in dependency order; the revision instead *changes rules across modules that are already built* — the same role the `HARDENING_*` docs play. Its internal stages are labelled `R0`–`R12`.
+>
+> **It does not wait on Phases 14, 15, or 16.** It revises Phases 1–13 (built), hands two entitlement keys forward to Phases 14 and 15 to enforce when they are built, and is orthogonal to Phase 16. It can run now, in parallel with or ahead of them.
+
 > **Phase 14 Note — deviation from the "AI stays a skeleton" rule:** Every other module before Phase 15 avoids AI dependencies entirely. Phase 14 is the one deliberate exception: the wardrobe feature is only useful if photos get classified and embedded automatically at upload time, so Phase 14 is where the vision/embedding SDK and vector DB client are actually installed and called for real (queued through Phase 12's BullMQ, not blocking the upload request). Phase 15 stays a conversational/orchestration layer on top of what Phase 14 already indexed — it does not duplicate the classification pipeline.
 
 > **Phase 9 Note:** Phase 1 builds a minimal `mail.service.js` as a temporary shim (Resend directly, no provider abstraction). Phase 9 replaces it with the full provider-pattern implementation. The call signature — `send({ to, subject, html })` — **must stay identical** so Phase 9 is a drop-in replacement with zero changes to callers. After completing Phase 9, re-run Phase 1's OTP email tests to confirm the shim was replaced without breaking any auth mail flows.

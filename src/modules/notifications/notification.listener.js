@@ -281,6 +281,72 @@ class NotificationListener {
       }
     });
 
+    // 11b. No-Show Reported -> Notify the ACCUSED party.
+    // This notification is load-bearing, not cosmetic: silence auto-resolves the report
+    // in the reporter's favour after the response window, so a party who is never told
+    // loses by default. If this listener breaks, the fairness of the whole flow breaks.
+    eventBus.on(EVENTS.NO_SHOW_REPORTED, async ({ bookingId, reportedAgainst }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (!booking) return;
+
+        const accusedUserId =
+          reportedAgainst === 'stylist'
+            ? booking.stylistId?._id || booking.stylistId
+            : booking.clientId?._id || booking.clientId;
+
+        if (accusedUserId) {
+          await notificationService.send(accusedUserId, {
+            type: 'booking',
+            title: 'No-Show Reported',
+            body: 'The other party reported you as a no-show. Respond within 2 hours or the report will be upheld automatically.',
+            relatedEntityId: booking._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on NO_SHOW_REPORTED: ${err.message}`);
+      }
+    });
+
+    // 11c. No-Show Resolved -> Notify both parties of the financial outcome.
+    eventBus.on(EVENTS.NO_SHOW_RESOLVED, async ({ bookingId, against }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (!booking) return;
+
+        const clientUserId = booking.clientId?._id || booking.clientId;
+        const stylistUserId = booking.stylistId?._id || booking.stylistId;
+
+        if (clientUserId) {
+          await notificationService.send(clientUserId, {
+            type: 'booking',
+            title: 'No-Show Resolved',
+            body:
+              against === 'stylist'
+                ? 'Your stylist did not attend. You have been refunded in full and issued a compensation coupon.'
+                : 'This booking was closed as a no-show. A partial refund has been issued.',
+            relatedEntityId: booking._id,
+          });
+        }
+
+        if (stylistUserId) {
+          await notificationService.send(stylistUserId, {
+            type: 'booking',
+            title: 'No-Show Resolved',
+            body:
+              against === 'stylist'
+                ? 'A no-show was recorded against you. A penalty has been applied to your account balance.'
+                : 'The client did not attend. Partial compensation has been applied to this booking.',
+            relatedEntityId: booking._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on NO_SHOW_RESOLVED: ${err.message}`);
+      }
+    });
+
     // 12. Dispute Raised -> Notify Client & Stylist
     eventBus.on(EVENTS.DISPUTE_RAISED, async ({ bookingId, raisedBy, reason }) => {
       try {
@@ -353,6 +419,31 @@ class NotificationListener {
         });
       } catch (err) {
         logger.error(`Notification error on USER_VERIFICATION_REJECTED: ${err.message}`);
+      }
+    });
+
+    // 12. Session Reminder -> Notify Client and Stylist
+    eventBus.on(EVENTS.SESSION_REMINDER, async ({ bookingId, clientId, stylistId, _date, time }) => {
+      try {
+        const timeLabel = time || 'soon';
+        if (clientId) {
+          await notificationService.send(clientId, {
+            type: 'booking',
+            title: 'Upcoming Styling Session Reminder',
+            body: `You have an upcoming appointment scheduled for ${timeLabel}.`,
+            relatedEntityId: bookingId,
+          });
+        }
+        if (stylistId) {
+          await notificationService.send(stylistId, {
+            type: 'booking',
+            title: 'Upcoming Styling Session Reminder',
+            body: `You have an upcoming appointment scheduled with your client for ${timeLabel}.`,
+            relatedEntityId: bookingId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on SESSION_REMINDER: ${err.message}`);
       }
     });
 

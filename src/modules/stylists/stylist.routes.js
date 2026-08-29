@@ -17,6 +17,7 @@ router.get('/me/profile', authMiddleware, restrictTo(ROLES.STYLIST), stylistCont
 router.get('/me/payouts', authMiddleware, restrictTo(ROLES.STYLIST), stylistController.getOwnPayouts);
 router.get('/:id', stylistController.getPublicProfileById);
 router.get('/:id/reviews', stylistController.getStylistReviews);
+router.get('/:id/reliability', stylistController.getReliability);
 
 // Protected routes (require auth)
 router.use(authMiddleware);

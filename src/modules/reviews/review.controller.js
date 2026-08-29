@@ -66,9 +66,39 @@ export const hideReview = asyncHandler(async (req, res) => {
   );
 });
 
+export const getBookingReviews = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const reviews = await reviewService.getBookingReviews(bookingId, req.user);
+
+  return ApiResponse.success(res, {
+    statusCode: 200,
+    message: 'Booking reviews retrieved successfully',
+    data: reviews.map(toReviewDto),
+  });
+});
+
+export const getClientReviews = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { items, meta } = await reviewService.getClientReviews(id, req.query);
+
+  return ApiResponse.success(
+    res,
+    {
+      statusCode: 200,
+      message: 'Client reviews retrieved successfully',
+      data: {
+        items: items.map(toPublicReviewDto),
+      },
+      meta,
+    }
+  );
+});
+
 export default {
   createBookingReview,
   getStylistReviews,
+  getClientReviews,
   getMyReviews,
+  getBookingReviews,
   hideReview,
 };

@@ -9,6 +9,14 @@ export const createOffer = asyncHandler(async (req, res) => {
   });
 });
 
+export const withdrawOffer = asyncHandler(async (req, res) => {
+  const offerDoc = await offerService.withdrawOffer(req.user, req.params.id);
+  return ApiResponse.success(res, {
+    message: 'Offer withdrawn successfully',
+    data: offerDoc,
+  });
+});
+
 export const acceptOffer = asyncHandler(async (req, res) => {
   const offerDoc = await offerService.acceptOffer(req.user, req.params.id);
   return ApiResponse.success(res, {
@@ -35,6 +43,7 @@ export const getOffersForRequest = asyncHandler(async (req, res) => {
 
 export default {
   createOffer,
+  withdrawOffer,
   acceptOffer,
   rejectOffer,
   getOffersForRequest,

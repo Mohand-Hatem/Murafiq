@@ -1,6 +1,7 @@
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import stylistRepository from './stylist.repository.js';
+import reliabilityService from './reliability.service.js';
 import logger from '../../config/logger.config.js';
 
 class StylistListener {
@@ -48,8 +49,31 @@ class StylistListener {
             );
           }
         }
+        if (stylistId) {
+          await reliabilityService.updateStylistReliability(stylistId);
+        }
       } catch (err) {
-        logger.error(`Error incrementing stylist cancellation counter: ${err.message}`);
+        logger.error(`Error updating stylist reliability on booking cancel: ${err.message}`);
+      }
+    });
+
+    eventBus.on(EVENTS.SESSION_COMPLETED, async ({ stylistId }) => {
+      try {
+        if (stylistId) {
+          await reliabilityService.updateStylistReliability(stylistId);
+        }
+      } catch (err) {
+        logger.error(`Error updating stylist reliability on booking complete: ${err.message}`);
+      }
+    });
+
+    eventBus.on(EVENTS.REVIEW_SUBMITTED, async ({ direction, revieweeId }) => {
+      try {
+        if (direction === 'client_to_stylist' && revieweeId) {
+          await reliabilityService.updateStylistReliability(revieweeId);
+        }
+      } catch (err) {
+        logger.error(`Error updating stylist reliability on review submit: ${err.message}`);
       }
     });
 

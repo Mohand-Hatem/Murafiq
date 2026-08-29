@@ -43,6 +43,26 @@ export const getDashboardStats = async () => {
   };
 };
 
+export const restrictUser = async (userId, adminId, data) => {
+  return userService.restrictUser(userId, adminId, data);
+};
+
+export const unrestrictUser = async (userId, adminId) => {
+  return userService.unrestrictUser(userId, adminId);
+};
+
+export const revokeUserSessions = async (userId, adminId) => {
+  return userService.revokeUserSessions(userId, adminId);
+};
+
+export const blockUser = async (userId, adminId, reason) => {
+  return userService.blockUser(userId, adminId, reason);
+};
+
+export const unblockUser = async (userId, adminId, notes) => {
+  return userService.unblockUser(userId, adminId, notes);
+};
+
 export default {
   getVerifications,
   getAllUsers,
@@ -50,5 +70,10 @@ export default {
   rejectVerification,
   suspendUser,
   reactivateUser,
+  blockUser,
+  unblockUser,
+  restrictUser,
+  unrestrictUser,
+  revokeUserSessions,
   getDashboardStats,
 };

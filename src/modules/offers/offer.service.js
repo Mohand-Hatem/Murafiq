@@ -3,15 +3,17 @@ import offerRepository from './offer.repository.js';
 import requestRepository from '../requests/request.repository.js';
 import userRepository from '../users/user.repository.js';
 import bookingService from '../bookings/booking.service.js';
+import entitlementService from '../subscriptions/entitlement.service.js';
+import moderationService from '../moderation/moderation.service.js';
 import { toPublicOfferDto } from './offer.dto.js';
-import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
-import { DEFAULT_CAPS } from '../../common/constants/defaults.constant.js';
+import { OFFER_STATUS, REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
 
 export const createOffer = async (stylistUser, requestId, offerData) => {
-  const stylist = await userRepository.findById(stylistUser._id || stylistUser.id);
+  const stylistId = (stylistUser._id || stylistUser.id).toString();
+  const stylist = await userRepository.findById(stylistId);
   if (!stylist || stylist.verification?.status !== 'verified') {
     throw new ApiError(403, 'Your identity must be verified before sending offers');
   }
@@ -23,87 +25,117 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
 
   if (reqDoc.visibility === 'direct') {
     const reqStylistId = reqDoc.stylistId?._id?.toString() || reqDoc.stylistId?.toString();
-    if (reqStylistId !== (stylistUser._id || stylistUser.id).toString()) {
-      throw new ApiError(403, 'Forbidden');
+    if (reqStylistId !== stylistId) {
+      throw new ApiError(403, 'Forbidden: This direct request was sent to another stylist');
     }
   }
 
-  if (reqDoc.status !== 'pending' && reqDoc.status !== 'offered') {
+  if (reqDoc.status !== REQUEST_STATUS.OPEN) {
     throw new ApiError(400, `Cannot send offer for request in '${reqDoc.status}' status`);
   }
 
   // Check request expiration
   if (reqDoc.expiresAt && reqDoc.expiresAt < new Date()) {
-    await requestRepository.updateById(requestId, { status: 'expired' });
-    throw new ApiError(400, 'Request has expired');
+    // An unanswered request PAUSES rather than expiring — the client can reactivate it.
+    await requestRepository.updateById(requestId, {
+      status: REQUEST_STATUS.PAUSED,
+      pausedAt: new Date(),
+    });
+    throw new ApiError(400, 'This request is no longer open for offers');
   }
 
-  // Check Stylist Daily Offer Cap only for broadcast offers
-  if (reqDoc.visibility === 'broadcast') {
-    const { startOfDay, endOfDay } = getBusinessDayRange();
-    const dailyCount = await offerRepository.countDailyStylistOffers(
-      stylistUser._id || stylistUser.id,
-      startOfDay,
-      endOfDay
+  // 1. Check persistent active capacity via Entitlement Service
+  const capacityInfo = await entitlementService.capacity(stylistId, 'offers.active', 'stylist');
+  if (!capacityInfo.hasCapacity) {
+    throw new ApiError(
+      403,
+      `Active offer capacity reached (${capacityInfo.limit}). Upgrade your plan or withdraw older pending offers.`
     );
-
-    const maxDailyOffers = DEFAULT_CAPS.STYLIST_DAILY_OFFERS;
-    if (dailyCount >= maxDailyOffers) {
-      throw new ApiError(
-        403,
-        `Daily broadcast offer limit reached (${maxDailyOffers}/day). Try again tomorrow.`
-      );
-    }
   }
+
+  // 2. Enforce max 1 offer from one stylist to one request
+  const bidsOnThisRequest = await offerRepository.countByStylistAndRequest(stylistId, requestId);
+  if (bidsOnThisRequest >= 1) {
+    throw new ApiError(400, 'Maximum of 1 offer per request reached for your account.');
+  }
+
+  // 3. Content Safety Scan BEFORE consuming quota — a blocked message must not cost the
+  //    stylist one of their limited daily offers. The moderation strike is still recorded,
+  //    so repeat abuse still escalates; only the quota burn is avoided.
+  if (offerData.message) {
+    await moderationService.scanAndEnforce(stylistId, 'OFFER', offerData.message, { requestId });
+  }
+
+  // 4. Atomically consume daily offer quota via Entitlement Service (throws 429 if exceeded)
+  await entitlementService.consume(stylistId, 'offers.daily', 1, 'stylist');
 
   const reqClientId = reqDoc.clientId._id?.toString() || reqDoc.clientId.toString();
 
-  // Cross-request "one active offer per client" rule
-  const activeOffer = await offerRepository.findActiveForClient(
-    stylistUser._id || stylistUser.id,
-    reqClientId
-  );
-  if (activeOffer) {
-    throw new ApiError(409, 'You already have an active offer open with this client.');
-  }
+  // 24-hour standard expiry, 30-day long-stop expiry
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const longStopExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  // 24-hour offer expiration window
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const newOffer = await offerRepository.create({
+    requestId,
+    stylistId,
+    clientId: reqClientId,
+    requestVisibility: reqDoc.visibility || 'direct',
+    price: offerData.price,
+    duration: offerData.duration,
+    message: offerData.message,
+    status: OFFER_STATUS.PENDING,
+    expiresAt,
+    longStopExpiresAt,
+  });
 
-  let newOffer;
-  try {
-    newOffer = await offerRepository.create({
-      requestId,
-      stylistId: stylistUser._id || stylistUser.id,
-      clientId: reqClientId,
-      requestVisibility: reqDoc.visibility || 'direct',
-      price: offerData.price,
-      duration: offerData.duration,
-      message: offerData.message,
-      expiresAt,
-    });
-  } catch (err) {
-    if (err.code === 11000) {
-      throw new ApiError(409, 'You have already submitted an offer for this request.');
-    }
-    throw err;
-  }
-
-  // Transition request status to 'offered'
-  await requestRepository.updateById(requestId, { status: 'offered' });
+  // The request STAYS 'OPEN'. It deliberately does not move to an 'offered' state:
+  // "has at least one offer" is a count, not a status, and encoding it as a status is
+  // what previously hid a broadcast request from every other stylist's feed the moment
+  // the first bid landed — defeating competitive bidding entirely (see §B.3/§F.1).
+  //
+  // $min sets firstOfferAt when the field is absent and never overwrites a later write
+  // with an earlier one. Since time only moves forward, this atomically records the
+  // FIRST offer's timestamp even under concurrent offer creation — no read-then-write
+  // window, which matters because firstOfferAt is what freezes the request from edits.
+  await requestRepository.updateById(requestId, {
+    $inc: { offerCount: 1 },
+    $min: { firstOfferAt: new Date() },
+  });
 
   eventBus.emit(EVENTS.OFFER_CREATED, { offerId: newOffer._id.toString() });
 
   return toPublicOfferDto(newOffer);
 };
 
-// MongoDB can abort an operation for reasons that have nothing to do with a real competing offer —
-// e.g. `WriteConflict` / `TransientTransactionError` from ordinary storage-engine catalog activity,
-// or a lock-acquisition timeout on a plain read under contention. MongoDB's own driver docs say the
-// correct response to a transient-labeled error is to retry, not treat it as a business conflict.
-// The ACTUAL "someone else already won" case is the CAS lock in createBookingFromOffer returning
-// null, which already throws a real ApiError(409, ...) directly — that one propagates immediately,
-// every other ApiError (403/400/404 from validation) does too. Only genuine MongoDB transience retries.
+export const withdrawOffer = async (stylistUser, offerId) => {
+  const stylistId = (stylistUser._id || stylistUser.id).toString();
+  const offer = await offerRepository.findById(offerId);
+  if (!offer) {
+    throw new ApiError(404, 'Offer not found');
+  }
+
+  const offerStylistId = (offer.stylistId?._id || offer.stylistId).toString();
+  if (offerStylistId !== stylistId) {
+    throw new ApiError(403, 'Forbidden: You can only withdraw your own offers');
+  }
+
+  if (offer.status !== OFFER_STATUS.PENDING) {
+    throw new ApiError(400, `Cannot withdraw offer in '${offer.status}' status`);
+  }
+
+  const updated = await offerRepository.updateById(offerId, {
+    status: OFFER_STATUS.WITHDRAWN,
+  });
+
+  // Decrement request offerCount
+  await requestRepository.updateById(offer.requestId, {
+    $inc: { offerCount: -1 },
+  });
+
+  return toPublicOfferDto(updated);
+};
+
 const isTransientMongoError = (err) =>
   err.code === 112 || // WriteConflict
   err.code === 24 || // LockTimeout
@@ -125,12 +157,12 @@ const acceptOfferOnce = async (clientUser, offerId) => {
     throw new ApiError(403, 'Forbidden');
   }
 
-  if (offerDoc.status !== 'pending') {
+  if (offerDoc.status !== OFFER_STATUS.PENDING) {
     throw new ApiError(400, `Cannot accept offer in '${offerDoc.status}' status`);
   }
 
   if (offerDoc.expiresAt && offerDoc.expiresAt < new Date()) {
-    await offerRepository.updateById(offerId, { status: 'expired' });
+    await offerRepository.updateById(offerId, { status: OFFER_STATUS.EXPIRED });
     throw new ApiError(400, 'Offer has expired');
   }
 
@@ -153,7 +185,9 @@ const acceptOfferOnce = async (clientUser, offerId) => {
     throw err;
   } finally {
     if (session) {
-      try { session.endSession(); } catch (_) {}
+      try {
+        session.endSession();
+      } catch (_) {}
     }
   }
 };
@@ -168,12 +202,10 @@ export const acceptOffer = async (clientUser, offerId) => {
       bookingDoc = await acceptOfferOnce(clientUser, offerId);
       break; // success
     } catch (err) {
-      // A real business error (statusCode already set by an ApiError — the CAS lock's genuine 409,
-      // or a 400/403/404 from validation) never retries, regardless of attempts remaining.
       if (err.statusCode || !isTransientMongoError(err) || attempt === MAX_TRANSIENT_RETRIES) {
         throw err;
       }
-      await sleep(RETRY_BACKOFF_MS * attempt); // small backoff so the contention actually clears
+      await sleep(RETRY_BACKOFF_MS * attempt);
     }
   }
 
@@ -194,22 +226,21 @@ export const rejectOffer = async (clientUser, offerId) => {
     throw new ApiError(403, 'Forbidden');
   }
 
-  if (offerDoc.status !== 'pending') {
+  if (offerDoc.status !== OFFER_STATUS.PENDING) {
     throw new ApiError(400, `Cannot reject offer in '${offerDoc.status}' status`);
   }
 
-  const updatedOffer = await offerRepository.updateById(offerId, { status: 'rejected' });
-  // Reset request status back to 'pending' so stylist can re-offer or decline
-  await requestRepository.updateById(offerDoc.requestId, { status: 'pending' });
+  const updatedOffer = await offerRepository.updateById(offerId, {
+    status: OFFER_STATUS.REJECTED,
+  });
+  // The request deliberately STAYS OPEN. Rejecting one bid must not reset the request:
+  // it may still hold several other live offers the client is comparing.
 
   eventBus.emit(EVENTS.OFFER_REJECTED, { offerId });
 
   return toPublicOfferDto(updatedOffer);
 };
 
-// The request's own client comparing competing offers — the actual decision point a broadcast
-// request exists for. Full price/stylist comparison, intentionally: sealed-bid (§2.3 of the design
-// doc) hides offers from other STYLISTS, never from the client whose request they're bidding on.
 export const getOffersForRequest = async (clientUser, requestId) => {
   const reqDoc = await requestRepository.findById(requestId);
   if (!reqDoc) {
@@ -227,6 +258,7 @@ export const getOffersForRequest = async (clientUser, requestId) => {
 
 export default {
   createOffer,
+  withdrawOffer,
   acceptOffer,
   rejectOffer,
   getOffersForRequest,

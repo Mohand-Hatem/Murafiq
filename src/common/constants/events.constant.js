@@ -4,6 +4,7 @@ export const EVENTS = {
   USER_VERIFICATION_REJECTED: 'user.verification_rejected',
   USER_LOCATION_UPDATED: 'user.location_updated',
   USER_SUSPENDED: 'user.suspended',
+  REFRESH_TOKEN_REUSE_DETECTED: 'auth.refresh_token_reuse_detected',
   USER_REACTIVATED: 'user.reactivated',
   REQUEST_CREATED: 'request.created',
   REQUEST_DECLINED: 'request.declined',
@@ -16,6 +17,8 @@ export const EVENTS = {
   CHECK_IN_COMPLETED: 'checkin.completed',
   SESSION_COMPLETED: 'session.completed',
   SESSION_DISPUTED: 'session.disputed',
+  NO_SHOW_REPORTED: 'booking.no_show_reported',
+  NO_SHOW_RESOLVED: 'booking.no_show_resolved',
   DISPUTE_RAISED: 'dispute.raised',
   DISPUTE_RESOLVED: 'dispute.resolved',
   PAYMENT_SUCCEEDED: 'payment.succeeded',
@@ -30,6 +33,10 @@ export const EVENTS = {
   PAYOUT_PROCESSING: 'payout.processing',
   PAYOUT_PAID: 'payout.paid',
   PAYOUT_FAILED: 'payout.failed',
+  SUBSCRIPTION_ACTIVATED: 'subscription.activated',
+  SUBSCRIPTION_CANCELLED: 'subscription.cancelled',
+  SUBSCRIPTION_EXPIRED: 'subscription.expired',
+  SESSION_REMINDER: 'session.reminder',
 };
 
 export default EVENTS;

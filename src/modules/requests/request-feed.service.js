@@ -1,6 +1,7 @@
 import Request from './request.model.js';
 import { toPublicRequestDto } from './request.dto.js';
 import { escapeRegex } from '../../common/query-builder/QueryBuilder.js';
+import { REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'distance', 'expiresAt'];
 
@@ -9,10 +10,15 @@ export const getBroadcastFeed = async (stylistUser, queryParams = {}) => {
   const limit = Math.max(1, Math.min(100, parseInt(queryParams.limit, 10) || 10));
   const skip = (page - 1) * limit;
 
+  const now = new Date();
   const matchQuery = {
     visibility: 'broadcast',
-    status: 'pending',
-    expiresAt: { $gt: new Date() },
+    status: REQUEST_STATUS.OPEN,
+    expiresAt: { $gt: now },
+    $or: [
+      { autoPauseAt: null },
+      { autoPauseAt: { $gt: now } },
+    ],
   };
 
   if (queryParams.governorate) {

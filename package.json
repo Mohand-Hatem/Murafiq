@@ -14,7 +14,9 @@
     "lint": "eslint src tests",
     "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
     "seed:admin": "node scripts/seed-admin.js",
-    "start:prod": "pm2 start ecosystem.config.cjs --env production"
+    "start:prod": "pm2 start ecosystem.config.cjs --env production",
+    "validate:openapi": "node scripts/validate-openapi.js",
+    "verify": "npm run lint && npm run validate:openapi && npm test"
   },
   "keywords": [],
   "author": "",

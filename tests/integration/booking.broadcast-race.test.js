@@ -59,7 +59,7 @@ describe('Broadcast Acceptance Concurrency Race Guard', () => {
       clientId: clientUser._id,
       visibility: 'broadcast',
       title: 'Competitive Bridal Hair Session',
-      status: 'pending',
+      status: 'OPEN',
       date: new Date('2026-10-01T12:00:00.000Z'),
       time: '12:00',
       expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
@@ -72,7 +72,7 @@ describe('Broadcast Acceptance Concurrency Race Guard', () => {
       requestVisibility: 'broadcast',
       price: 600,
       duration: 60,
-      status: 'pending',
+      status: 'PENDING',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
@@ -83,7 +83,7 @@ describe('Broadcast Acceptance Concurrency Race Guard', () => {
       requestVisibility: 'broadcast',
       price: 650,
       duration: 60,
-      status: 'pending',
+      status: 'PENDING',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
   });
@@ -115,14 +115,14 @@ describe('Broadcast Acceptance Concurrency Race Guard', () => {
 
     // Request is accepted
     const updatedRequest = await Request.findById(requestDoc._id);
-    expect(updatedRequest.status).toBe('accepted');
+    expect(updatedRequest.status).toBe('FULFILLED');
 
-    // Winning offer is accepted, losing offer is rejected
+    // Winning offer is accepted, losing offer is CLOSED
     const updatedOffers = await Offer.find({ requestId: requestDoc._id });
-    const acceptedOffers = updatedOffers.filter((o) => o.status === 'accepted');
-    const rejectedOffers = updatedOffers.filter((o) => o.status === 'rejected');
+    const acceptedOffers = updatedOffers.filter((o) => o.status === 'accepted' || o.status === 'ACCEPTED');
+    const closedOffers = updatedOffers.filter((o) => o.status === 'CLOSED' || o.status === 'rejected');
 
     expect(acceptedOffers).toHaveLength(1);
-    expect(rejectedOffers).toHaveLength(1);
+    expect(closedOffers).toHaveLength(1);
   });
 });

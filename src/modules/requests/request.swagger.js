@@ -340,6 +340,89 @@
 
 /**
  * @swagger
+ * /requests/{id}:
+ *   patch:
+ *     summary: Edit an open request (Client owner only, while 0 offers exist)
+ *     tags: [Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               date:
+ *                 type: string
+ *                 format: date-time
+ *               time:
+ *                 type: string
+ *               budgetRange:
+ *                 type: object
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Request updated successfully
+ *       409:
+ *         description: Request scope is frozen after receiving offers
+ */
+
+/**
+ * @swagger
+ * /requests/{id}/reactivate:
+ *   patch:
+ *     summary: Reactivate a paused request (Client owner only, max 3 times)
+ *     tags: [Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Request reactivated successfully
+ *       400:
+ *         description: Request not paused or maximum reactivation limit reached
+ */
+
+/**
+ * @swagger
+ * /requests/{id}/close:
+ *   patch:
+ *     summary: Permanently close an open request (Client owner only)
+ *     tags: [Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Request closed successfully
+ */
+
+/**
+ * @swagger
  * /requests/{id}/decline:
  *   patch:
  *     summary: Decline a pending request (Stylist target only)
@@ -360,3 +443,4 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseRequestSuccess'
  */
+

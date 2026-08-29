@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
 
 const { Schema } = mongoose;
 
@@ -40,17 +41,25 @@ const requestSchema = new Schema(
     images: [{ type: String, trim: true }],
     status: {
       type: String,
-      enum: ['pending', 'offered', 'accepted', 'rejected', 'expired', 'cancelled'],
-      default: 'pending',
+      enum: Object.values(REQUEST_STATUS),
+      default: REQUEST_STATUS.OPEN,
     },
+    offerCount: { type: Number, default: 0 },
+    firstOfferAt: Date,
+    pauseCount: { type: Number, default: 0 },
+    pausedAt: Date,
+    reactivatedAt: Date,
     expiresAt: Date,
+    autoPauseAt: Date,
   },
   { timestamps: true }
 );
 
 requestSchema.index({ clientId: 1, createdAt: -1 });
+requestSchema.index({ clientId: 1, status: 1 });
 requestSchema.index({ stylistId: 1, createdAt: -1 });
 requestSchema.index({ expiresAt: 1, status: 1 });
+requestSchema.index({ status: 1, autoPauseAt: 1 });
 requestSchema.index({ 'meetingLocation.location': '2dsphere' });
 requestSchema.index({
   visibility: 1,

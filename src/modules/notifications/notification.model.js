@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPES = [
   'reminder',     // Phase 12 — session reminder job
   'review',       // Phase 8 — new review received
   'verification', // Phase 2 — ID verification approved/rejected
+  'dispute',      // Phase 10 — dispute raised / resolved on a booking
   'safety',       // Phase 11 — SOS alert, safety report update
   'payout',       // Phase 11 — payout status change
   'system',       // catch-all for admin/platform messages

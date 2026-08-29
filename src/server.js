@@ -5,6 +5,12 @@ import env from './config/env.config.js';
 import { connectDB } from './database/connection.js';
 import { logger } from './config/logger.config.js';
 import { startOfferExpiryCron } from './jobs/offer-expiry.cron.js';
+import { startLedgerReconciliationCron } from './jobs/ledger-reconciliation.cron.js';
+import { startSubscriptionRenewalCron } from './jobs/subscription-renewal.cron.js';
+import { startRequestAutoPauseCron } from './jobs/request-autopause.cron.js';
+import { startOtpCleanupCron } from './jobs/otp-cleanup.cron.js';
+import { startSessionReminderCron } from './jobs/session-reminder.cron.js';
+import { startNoShowResolutionCron } from './jobs/no-show-resolution.cron.js';
 
 const PORT = env.PORT || 4000;
 const server = http.createServer(app);
@@ -12,6 +18,12 @@ const server = http.createServer(app);
 const startServer = async () => {
   await connectDB();
   startOfferExpiryCron();
+  startLedgerReconciliationCron();
+  startSubscriptionRenewalCron();
+  startRequestAutoPauseCron();
+  startNoShowResolutionCron();
+  startOtpCleanupCron();
+  startSessionReminderCron();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${PORT}`);
   });

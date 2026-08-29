@@ -17,7 +17,7 @@ const mockFeedItems = [
     _id: '80f719b8f1a2c81234567890',
     title: 'New Cairo Styling Request',
     visibility: 'broadcast',
-    status: 'pending',
+    status: 'OPEN',
     clientId: { _id: mockClientUser._id, name: 'Client 1' },
     meetingLocation: { city: 'New Cairo', governorate: 'Cairo' },
     toObject: function () {

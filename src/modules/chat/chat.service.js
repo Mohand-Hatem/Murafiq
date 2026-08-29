@@ -1,5 +1,6 @@
 import { firestore, auth } from '../../config/firebase.config.js';
 import bookingRepository from '../bookings/booking.repository.js';
+import moderationService from '../moderation/moderation.service.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
@@ -215,6 +216,15 @@ class ChatService {
 
     if (conversation.isLocked) {
       throw new ApiError(400, 'Chat is locked because this booking has ended.');
+    }
+
+    // Real-time Content Moderation Scan
+    if (type === 'text' && content) {
+      const recipientId = conversation.participants?.find((p) => p !== stringSenderId);
+      await moderationService.scanAndEnforce(stringSenderId, 'MESSAGE', content, {
+        conversationId: stringConvId,
+        recipientId,
+      });
     }
 
     const messageData = {
