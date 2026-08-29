@@ -18,6 +18,12 @@ export const findByBookingAndDirection = async (bookingId, direction) => {
   return Review.findOne({ bookingId, direction });
 };
 
+export const findByBookingId = async (bookingId) => {
+  return Review.find({ bookingId })
+    .populate('raterId', 'name profileImage')
+    .populate('revieweeId', 'name profileImage');
+};
+
 export const findStylistReviews = async (stylistUserId, queryString = {}) => {
   const queryObj = {
     ...queryString,
@@ -28,7 +34,7 @@ export const findStylistReviews = async (stylistUserId, queryString = {}) => {
 
   const baseQuery = Review.find();
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['rating', 'direction', 'revieweeId', 'raterId', 'isHidden'])
     .sort()
     .select();
 
@@ -46,7 +52,7 @@ export const findUserReviews = async (userId, queryString = {}) => {
   const baseQuery = Review.find();
 
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['rating', 'direction', 'revieweeId', 'raterId', 'isHidden'])
     .sort()
     .select();
 
@@ -101,11 +107,36 @@ export const aggregateRating = async (revieweeId, direction) => {
   };
 };
 
+export const findClientReviews = async (clientUserId, queryString = {}) => {
+  const queryObj = {
+    ...queryString,
+    revieweeId: clientUserId,
+    direction: 'stylist_to_client',
+    isHidden: false,
+  };
+
+  const baseQuery = Review.find();
+  const builder = new QueryBuilder(baseQuery, queryObj)
+    .filter(['rating', 'direction', 'revieweeId', 'raterId', 'isHidden'])
+    .sort()
+    .select();
+
+  await builder.paginate(Review);
+  const items = await builder.mongooseQuery.populate('raterId', 'name profileImage');
+
+  return {
+    items,
+    meta: builder.meta,
+  };
+};
+
 export default {
   create,
   findById,
   findByBookingAndDirection,
+  findByBookingId,
   findStylistReviews,
+  findClientReviews,
   findUserReviews,
   updateById,
   aggregateRating,

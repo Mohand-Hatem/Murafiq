@@ -28,21 +28,39 @@ service cloud.firestore {
       // Client cannot create or delete root conversation rooms directly.
       allow create, delete: if false;
 
-      // Participants can update metadata (e.g. lastMessageAt) only if room is active
-      allow update: if isParticipant(resource.data) && isConversationActive(resource.data);
+      // Participants can only update lastMessageAt when room is active (cannot modify participants, isOpen, or isLocked)
+      allow update: if isParticipant(resource.data)
+        && isConversationActive(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']);
 
       // Messages subcollection
       match /messages/{messageId} {
         // Participants can read message history; Admins have read-only access
         allow read: if isAdmin() || isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
 
-        // Participants can write messages only if room is open and not locked
-        allow create: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
-          && isConversationActive(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
-          && request.resource.data.senderId == request.auth.uid;
+        // Message creation is DISABLED for clients.
+        //
+        // Every message must go through POST /api/v1/chat/:conversationId/messages so the
+        // backend can moderate it before it is ever visible. Leaving direct writes open
+        // would make the entire moderation pipeline optional — anyone could bypass it by
+        // writing to Firestore instead of the API. The backend writes via the Admin SDK,
+        // which bypasses these rules.
+        //
+        // Firestore remains the realtime READ path: the `allow read` rule below is
+        // unchanged, so onSnapshot listeners keep working exactly as before.
+        //
+        // ⚠️ DEPLOY ORDER — this rule change must ship AFTER the mobile client that sends
+        // via REST, and only once adoption is high enough. Deploying it first breaks every
+        // message send in production instantly. See §O.8:
+        //   1. backend proxy live (done — chat.service.js sendMessage scans + writes)
+        //   2. mobile client sends via REST
+        //   3. direct-write traffic observed to have stopped
+        //   4. THEN deploy these rules
+        allow create: if false;
 
-        // Participants can update message read receipts (deliveredAt / seenAt)
-        allow update: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
+        // Participants can ONLY update message read receipts (deliveredAt / seenAt) — content and senderId are immutable
+        allow update: if isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt', 'seenAt']);
 
         allow delete: if false;
       }

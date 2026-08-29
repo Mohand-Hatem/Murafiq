@@ -75,7 +75,7 @@ jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
 
 jest.unstable_mockModule('../../src/modules/stylists/stylist.repository.js', () => ({
   default: {
-    findByUserId: jest.fn().mockImplementation((userId) => Promise.resolve(profileStore)),
+    findByUserId: jest.fn().mockImplementation((_userId) => Promise.resolve(profileStore)),
     findById: jest.fn().mockImplementation((id) => Promise.resolve(id === mockStylistProfile._id ? mockStylistProfile : null)),
     create: jest.fn().mockImplementation((data) => {
       profileStore = { ...mockStylistProfile, ...data };

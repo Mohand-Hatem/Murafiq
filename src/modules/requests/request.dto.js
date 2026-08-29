@@ -1,10 +1,11 @@
 import { toPublicUser } from '../auth/auth.dto.js';
+import { toPublicClientDto } from '../users/user.dto.js';
 
 export const toPublicRequestDto = (requestDoc) => {
   if (!requestDoc) return null;
   const doc = requestDoc.toObject ? requestDoc.toObject() : requestDoc;
 
-  const client = doc.clientId && typeof doc.clientId === 'object' ? toPublicUser(doc.clientId) : doc.clientId;
+  const client = doc.clientId && typeof doc.clientId === 'object' ? toPublicClientDto(doc.clientId) : doc.clientId;
   const stylist = doc.stylistId && typeof doc.stylistId === 'object' ? toPublicUser(doc.stylistId) : doc.stylistId;
 
   return {
@@ -12,6 +13,7 @@ export const toPublicRequestDto = (requestDoc) => {
     client,
     stylist,
     title: doc.title,
+    visibility: doc.visibility || 'direct',
     date: doc.date || null,
     time: doc.time || null,
     meetingLocation: doc.meetingLocation || null,

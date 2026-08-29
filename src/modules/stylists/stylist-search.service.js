@@ -1,5 +1,18 @@
 import StylistProfile from './stylist-profile.model.js';
 import { toPublicStylistDto } from './stylist.dto.js';
+import { escapeRegex } from '../../common/query-builder/QueryBuilder.js';
+import { normalizeGovernorate } from '../../common/utils/geo.util.js';
+import ApiError from '../../common/utils/ApiError.js';
+
+const ALLOWED_SORT_FIELDS = [
+  'rating',
+  'reliabilityScore',
+  'hourlyPrice',
+  'experienceYears',
+  'completedSessions',
+  'distance',
+  'createdAt',
+];
 
 export const searchStylists = async (queryParams = {}) => {
   const page = Math.max(1, parseInt(queryParams.page, 10) || 1);
@@ -16,16 +29,25 @@ export const searchStylists = async (queryParams = {}) => {
     matchQuery.gender = queryParams.gender;
   }
   if (queryParams.country) {
-    matchQuery.country = new RegExp(`^${queryParams.country}$`, 'i');
+    matchQuery.country = new RegExp(`^${escapeRegex(queryParams.country)}$`, 'i');
   }
   if (queryParams.governorate) {
-    matchQuery.governorate = new RegExp(`^${queryParams.governorate}$`, 'i');
+    const normalizedGov = normalizeGovernorate(queryParams.governorate);
+    if (normalizedGov) {
+      matchQuery.$or = [
+        { governorate: new RegExp(`^${escapeRegex(normalizedGov.nameEn)}$`, 'i') },
+        { governorate: new RegExp(`^${escapeRegex(normalizedGov.nameAr)}$`, 'i') },
+        { governorate: new RegExp(`^${escapeRegex(queryParams.governorate)}$`, 'i') },
+      ];
+    } else {
+      matchQuery.governorate = new RegExp(`^${escapeRegex(queryParams.governorate)}$`, 'i');
+    }
   }
   if (queryParams.city) {
-    matchQuery.city = new RegExp(`^${queryParams.city}$`, 'i');
+    matchQuery.city = new RegExp(`^${escapeRegex(queryParams.city)}$`, 'i');
   }
   if (queryParams.area) {
-    matchQuery.area = new RegExp(`^${queryParams.area}$`, 'i');
+    matchQuery.area = new RegExp(`^${escapeRegex(queryParams.area)}$`, 'i');
   }
 
   // Price range (enforcing min price 100 floor)
@@ -85,7 +107,7 @@ export const searchStylists = async (queryParams = {}) => {
         distanceField: 'distance',
         maxDistance: radiusKm * 1000,
         spherical: true,
-        query: { locationSet: true }, // Exclude stylists who haven't set a real location
+        query: { locationSet: true },
       },
     });
   }
@@ -114,7 +136,7 @@ export const searchStylists = async (queryParams = {}) => {
 
   // 5. Text Search Substring Filter across User name & StylistProfile text fields
   if (queryParams.search) {
-    const searchRegex = new RegExp(queryParams.search, 'i');
+    const searchRegex = new RegExp(escapeRegex(queryParams.search), 'i');
     pipeline.push({
       $match: {
         $or: [
@@ -126,32 +148,36 @@ export const searchStylists = async (queryParams = {}) => {
     });
   }
 
-  // 6. Count Total Pipeline
-  const countPipeline = [...pipeline, { $count: 'total' }];
-
-  // 7. Sort Stage
+  // 6. Sort Stage with Allowlist
   let sortStage = { createdAt: -1 };
   if (hasGeoParams && (!queryParams.sort || queryParams.sort === 'distance')) {
     sortStage = { distance: 1 };
   } else if (queryParams.sort) {
     const [field, order] = queryParams.sort.split(':');
+    if (!ALLOWED_SORT_FIELDS.includes(field)) {
+      throw new ApiError(
+        400,
+        `Invalid sort field '${field}'. Allowed sort fields: ${ALLOWED_SORT_FIELDS.join(', ')}`
+      );
+    }
     sortStage = { [field]: order === 'desc' ? -1 : 1 };
   }
 
-  pipeline.push({ $sort: sortStage }, { $skip: skip }, { $limit: limit });
+  // 7. Single-pass $facet execution
+  pipeline.push({
+    $facet: {
+      items: [{ $sort: sortStage }, { $skip: skip }, { $limit: limit }],
+      totalCount: [{ $count: 'total' }],
+    },
+  });
 
-  // Execute Aggregations
-  const [items, countResult] = await Promise.all([
-    StylistProfile.aggregate(pipeline),
-    StylistProfile.aggregate(countPipeline),
-  ]);
-
-  const total = countResult[0]?.total || 0;
+  const [result] = await StylistProfile.aggregate(pipeline);
+  const items = result?.items || [];
+  const total = result?.totalCount?.[0]?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
   // Format through DTO mapper
   const formattedItems = items.map((doc) => {
-    // Map aggregated user document back to userId property for DTO mapper compatibility
     const mappedDoc = { ...doc, userId: doc.user };
     const publicDto = toPublicStylistDto(mappedDoc);
     if (doc.distance !== undefined) {
@@ -167,6 +193,8 @@ export const searchStylists = async (queryParams = {}) => {
       page,
       limit,
       totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
     },
   };
 };

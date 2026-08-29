@@ -25,3 +25,15 @@ export const otpResendRateLimiter = rateLimit({
     next(new ApiError(429, 'Please wait a minute before requesting another code.'));
   },
 });
+
+// Dedicated rate limiter for payment webhook callbacks
+export const webhookRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+  handler: (req, res, next) => {
+    next(new ApiError(429, 'Too many webhook requests. Please try again later.'));
+  },
+});

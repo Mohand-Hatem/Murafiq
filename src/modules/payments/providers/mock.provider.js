@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import { Buffer } from 'node:buffer';
+import env from '../../../config/env.config.js';
 import PaymentProviderInterface from './payment-provider.interface.js';
 
 export default class MockProvider extends PaymentProviderInterface {
-  async initialize({ amount, bookingId }) {
+  async initialize({ amount: _amount, bookingId }) {
     const mockTxId = `mock_tx_${crypto.randomUUID()}`;
     const mockClientSecret = `mock_secret_${crypto.randomUUID()}`;
 
@@ -30,7 +32,24 @@ export default class MockProvider extends PaymentProviderInterface {
     };
   }
 
-  async handleCallback(payload = {}) {
+  async handleCallback(payload = {}, query = {}) {
+    if (env.NODE_ENV === 'production') {
+      throw new ApiError(403, 'Mock payment provider is forbidden in production');
+    }
+
+    const providedSecret = payload.secret || query.secret;
+    const expectedSecret = env.MOCK_WEBHOOK_SECRET;
+
+    const isAuthentic =
+      typeof providedSecret === 'string' &&
+      typeof expectedSecret === 'string' &&
+      Buffer.from(providedSecret).length === Buffer.from(expectedSecret).length &&
+      crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(expectedSecret));
+
+    if (!isAuthentic) {
+      throw new ApiError(400, 'Invalid mock webhook secret');
+    }
+
     return {
       success: true,
       transactionId: payload.transactionId || `mock_tx_${crypto.randomUUID()}`,

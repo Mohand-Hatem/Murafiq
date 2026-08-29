@@ -4,7 +4,8 @@ import { toPublicPaymentDto } from './payment.dto.js';
 export const initializePayment = asyncHandler(async (req, res) => {
   const { paymentUrl, clientSecret, payment } = await paymentService.initializePayment(
     req.user,
-    req.params.bookingId
+    req.params.bookingId,
+    { couponCode: req.body?.couponCode || null }
   );
 
   return ApiResponse.success(res, {

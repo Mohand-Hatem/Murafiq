@@ -13,6 +13,12 @@ router.use(authMiddleware);
 // Stylist-only offer creation on a specific request
 router.post('/requests/:id', restrictTo(ROLES.STYLIST), validate(createOfferSchema), offerController.createOffer);
 
+// Stylist-only offer withdrawal
+router.patch('/:id/withdraw', restrictTo(ROLES.STYLIST), offerController.withdrawOffer);
+
+// Client-only: full offer comparison on their own request (sealed-bid)
+router.get('/requests/:id', restrictTo(ROLES.CLIENT), offerController.getOffersForRequest);
+
 // Client-only offer acceptance & rejection
 router.patch('/:id/accept', restrictTo(ROLES.CLIENT), offerController.acceptOffer);
 router.patch('/:id/reject', restrictTo(ROLES.CLIENT), offerController.rejectOffer);

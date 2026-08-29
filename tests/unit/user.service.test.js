@@ -133,10 +133,18 @@ describe('userService', () => {
   });
 
   describe('approveVerification and rejectVerification', () => {
+    const pendingUser = {
+      ...sampleUser,
+      verification: {
+        status: 'pending',
+        documents: [{ type: 'national_id_front', documentRef: 'doc_1' }],
+      },
+    };
+
     it('approves verification and emits USER_VERIFIED', async () => {
-      mockFindById.mockResolvedValue(sampleUser);
+      mockFindById.mockResolvedValue(pendingUser);
       const verifiedUser = {
-        ...sampleUser,
+        ...pendingUser,
         verification: { status: 'verified', reviewedBy: 'admin-1', reviewedAt: new Date() },
       };
       mockUpdateById.mockResolvedValue(verifiedUser);
@@ -151,9 +159,9 @@ describe('userService', () => {
     });
 
     it('rejects verification with reason and emits USER_VERIFICATION_REJECTED', async () => {
-      mockFindById.mockResolvedValue(sampleUser);
+      mockFindById.mockResolvedValue(pendingUser);
       const rejectedUser = {
-        ...sampleUser,
+        ...pendingUser,
         verification: { status: 'rejected', rejectionReason: 'Blurry document', reviewedBy: 'admin-1', reviewedAt: new Date() },
       };
       mockUpdateById.mockResolvedValue(rejectedUser);

@@ -101,6 +101,51 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
+ *   get:
+ *     summary: List all offers on a request for comparison (Client owner only)
+ *     description: >
+ *       Full price/stylist comparison for the request's own client. Sealed-bid applies to other
+ *       stylists, not to the client — this endpoint intentionally returns every competing offer's
+ *       price so the client can choose the best one.
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Request ID
+ *     responses:
+ *       200:
+ *         description: Offers retrieved successfully, sorted by price ascending
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/PublicOffer'
+ *       403:
+ *         description: Not the owner of this request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiErrorResponse'
+ *       404:
+ *         description: Request not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiErrorResponse'
  */
 
 /**
@@ -154,3 +199,31 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseOfferSuccess'
  */
+
+/**
+ * @swagger
+ * /offers/{id}/withdraw:
+ *   patch:
+ *     summary: Withdraw a pending offer (Stylist owner only)
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Offer withdrawn successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponseOfferSuccess'
+ *       400:
+ *         description: Cannot withdraw non-pending offer
+ *       403:
+ *         description: Only the authoring stylist can withdraw their offer
+ */
+

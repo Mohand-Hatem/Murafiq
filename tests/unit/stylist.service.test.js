@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
+import '../../src/common/globals.js';
 import stylistService from '../../src/modules/stylists/stylist.service.js';
 import stylistRepository from '../../src/modules/stylists/stylist.repository.js';
-import userRepository from '../../src/modules/users/user.repository.js';
 
 describe('Stylist Service (Unit)', () => {
   afterEach(() => {

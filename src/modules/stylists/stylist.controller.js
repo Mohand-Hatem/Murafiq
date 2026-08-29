@@ -1,5 +1,6 @@
 import stylistService from './stylist.service.js';
 import stylistSearchService from './stylist-search.service.js';
+import reliabilityService from './reliability.service.js';
 import reviewService from '../reviews/review.service.js';
 import { toPublicReviewDto } from '../reviews/review.dto.js';
 
@@ -63,6 +64,17 @@ export const getOwnPayouts = asyncHandler(async (req, res) => {
   });
 });
 
+export const getReliability = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const reliability = await reliabilityService.calculateReliability(id);
+
+  return ApiResponse.success(res, {
+    statusCode: 200,
+    message: 'Stylist reliability metrics retrieved successfully',
+    data: reliability,
+  });
+});
+
 export default {
   createProfile,
   updateProfile,
@@ -71,4 +83,5 @@ export default {
   searchStylists,
   getStylistReviews,
   getOwnPayouts,
+  getReliability,
 };

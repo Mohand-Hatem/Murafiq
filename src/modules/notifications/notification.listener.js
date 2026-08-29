@@ -2,6 +2,7 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import notificationService from './notification.service.js';
 import requestRepository from '../requests/request.repository.js';
+import stylistRepository from '../stylists/stylist.repository.js';
 import offerRepository from '../offers/offer.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import logger from '../../config/logger.config.js';
@@ -15,12 +16,14 @@ class NotificationListener {
     if (this.registered) return;
     this.registered = true;
 
-    // 1. Request Created -> Notify Stylist
+    // 1. Request Created -> Notify Stylist (Direct or Broadcast)
     eventBus.on(EVENTS.REQUEST_CREATED, async ({ requestId }) => {
       try {
         if (!requestId) return;
         const request = await requestRepository.findById(requestId);
-        if (request?.stylistId) {
+        if (!request) return;
+
+        if (request.visibility === 'direct' && request.stylistId) {
           const stylistUserId = request.stylistId._id || request.stylistId;
           await notificationService.send(stylistUserId, {
             type: 'request',
@@ -28,13 +31,53 @@ class NotificationListener {
             body: 'You have received a new styling request from a client.',
             relatedEntityId: request._id,
           });
+        } else if (request.visibility === 'broadcast') {
+          const nearbyStylists = await stylistRepository.findVerifiedInArea({
+            governorate: request.meetingLocation?.governorate,
+            city: request.meetingLocation?.city,
+            fallbackCoordinates: request.meetingLocation?.location?.coordinates,
+            fallbackRadiusKm: 10,
+            limit: 50,
+          });
+          const locationLabel =
+            request.meetingLocation?.city || request.meetingLocation?.governorate || 'your area';
+          await Promise.allSettled(
+            nearbyStylists.map((s) =>
+              notificationService.send(s.userId, {
+                type: 'request',
+                title: 'New Open Request Near You',
+                body: `A client posted "${request.title}" in ${locationLabel}.`,
+                relatedEntityId: request._id,
+              })
+            )
+          );
         }
       } catch (err) {
         logger.error(`Notification error on REQUEST_CREATED: ${err.message}`);
       }
     });
 
-    // 2. Offer Created -> Notify Client
+
+    // 2. Request Declined -> Notify Client
+    eventBus.on(EVENTS.REQUEST_DECLINED, async ({ requestId }) => {
+      try {
+        if (!requestId) return;
+        const request = await requestRepository.findById(requestId);
+        if (request?.clientId) {
+          const clientUserId = request.clientId._id || request.clientId;
+          await notificationService.send(clientUserId, {
+            type: 'request',
+            title: 'Request Declined',
+            body: 'The stylist was unable to accept your styling request.',
+            relatedEntityId: request._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on REQUEST_DECLINED: ${err.message}`);
+      }
+    });
+
+    // 3. Offer Created -> Notify Client
     eventBus.on(EVENTS.OFFER_CREATED, async ({ offerId }) => {
       try {
         if (!offerId) return;
@@ -53,7 +96,7 @@ class NotificationListener {
       }
     });
 
-    // 3. Offer Accepted / Booking Created -> Notify Stylist
+    // 4. Offer Accepted / Booking Created -> Notify Stylist
     eventBus.on(EVENTS.OFFER_ACCEPTED, async ({ offerId }) => {
       try {
         if (!offerId) return;
@@ -69,6 +112,38 @@ class NotificationListener {
         }
       } catch (err) {
         logger.error(`Notification error on OFFER_ACCEPTED: ${err.message}`);
+      }
+    });
+
+    // 5. Offer Rejected -> Notify Stylist
+    eventBus.on(EVENTS.OFFER_REJECTED, async ({ stylistId, offerId }) => {
+      try {
+        if (stylistId) {
+          await notificationService.send(stylistId, {
+            type: 'offer',
+            title: 'Offer Declined',
+            body: 'The client has declined your styling offer.',
+            relatedEntityId: offerId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on OFFER_REJECTED: ${err.message}`);
+      }
+    });
+
+    // 6. Check-in Completed -> Notify Client
+    eventBus.on(EVENTS.CHECK_IN_COMPLETED, async ({ bookingId, clientId }) => {
+      try {
+        if (clientId) {
+          await notificationService.send(clientId, {
+            type: 'booking',
+            title: 'Stylist Checked In',
+            body: 'Your stylist has checked in and your styling session is now in progress.',
+            relatedEntityId: bookingId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on CHECK_IN_COMPLETED: ${err.message}`);
       }
     });
 
@@ -174,7 +249,7 @@ class NotificationListener {
       }
     });
 
-    // 8. Booking Cancelled -> Notify Participants
+    // 11. Booking Cancelled -> Notify Participants
     eventBus.on(EVENTS.BOOKING_CANCELLED, async ({ bookingId }) => {
       try {
         if (!bookingId) return;
@@ -203,6 +278,96 @@ class NotificationListener {
         }
       } catch (err) {
         logger.error(`Notification error on BOOKING_CANCELLED: ${err.message}`);
+      }
+    });
+
+    // 11b. No-Show Reported -> Notify the ACCUSED party.
+    // This notification is load-bearing, not cosmetic: silence auto-resolves the report
+    // in the reporter's favour after the response window, so a party who is never told
+    // loses by default. If this listener breaks, the fairness of the whole flow breaks.
+    eventBus.on(EVENTS.NO_SHOW_REPORTED, async ({ bookingId, reportedAgainst }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (!booking) return;
+
+        const accusedUserId =
+          reportedAgainst === 'stylist'
+            ? booking.stylistId?._id || booking.stylistId
+            : booking.clientId?._id || booking.clientId;
+
+        if (accusedUserId) {
+          await notificationService.send(accusedUserId, {
+            type: 'booking',
+            title: 'No-Show Reported',
+            body: 'The other party reported you as a no-show. Respond within 2 hours or the report will be upheld automatically.',
+            relatedEntityId: booking._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on NO_SHOW_REPORTED: ${err.message}`);
+      }
+    });
+
+    // 11c. No-Show Resolved -> Notify both parties of the financial outcome.
+    eventBus.on(EVENTS.NO_SHOW_RESOLVED, async ({ bookingId, against }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (!booking) return;
+
+        const clientUserId = booking.clientId?._id || booking.clientId;
+        const stylistUserId = booking.stylistId?._id || booking.stylistId;
+
+        if (clientUserId) {
+          await notificationService.send(clientUserId, {
+            type: 'booking',
+            title: 'No-Show Resolved',
+            body:
+              against === 'stylist'
+                ? 'Your stylist did not attend. You have been refunded in full and issued a compensation coupon.'
+                : 'This booking was closed as a no-show. A partial refund has been issued.',
+            relatedEntityId: booking._id,
+          });
+        }
+
+        if (stylistUserId) {
+          await notificationService.send(stylistUserId, {
+            type: 'booking',
+            title: 'No-Show Resolved',
+            body:
+              against === 'stylist'
+                ? 'A no-show was recorded against you. A penalty has been applied to your account balance.'
+                : 'The client did not attend. Partial compensation has been applied to this booking.',
+            relatedEntityId: booking._id,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on NO_SHOW_RESOLVED: ${err.message}`);
+      }
+    });
+
+    // 12. Dispute Raised -> Notify Client & Stylist
+    eventBus.on(EVENTS.DISPUTE_RAISED, async ({ bookingId, raisedBy, reason }) => {
+      try {
+        if (!bookingId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        if (booking) {
+          const clientUserId = booking.clientId?._id || booking.clientId;
+          const stylistUserId = booking.stylistId?._id || booking.stylistId;
+          const targetRecipient = String(raisedBy) === String(clientUserId) ? stylistUserId : clientUserId;
+
+          if (targetRecipient) {
+            await notificationService.send(targetRecipient, {
+              type: 'dispute',
+              title: 'Dispute Raised',
+              body: `A dispute has been raised on your booking: "${reason || 'Under review'}". An admin will investigate.`,
+              relatedEntityId: booking._id,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error(`Notification error on DISPUTE_RAISED: ${err.message}`);
       }
     });
 
@@ -254,6 +419,31 @@ class NotificationListener {
         });
       } catch (err) {
         logger.error(`Notification error on USER_VERIFICATION_REJECTED: ${err.message}`);
+      }
+    });
+
+    // 12. Session Reminder -> Notify Client and Stylist
+    eventBus.on(EVENTS.SESSION_REMINDER, async ({ bookingId, clientId, stylistId, _date, time }) => {
+      try {
+        const timeLabel = time || 'soon';
+        if (clientId) {
+          await notificationService.send(clientId, {
+            type: 'booking',
+            title: 'Upcoming Styling Session Reminder',
+            body: `You have an upcoming appointment scheduled for ${timeLabel}.`,
+            relatedEntityId: bookingId,
+          });
+        }
+        if (stylistId) {
+          await notificationService.send(stylistId, {
+            type: 'booking',
+            title: 'Upcoming Styling Session Reminder',
+            body: `You have an upcoming appointment scheduled with your client for ${timeLabel}.`,
+            relatedEntityId: bookingId,
+          });
+        }
+      } catch (err) {
+        logger.error(`Notification error on SESSION_REMINDER: ${err.message}`);
       }
     });
 

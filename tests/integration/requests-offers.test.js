@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+import ApiError from '../../src/common/utils/ApiError.js';
 
 const mockVerifiedClient = {
   _id: '60f719b8f1a2c81234567891',
@@ -56,7 +57,7 @@ const mockRequestDoc = {
   clientId: mockVerifiedClient,
   stylistId: mockVerifiedStylistUser,
   title: 'Personal Shopping Session',
-  status: 'pending',
+  status: 'OPEN',
   expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -70,7 +71,7 @@ const mockOfferDoc = {
   clientId: mockVerifiedClient,
   price: 250,
   duration: 120,
-  status: 'pending',
+  status: 'PENDING',
   expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -104,9 +105,10 @@ jest.unstable_mockModule('../../src/modules/stylists/stylist.repository.js', () 
 jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () => ({
   default: {
     create: jest.fn().mockImplementation((data) => Promise.resolve({ ...mockRequestDoc, ...data })),
-    findById: jest.fn().mockImplementation((id) => Promise.resolve(mockRequestDoc)),
+    findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockRequestDoc)),
     countDailyClientRequests: jest.fn().mockImplementation(() => Promise.resolve(clientRequestCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
+    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'FULFILLED' })),
     findMine: jest.fn().mockResolvedValue({ items: [mockRequestDoc], meta: { total: 1 } }),
     findIncoming: jest.fn().mockResolvedValue({ items: [mockRequestDoc], meta: { total: 1 } }),
     expireOldRequests: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
@@ -116,10 +118,13 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
 jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => ({
   default: {
     create: jest.fn().mockImplementation((data) => Promise.resolve({ ...mockOfferDoc, ...data })),
-    findById: jest.fn().mockImplementation((id) => Promise.resolve(mockOfferDoc)),
+    findById: jest.fn().mockImplementation((_id) => Promise.resolve(mockOfferDoc)),
     findActiveForClient: jest.fn().mockImplementation(() => Promise.resolve(activeOfferStore)),
+    countByStylistAndRequest: jest.fn().mockImplementation(() => Promise.resolve(activeOfferStore ? 3 : 0)),
     countDailyStylistOffers: jest.fn().mockImplementation(() => Promise.resolve(stylistOfferCount)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockOfferDoc, ...data })),
+    findSiblingPendingOffers: jest.fn().mockResolvedValue([]),
+    rejectSiblingOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     expireOldOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
   },
 }));
@@ -136,6 +141,38 @@ jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', ()
   default: {
     findOverlap: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockResolvedValue({ _id: 'b0f719b8f1a2c81234567890' }),
+  },
+}));
+
+jest.unstable_mockModule('../../src/modules/subscriptions/entitlement.service.js', () => ({
+  default: {
+    capacity: jest.fn().mockImplementation((_userId, metric) => {
+      if (metric === 'offers.active') {
+        return Promise.resolve({
+          limit: 5,
+          used: stylistOfferCount,
+          available: Math.max(0, 5 - stylistOfferCount),
+          hasCapacity: stylistOfferCount < 5,
+        });
+      }
+      return Promise.resolve({
+        limit: 5,
+        used: clientRequestCount,
+        available: Math.max(0, 5 - clientRequestCount),
+        hasCapacity: clientRequestCount < 5,
+      });
+    }),
+    consume: jest.fn().mockImplementation((_userId, metric) => {
+      if (metric === 'offers.daily' && stylistOfferCount >= 5) {
+        throw new ApiError(403, 'Daily broadcast offer limit reached (5/day). Try again tomorrow.');
+      }
+      if (metric === 'requests.daily' && clientRequestCount >= 5) {
+        throw new ApiError(403, 'Daily request limit reached (5/day). Try again tomorrow.');
+      }
+      return Promise.resolve({ success: true, used: 1, limit: 5 });
+    }),
+    refundQuota: jest.fn().mockResolvedValue({}),
+    hasFeature: jest.fn().mockResolvedValue(false),
   },
 }));
 
@@ -188,19 +225,19 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.title).toBe('Shopping Session');
     });
 
-    it('should enforce client daily request cap (max 2/day)', async () => {
-      clientRequestCount = 2; // Already created 2 today!
+    it('should enforce client daily request cap (max 5/day for verified client)', async () => {
+      clientRequestCount = 5; // Already created 5 today!
 
       const res = await request(app)
         .post('/api/v1/requests')
         .set('Authorization', `Bearer ${clientToken}`)
         .send({
           stylistId: mockVerifiedStylistUser._id,
-          title: '3rd Request of the Day',
+          title: '6th Request of the Day',
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/Daily request limit reached/i);
+      expect(res.body.message).toMatch(/capacity reached|limit reached/i);
     });
   });
 
@@ -220,7 +257,8 @@ describe('Phase 4 Integration — Requests & Offers', () => {
       expect(res.body.data.price).toBe(250);
     });
 
-    it('should enforce stylist daily offer cap (max 5/day)', async () => {
+    it('should enforce stylist daily offer cap on broadcast requests (max 5/day)', async () => {
+      mockRequestDoc.visibility = 'broadcast';
       stylistOfferCount = 5; // Already sent 5 offers today!
 
       const res = await request(app)
@@ -232,11 +270,12 @@ describe('Phase 4 Integration — Requests & Offers', () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/Daily offer limit reached/i);
+      expect(res.body.message).toMatch(/offer limit reached|capacity reached/i);
+      mockRequestDoc.visibility = 'direct';
     });
 
-    it('should enforce cross-request one active offer per client rule (409)', async () => {
-      activeOfferStore = mockOfferDoc; // Stylist already has an active offer with this client!
+    it('should enforce maximum 1 offer per request limit (400)', async () => {
+      activeOfferStore = true; // Simulates existing bid on this request
 
       const res = await request(app)
         .post(`/api/v1/offers/requests/${mockRequestDoc._id}`)
@@ -246,8 +285,8 @@ describe('Phase 4 Integration — Requests & Offers', () => {
           duration: 90,
         });
 
-      expect(res.status).toBe(409);
-      expect(res.body.message).toMatch(/already have an active offer/i);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Maximum of 1 offer per request reached/i);
     });
   });
 

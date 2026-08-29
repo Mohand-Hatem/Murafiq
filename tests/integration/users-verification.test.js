@@ -38,7 +38,6 @@ describe('Users & Verification Integration Tests', () => {
   const userId = '60f719b8f1a2c81234567890';
   const clientToken = generateAccessToken({ sub: userId, role: 'client' });
   const operatorToken = generateAccessToken({ sub: '60f719b8f1a2c81234567891', role: 'operator' });
-  const adminToken = generateAccessToken({ sub: '60f719b8f1a2c81234567892', role: 'admin' });
 
   describe('GET /api/v1/users/me', () => {
     it('returns 401 when calling without access token', async () => {
@@ -80,12 +79,12 @@ describe('Users & Verification Integration Tests', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('denies operator access to unhandled admin routes (e.g. /api/v1/admin/users)', async () => {
+    it('denies operator access to admin-only routes (e.g. /api/v1/admin/users)', async () => {
       const res = await request(app)
         .get('/api/v1/admin/users')
         .set('Authorization', `Bearer ${operatorToken}`);
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).toBe(403);
     });
 
     it('denies client access to /api/v1/admin/verifications with 403', async () => {

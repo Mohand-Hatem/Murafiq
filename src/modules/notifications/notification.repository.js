@@ -15,7 +15,7 @@ export const findUserNotifications = async (userId, queryString = {}) => {
   const baseQuery = Notification.find();
 
   const builder = new QueryBuilder(baseQuery, queryObj)
-    .filter()
+    .filter(['isRead', 'type', 'userId'])
     .sort()
     .select();
 

@@ -32,8 +32,17 @@ export const deleteMe = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { message: 'Account deleted successfully' });
 });
 
+export const getPublicProfile = asyncHandler(async (req, res) => {
+  const publicProfile = await userService.getPublicProfile(req.params.id);
+  return ApiResponse.success(res, {
+    message: 'User public profile fetched successfully',
+    data: publicProfile,
+  });
+});
+
 export default {
   getMe,
+  getPublicProfile,
   updateMe,
   uploadVerificationDocs,
   updateProfileImage,

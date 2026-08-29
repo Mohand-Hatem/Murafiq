@@ -316,6 +316,59 @@
 
 /**
  * @swagger
+ * /bookings/{id}/cancellation-quote:
+ *   get:
+ *     summary: Get cancellation fee, refund, and penalty quote
+ *     tags: [Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Cancellation quote calculated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookingId:
+ *                       type: string
+ *                     cancelledByRole:
+ *                       type: string
+ *                       enum: [client, stylist]
+ *                     hoursUntilSession:
+ *                       type: number
+ *                     isEarly:
+ *                       type: boolean
+ *                     refundPercentage:
+ *                       type: number
+ *                     refundAmount:
+ *                       type: number
+ *                     platformFeeAmount:
+ *                       type: number
+ *                     stylistCompensationAmount:
+ *                       type: number
+ *                     penaltyAmount:
+ *                       type: number
+ *                     couponEligible:
+ *                       type: boolean
+ *                     tier:
+ *                       type: string
+ */
+
+/**
+ * @swagger
  * /bookings/{id}/cancel:
  *   patch:
  *     summary: Cancel a booking
@@ -344,3 +397,4 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
  */
+

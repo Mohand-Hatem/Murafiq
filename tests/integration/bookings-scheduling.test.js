@@ -35,7 +35,7 @@ const mockRequestDoc = {
   title: 'Personal Shopping Session',
   time: '10:00',
   date: new Date(),
-  status: 'pending',
+  status: 'OPEN',
   toObject: function () {
     return this;
   },
@@ -48,7 +48,7 @@ const mockOfferDoc = {
   clientId: mockClient,
   price: 250,
   duration: 120,
-  status: 'pending',
+  status: 'PENDING',
   expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   toObject: function () {
     return this;
@@ -88,6 +88,7 @@ jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () 
   default: {
     findById: jest.fn().mockImplementation(() => Promise.resolve(mockRequestDoc)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockRequestDoc, ...data })),
+    lockAndAccept: jest.fn().mockImplementation((_id) => Promise.resolve({ ...mockRequestDoc, status: 'FULFILLED' })),
   },
 }));
 
@@ -95,6 +96,8 @@ jest.unstable_mockModule('../../src/modules/offers/offer.repository.js', () => (
   default: {
     findById: jest.fn().mockImplementation(() => Promise.resolve(mockOfferDoc)),
     updateById: jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockOfferDoc, ...data })),
+    findSiblingPendingOffers: jest.fn().mockResolvedValue([]),
+    rejectSiblingOffers: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
   },
 }));
 
@@ -203,14 +206,16 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
   });
 
   describe('PATCH /api/v1/bookings/:id/confirm-completion', () => {
-    it('should transition to completed only when both client and stylist confirm', async () => {
+    it('should transition to completed only when both client and stylist confirm on an in-progress booking', async () => {
+      mockBookingDoc.status = 'in-progress';
+
       // 1. Client confirms
       let res = await request(app)
         .patch(`/api/v1/bookings/${mockBookingDoc._id}/confirm-completion`)
         .set('Authorization', `Bearer ${clientToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe('confirmed'); // Still waiting for stylist
+      expect(res.body.data.status).toBe('in-progress'); // Still waiting for stylist
 
       // 2. Stylist confirms
       res = await request(app)
@@ -220,10 +225,35 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('completed');
     });
+
+    it('should return 400 when attempting to confirm completion on a cancelled booking', async () => {
+      mockBookingDoc.status = 'cancelled';
+
+      const res = await request(app)
+        .patch(`/api/v1/bookings/${mockBookingDoc._id}/confirm-completion`)
+        .set('Authorization', `Bearer ${clientToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/in-progress/i);
+    });
+
+    it('should return 400 when attempting to confirm completion before check-in (status: confirmed)', async () => {
+      mockBookingDoc.status = 'confirmed';
+
+      const res = await request(app)
+        .patch(`/api/v1/bookings/${mockBookingDoc._id}/confirm-completion`)
+        .set('Authorization', `Bearer ${clientToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/in-progress/i);
+    });
   });
 
   describe('POST /api/v1/bookings/:id/dispute', () => {
-    it('should file a dispute on a booking', async () => {
+    it('should file a dispute on a completed booking', async () => {
+      mockBookingDoc.status = 'completed';
+      mockBookingDoc.updatedAt = new Date();
+
       const res = await request(app)
         .post(`/api/v1/bookings/${mockBookingDoc._id}/dispute`)
         .set('Authorization', `Bearer ${clientToken}`)
@@ -236,6 +266,8 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
 
   describe('PATCH /api/v1/bookings/:id/cancel', () => {
     it('should cancel booking and release schedule block', async () => {
+      mockBookingDoc.status = 'confirmed';
+
       const res = await request(app)
         .patch(`/api/v1/bookings/${mockBookingDoc._id}/cancel`)
         .set('Authorization', `Bearer ${clientToken}`)

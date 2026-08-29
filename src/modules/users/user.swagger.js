@@ -213,14 +213,14 @@
  *                 type: array
  *                 items:
  *                   type: object
- *                   required: [type, url]
+ *                   required: [type, documentRef]
  *                   properties:
  *                     type:
  *                       type: string
  *                       enum: [national_id_front, national_id_back, selfie_with_id, police_clearance_certificate]
- *                     url:
+ *                     documentRef:
  *                       type: string
- *                       format: uri
+ *                       example: "https://res.cloudinary.com/.../murafiq/kyc-documents/sample.jpg"
  *     responses:
  *       200:
  *         description: Documents uploaded, status set to pending
@@ -275,3 +275,56 @@
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
  */
+
+/**
+ * @swagger
+ * /users/{id}:
+ *   get:
+ *     summary: Get public profile for a user (Client or Stylist, zero PII leakage)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Public profile fetched successfully
+ *       404:
+ *         description: User not found
+ */
+
+/**
+ * @swagger
+ * /locations/governorates:
+ *   get:
+ *     summary: List all 27 Egyptian Governorates with names, ISO codes, and centroids
+ *     tags: [Users]
+ *     responses:
+ *       200:
+ *         description: Egyptian Governorates list retrieved
+ */
+
+/**
+ * @swagger
+ * /locations/governorates/{governorate}/cities:
+ *   get:
+ *     summary: List major cities/districts in a specified Egyptian Governorate
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: governorate
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "Cairo"
+ *     responses:
+ *       200:
+ *         description: Cities list retrieved
+ *       404:
+ *         description: Governorate not found
+ */
+

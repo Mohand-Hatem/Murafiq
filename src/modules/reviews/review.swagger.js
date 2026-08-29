@@ -281,3 +281,34 @@
  *       404:
  *         description: Review not found
  */
+
+/**
+ * @swagger
+ * /reviews/client/{id}:
+ *   get:
+ *     summary: Get public reviews for a client (submitted by stylists)
+ *     tags: [Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Client user ID
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *     responses:
+ *       200:
+ *         description: Client reviews retrieved successfully
+ */
+
