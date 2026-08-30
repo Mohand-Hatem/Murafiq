@@ -38,6 +38,11 @@ const requestSchema = new Schema(
       min: { type: Number, min: 100 },
       max: { type: Number, min: 100 },
     },
+    preferredStylistGender: {
+      type: String,
+      enum: ['male', 'female', 'any'],
+      default: 'any',
+    },
     images: [{ type: String, trim: true }],
     status: {
       type: String,

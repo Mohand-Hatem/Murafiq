@@ -11,6 +11,8 @@ import { startRequestAutoPauseCron } from './jobs/request-autopause.cron.js';
 import { startOtpCleanupCron } from './jobs/otp-cleanup.cron.js';
 import { startSessionReminderCron } from './jobs/session-reminder.cron.js';
 import { startNoShowResolutionCron } from './jobs/no-show-resolution.cron.js';
+import { startWardrobeWorker, stopWardrobeWorker } from './jobs/workers/wardrobe-classification.worker.js';
+import { closeRedisConnection } from './config/redis.config.js';
 
 const PORT = env.PORT || 4000;
 const server = http.createServer(app);
@@ -24,6 +26,7 @@ const startServer = async () => {
   startNoShowResolutionCron();
   startOtpCleanupCron();
   startSessionReminderCron();
+  startWardrobeWorker();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${PORT}`);
   });
@@ -39,6 +42,8 @@ const gracefulShutdown = (signal) => {
   server.close(async () => {
     logger.info('HTTP server closed.');
     try {
+      await stopWardrobeWorker();
+      await closeRedisConnection();
       if (mongoose.connection.readyState !== 0) {
         await mongoose.connection.close();
         logger.info('MongoDB connection closed.');

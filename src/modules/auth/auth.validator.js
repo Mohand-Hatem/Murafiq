@@ -9,6 +9,7 @@ export const registerSchema = {
       email: emailField,
       password: passwordField,
       confirmpassword: z.string().min(1, 'Confirm password is required'),
+      gender: z.enum(['male', 'female']).optional(),
       // Self-registration only allows client/stylist — admin accounts are never created via this endpoint.
       role: z.enum([ROLES.CLIENT, ROLES.STYLIST]).optional().default(ROLES.CLIENT),
     })

@@ -22,7 +22,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^2.19.0",
+    "@upstash/vector": "^1.2.3",
     "bcrypt": "^6.0.0",
+    "bullmq": "^6.3.2",
     "cloudinary": "^2.5.1",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -35,6 +38,7 @@
     "firebase-admin": "^14.3.0",
     "google-auth-library": "^11.0.0",
     "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.1",
     "morgan": "^1.11.0",

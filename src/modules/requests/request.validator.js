@@ -26,6 +26,7 @@ const sharedRequestFields = {
       path: ['max'],
     })
     .optional(),
+  preferredStylistGender: z.enum(['male', 'female', 'any']).optional(),
   images: z.array(z.string().trim().url()).optional(),
 };
 

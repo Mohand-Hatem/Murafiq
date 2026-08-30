@@ -59,10 +59,14 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: secret('murafiq-dev'),
   FIREBASE_CLIENT_EMAIL: secret('firebase-adminsdk@murafiq-dev.iam.gserviceaccount.com'),
   FIREBASE_PRIVATE_KEY: secret('dev_firebase_private_key_change_me_in_prod'),
-  // Reserved for Phase 14 (wardrobe photo classification/embedding). Nothing reads these yet,
-  // so they are OPTIONAL — making them required in production would force a v1 deploy to supply
-  // four meaningless secrets or fail at boot. Promote back to secret() in Phase 14, when the
-  // wardrobe classification worker actually calls them.
+  // Phase 14: Redis & BullMQ queue connection
+  REDIS_URL: secret('redis://127.0.0.1:6379'),
+  // Phase 14 & 15: Google Gemini Multimodal Vision & Reasoning API Key
+  GEMINI_API_KEY: secret('dev_gemini_api_key_placeholder'),
+  // Phase 14 & 15: Upstash Vector DB REST credentials (namespaced per client)
+  UPSTASH_VECTOR_REST_URL: secret('https://dev-vector.upstash.io'),
+  UPSTASH_VECTOR_REST_TOKEN: secret('dev_upstash_vector_token_placeholder'),
+  // Backward compatibility forward references
   OPENAI_API_KEY: z.string().optional(),
   VECTOR_DB_URL: z.string().optional(),
   VECTOR_DB_API_KEY: z.string().optional(),

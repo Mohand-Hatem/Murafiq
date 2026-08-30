@@ -17,7 +17,9 @@ import payoutRoutes from '../modules/payouts/payout.routes.js';
 import subscriptionRoutes from '../modules/subscriptions/subscription.routes.js';
 import moderationRoutes from '../modules/moderation/moderation.routes.js';
 import locationRoutes from '../modules/users/location.routes.js';
+import wardrobeRoutes from '../modules/wardrobe/wardrobe.routes.js';
 import { isFirebaseConnected } from '../config/firebase.config.js';
+import { isRedisConnected } from '../config/redis.config.js';
 
 const router = express.Router();
 
@@ -38,6 +40,7 @@ router.use('/uploads', uploadRoutes);
 router.use('/payouts', payoutRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/subscriptions', subscriptionRoutes);
+router.use('/wardrobe', wardrobeRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(
@@ -45,7 +48,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const isMongoConnected = mongoose.connection.readyState === 1;
     const firebaseStatus = isFirebaseConnected ? 'connected' : 'unavailable';
-    const redisStatus = 'not_configured';
+    const redisStatus = isRedisConnected() ? 'connected' : 'unavailable';
 
     if (!isMongoConnected) {
       return res.status(503).json({

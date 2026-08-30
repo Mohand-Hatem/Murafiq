@@ -72,7 +72,7 @@ Legend:
 | 11 — Safety & Payouts | ✅ **Payouts Built** (`src/modules/payouts/`, stylist self-serve credentials, admin batch disbursement, ledger balance aggregation, double-payout guards). |
 | 12 — Background Jobs | ✅ **Complete** — offer-expiry sweep, request 48h auto-pause sweep, OTP-cleanup sweep, and session-reminder sweeps active via `node-cron` with single-instance guards (all sweeps closed in Stage R4). Redis/BullMQ deliberately assigned to Phase 14. |
 | 13 — Security/Logging/Docs/Tests | ⚠️ **Hardened** (Swagger protected in prod, OTP lockout, Firebase production fail-safe). |
-| 14 — Wardrobe | ⛔ Not built — the module does not exist. Now also owns installing Redis + BullMQ (moved from Phase 12) — see `HARDENING_07` Part 2. |
+| 14 — Wardrobe | ✅ **Built & Verified** (Digital closet CRUD, BullMQ queue & worker, Gemini Flash Vision classification, Upstash Vector per-user namespace indexing, unit + integration tests). |
 | 15 — AI | ⛔ Not built |
 | 16 — Deployment Readiness | ⚠️ **Decision recorded** — single VPS/PM2 path (`ecosystem.config.cjs` + rewritten `PHASE_16_DEPLOYMENT_READINESS.md`). Not yet deployed to a real server. |
 

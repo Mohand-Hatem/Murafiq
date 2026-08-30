@@ -5,6 +5,7 @@ export const updateProfileSchema = {
     .object({
       name: z.string().trim().min(2, 'Name must be at least 2 characters').optional(),
       phone: z.string().trim().optional(),
+      gender: z.enum(['male', 'female']).optional(),
       profileImage: z.string().url('Invalid image URL').optional(),
       country: z.string().trim().optional(),
       governorate: z.string().trim().optional(),

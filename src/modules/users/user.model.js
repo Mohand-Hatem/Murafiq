@@ -67,6 +67,7 @@ const userSchema = new Schema(
 
     // Profile fields (Phase 2)
     profileImage: { type: String, default: DEFAULT_PROFILE_IMAGE_URL },
+    gender: { type: String, enum: ['male', 'female'] },
     country: String,
     governorate: String,
     city: String,

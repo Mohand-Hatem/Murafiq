@@ -19,6 +19,7 @@ export const toPublicRequestDto = (requestDoc) => {
     meetingLocation: doc.meetingLocation || null,
     description: doc.description || '',
     budgetRange: doc.budgetRange || null,
+    preferredStylistGender: doc.preferredStylistGender || 'any',
     images: doc.images || [],
     status: doc.status,
     expiresAt: doc.expiresAt,

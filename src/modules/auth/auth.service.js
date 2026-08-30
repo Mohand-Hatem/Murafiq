@@ -90,7 +90,7 @@ const issueTokensForNewSession = async (user, { deviceLabel } = {}) => {
   return { accessToken, refreshToken, sessionId: sessionId.toString() };
 };
 
-const register = async ({ name, email, password, role }) => {
+const register = async ({ name, email, password, role, gender }) => {
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const otp = generateOtp(6);
   const otpCode = await bcrypt.hash(otp, SALT_ROUNDS);
@@ -100,6 +100,7 @@ const register = async ({ name, email, password, role }) => {
     email,
     passwordHash,
     role,
+    gender,
     otpCode,
     otpExpiresAt: new Date(Date.now() + OTP_TTL_MS),
     otpAttempts: 0,

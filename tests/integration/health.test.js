@@ -21,7 +21,7 @@ describe('Health & Error Handling Integration Tests', () => {
         status: 'healthy',
         mongo: 'connected',
         firebase: expect.any(String),
-        redis: 'not_configured',
+        redis: expect.stringMatching(/^(connected|unavailable)$/),
       },
       meta: null,
     });
