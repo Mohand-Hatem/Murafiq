@@ -80,6 +80,43 @@
 
 /**
  * @swagger
+ * /api/v1/subscriptions/checkout:
+ *   post:
+ *     summary: Initiate a Paymob checkout session for upgrading to a paid subscription plan
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - planCode
+ *             properties:
+ *               planCode:
+ *                 type: string
+ *                 example: client.pro
+ *               billingCycle:
+ *                 type: string
+ *                 enum: [monthly, yearly]
+ *                 default: monthly
+ *     responses:
+ *       200:
+ *         description: Checkout intention initialized with payment URL
+ *
+ * /api/v1/subscriptions/webhook:
+ *   post:
+ *     summary: Webhook callback for Paymob subscription order payments
+ *     tags: [Subscriptions]
+ *     responses:
+ *       200:
+ *         description: Webhook processed and subscription activated
+ */
+
+/**
+ * @swagger
  * /api/v1/subscriptions/cancel:
  *   post:
  *     summary: Schedule active subscription cancellation at period end
@@ -90,3 +127,4 @@
  *       200:
  *         description: Subscription cancellation scheduled
  */
+

@@ -14,7 +14,15 @@ export const planQuerySchema = z
   })
   .strict();
 
+export const checkoutSchema = z
+  .object({
+    planCode: z.string().min(1, 'planCode is required'),
+    billingCycle: z.enum(['monthly', 'yearly']).default('monthly'),
+  })
+  .strict();
+
 export default {
   subscribeSchema,
+  checkoutSchema,
   planQuerySchema,
 };

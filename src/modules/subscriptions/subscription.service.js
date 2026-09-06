@@ -1,12 +1,25 @@
+import mongoose from 'mongoose';
 import subscriptionRepository from './subscription.repository.js';
 import planRepository from './plan.repository.js';
+import subscriptionOrderRepository from './subscription-order.repository.js';
 import UsageCounter from './usage-counter.model.js';
 import * as entitlementService from './entitlement.service.js';
 import ledgerService from '../ledger/ledger.service.js';
+import userRepository from '../users/user.repository.js';
+import MockProvider from '../payments/providers/mock.provider.js';
+import PaymobProvider from '../payments/providers/paymob.provider.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
 import ApiError from '../../common/utils/ApiError.js';
+import env from '../../config/env.config.js';
+
+export const getPaymentProvider = () => {
+  if (env.NODE_ENV === 'test' || env.PAYMENT_PROVIDER === 'mock') {
+    return new MockProvider();
+  }
+  return new PaymobProvider();
+};
 
 /**
  * Ensures a user has an active subscription row in the database.
@@ -236,9 +249,156 @@ export const cancelSubscription = async (userId) => {
   return updated;
 };
 
+/**
+ * Initiates a Paymob checkout session for upgrading to a paid subscription plan.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @param {string} userRole 'client' | 'stylist'
+ * @param {Object} checkoutData { planCode, billingCycle }
+ * @returns {Promise<Object>}
+ */
+export const checkoutSubscription = async (
+  userId,
+  userRole,
+  { planCode, billingCycle = 'monthly' }
+) => {
+  const plan = await planRepository.findByCode(planCode);
+  if (!plan) {
+    throw new ApiError(404, `Plan '${planCode}' not found`);
+  }
+
+  if (plan.role !== userRole) {
+    throw new ApiError(403, `Plan '${planCode}' is only available for ${plan.role}s`);
+  }
+
+  if (plan.priceEgp === 0) {
+    throw new ApiError(400, 'Free plan does not require payment checkout. Use /subscribe instead.');
+  }
+
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  const priceEgp =
+    billingCycle === 'yearly' && plan.priceYearlyEgp ? plan.priceYearlyEgp : plan.priceEgp;
+  const orderId = new mongoose.Types.ObjectId();
+  const specialReference = `subord_${orderId.toString()}`;
+
+  const order = await subscriptionOrderRepository.createOrder({
+    _id: orderId,
+    userId,
+    planCode: plan.code,
+    billingCycle,
+    amountEgp: priceEgp,
+    status: 'pending',
+    provider: env.NODE_ENV === 'test' ? 'mock' : (env.PAYMENT_PROVIDER || 'paymob'),
+    specialReference,
+  });
+
+  const provider = getPaymentProvider();
+  const initResult = await provider.initialize({
+    amount: priceEgp,
+    reference: specialReference,
+    items: [
+      {
+        name: `Subscription: ${plan.name}`,
+        amount: Math.round(priceEgp * 100),
+        description: `${plan.name} (${billingCycle})`,
+        quantity: 1,
+      },
+    ],
+    customer: {
+      name: user.name || 'User',
+      email: user.email || 'customer@example.com',
+      phone: user.phone || '+201000000000',
+    },
+    currency: 'EGP',
+    notificationUrl: `${env.API_URL}/api/v1/subscriptions/webhook`,
+    redirectionUrl: `${env.CLIENT_URL}/subscriptions/status`,
+  });
+
+  await subscriptionOrderRepository.updateById(order._id, {
+    providerIntentionId: initResult.providerIntentionId || undefined,
+    providerTransactionId: initResult.providerTransactionId || undefined,
+  });
+
+  return {
+    orderId: order._id.toString(),
+    specialReference,
+    paymentUrl: initResult.paymentUrl,
+    clientSecret: initResult.clientSecret,
+    amountEgp: priceEgp,
+    plan: {
+      code: plan.code,
+      name: plan.name,
+      tier: plan.tier,
+      billingCycle,
+    },
+  };
+};
+
+/**
+ * Handles Paymob webhook callback for subscription orders.
+ *
+ * @param {Object} payload
+ * @param {Object} query
+ * @returns {Promise<Object>}
+ */
+export const handleSubscriptionWebhook = async (payload = {}, query = {}) => {
+  const provider = getPaymentProvider();
+  const result = await provider.handleCallback(payload, query);
+
+  const specialRef = result.bookingId;
+  let order = null;
+  if (specialRef) {
+    order = await subscriptionOrderRepository.findBySpecialReference(specialRef);
+  }
+  if (!order && result.transactionId) {
+    order = await subscriptionOrderRepository.findByTransactionId(result.transactionId);
+  }
+
+  if (!order) {
+    throw new ApiError(404, 'Subscription order not found for webhook transaction');
+  }
+
+  if (order.status === 'paid') {
+    return { order, alreadyProcessed: true };
+  }
+
+  const isSuccess = result.success || result.status === 'paid';
+  if (!isSuccess) {
+    const failedOrder = await subscriptionOrderRepository.updateById(order._id, {
+      status: 'failed',
+      rawCallbackData: result.raw || payload,
+    });
+    return { order: failedOrder, success: false };
+  }
+
+  const plan = await planRepository.findByCode(order.planCode);
+  const userRole = plan ? plan.role : 'client';
+
+  const updatedOrder = await subscriptionOrderRepository.updateById(order._id, {
+    status: 'paid',
+    paidAt: new Date(),
+    providerTransactionId: result.transactionId || order.providerTransactionId,
+    rawCallbackData: result.raw || payload,
+  });
+
+  const updatedSubscription = await subscribe(order.userId, userRole, {
+    planCode: order.planCode,
+    billingCycle: order.billingCycle,
+    paymobSubscriptionId: result.transactionId?.toString() || order.specialReference,
+  });
+
+  return { order: updatedOrder, subscription: updatedSubscription, success: true };
+};
+
 export default {
   ensureUserSubscription,
   getSubscriptionStatus,
   subscribe,
+  checkoutSubscription,
+  handleSubscriptionWebhook,
   cancelSubscription,
 };

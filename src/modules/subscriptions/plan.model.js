@@ -43,8 +43,7 @@ const planSchema = new Schema(
       min: 0,
     },
     entitlements: {
-      type: Map,
-      of: Schema.Types.Mixed,
+      type: Schema.Types.Mixed,
       default: {},
     },
     isActive: {

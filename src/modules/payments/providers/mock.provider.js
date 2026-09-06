@@ -4,12 +4,13 @@ import env from '../../../config/env.config.js';
 import PaymentProviderInterface from './payment-provider.interface.js';
 
 export default class MockProvider extends PaymentProviderInterface {
-  async initialize({ amount: _amount, bookingId }) {
+  async initialize({ amount: _amount, bookingId, reference }) {
+    const ref = (reference || bookingId || 'mock_ref').toString();
     const mockTxId = `mock_tx_${crypto.randomUUID()}`;
     const mockClientSecret = `mock_secret_${crypto.randomUUID()}`;
 
     return {
-      paymentUrl: `https://mock-checkout.local/pay/${bookingId}?secret=${mockClientSecret}`,
+      paymentUrl: `https://mock-checkout.local/pay/${ref}?secret=${mockClientSecret}`,
       clientSecret: mockClientSecret,
       providerTransactionId: mockTxId,
       providerIntentionId: `mock_int_${crypto.randomUUID()}`,

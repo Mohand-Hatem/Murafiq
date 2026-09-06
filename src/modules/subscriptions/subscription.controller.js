@@ -70,10 +70,37 @@ export const cancel = asyncHandler(async (req, res) => {
   });
 });
 
+export const checkout = asyncHandler(async (req, res) => {
+  const userId = req.user._id || req.user.sub || req.user.id;
+  const role = req.user.role;
+  const { planCode, billingCycle } = req.body;
+
+  const result = await subscriptionService.checkoutSubscription(userId, role, {
+    planCode,
+    billingCycle,
+  });
+
+  return ApiResponse.success(res, {
+    message: 'Subscription checkout initiated successfully',
+    data: result,
+  });
+});
+
+export const webhook = asyncHandler(async (req, res) => {
+  const result = await subscriptionService.handleSubscriptionWebhook(req.body, req.query);
+
+  return ApiResponse.success(res, {
+    message: 'Subscription webhook processed successfully',
+    data: result,
+  });
+});
+
 export default {
   getPlans,
   getMySubscription,
   getMyEntitlements,
   subscribe,
+  checkout,
+  webhook,
   cancel,
 };

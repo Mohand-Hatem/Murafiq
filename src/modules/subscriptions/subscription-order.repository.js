@@ -1,0 +1,33 @@
+import SubscriptionOrder from './subscription-order.model.js';
+
+export const createOrder = async (orderData) => {
+  return await SubscriptionOrder.create(orderData);
+};
+
+export const findById = async (id) => {
+  return await SubscriptionOrder.findById(id);
+};
+
+export const findBySpecialReference = async (specialReference) => {
+  return await SubscriptionOrder.findOne({ specialReference });
+};
+
+export const findByTransactionId = async (providerTransactionId) => {
+  return await SubscriptionOrder.findOne({ providerTransactionId });
+};
+
+export const updateById = async (id, updateData) => {
+  return await SubscriptionOrder.findByIdAndUpdate(
+    id,
+    { $set: updateData },
+    { returnDocument: 'after' }
+  );
+};
+
+export default {
+  createOrder,
+  findById,
+  findBySpecialReference,
+  findByTransactionId,
+  updateById,
+};

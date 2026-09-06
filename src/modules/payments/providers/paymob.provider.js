@@ -20,7 +20,16 @@ export default class PaymobProvider extends PaymentProviderInterface {
   /**
    * Intention API (v1) - Creates a payment intention and returns client_secret & checkout URL.
    */
-  async initialize({ amount, bookingId, customer = {}, currency = 'EGP' }) {
+  async initialize({
+    amount,
+    bookingId,
+    reference,
+    items,
+    customer = {},
+    currency = 'EGP',
+    notificationUrl,
+    redirectionUrl,
+  }) {
     const paymentMethods = [this.cardIntegrationId];
     if (this.walletIntegrationId) {
       paymentMethods.push(this.walletIntegrationId);
@@ -31,18 +40,21 @@ export default class PaymobProvider extends PaymentProviderInterface {
     const firstName = names[0] || 'Client';
     const lastName = names.slice(1).join(' ') || 'User';
 
+    const specialRef = (reference || bookingId || '').toString();
+    const defaultItems = [
+      {
+        name: 'Personal Styling Session',
+        amount: amountInCents,
+        description: `Booking #${bookingId || specialRef}`,
+        quantity: 1,
+      },
+    ];
+
     const payload = {
       amount: amountInCents,
       currency,
       payment_methods: paymentMethods,
-      items: [
-        {
-          name: 'Personal Styling Session',
-          amount: amountInCents,
-          description: `Booking #${bookingId}`,
-          quantity: 1,
-        },
-      ],
+      items: items && items.length > 0 ? items : defaultItems,
       billing_data: {
         first_name: firstName,
         last_name: lastName,
@@ -58,12 +70,12 @@ export default class PaymobProvider extends PaymentProviderInterface {
         country: 'EG',
         state: 'Cairo',
       },
-      special_reference: bookingId.toString(),
+      special_reference: specialRef,
       // Paymob posts the webhook to notification_url — it must be THIS backend's public origin,
       // not the frontend's. redirection_url is where the customer's browser goes after checkout,
       // which correctly IS the frontend.
-      notification_url: env.PAYMOB_NOTIFICATION_URL || `${env.API_URL}/api/v1/payments/callback`,
-      redirection_url: env.PAYMOB_REDIRECTION_URL || `${env.CLIENT_URL}/payments/status`,
+      notification_url: notificationUrl || env.PAYMOB_NOTIFICATION_URL || `${env.API_URL}/api/v1/payments/callback`,
+      redirection_url: redirectionUrl || env.PAYMOB_REDIRECTION_URL || `${env.CLIENT_URL}/payments/status`,
     };
 
     try {

@@ -20,12 +20,14 @@ export const initializePayment = asyncHandler(async (req, res) => {
 });
 
 export const handleWebhook = asyncHandler(async (req, res) => {
-  const payment = await paymentService.handleWebhook(req.body, req.query);
+  const result = await paymentService.handleWebhook(req.body, req.query);
+
+  const data = result?.order ? result : toPublicPaymentDto(result);
 
   return ApiResponse.success(res, {
     statusCode: 200,
     message: 'Webhook processed successfully',
-    data: toPublicPaymentDto(payment),
+    data,
   });
 });
 

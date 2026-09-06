@@ -174,6 +174,11 @@ export const handleWebhook = async (payload, query = {}) => {
   const provider = getProvider();
   const result = await provider.handleCallback(payload, query);
 
+  if (result.bookingId && String(result.bookingId).startsWith('subord_')) {
+    const { handleSubscriptionWebhook } = await import('../subscriptions/subscription.service.js');
+    return handleSubscriptionWebhook(payload, query);
+  }
+
   let payment = null;
   if (result.bookingId) {
     payment = await paymentRepository.findByBookingId(result.bookingId);
