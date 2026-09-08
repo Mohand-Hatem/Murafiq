@@ -81,7 +81,9 @@ describe('subscribe() — downgrade handling', () => {
       Promise.resolve(code === 'client.enterprise' ? ENTERPRISE : BASIC)
     );
 
-    const result = await subscribe(USER, 'client', { planCode: 'client.enterprise' });
+    // paid:true — an upgrade only ever reaches the grant path via handleSubscriptionWebhook,
+    // after the provider HMAC has been verified and the order marked paid.
+    const result = await subscribe(USER, 'client', { planCode: 'client.enterprise', paid: true });
 
     expect(result.scheduled).toBeUndefined();
     const [, update] = mockUpdateById.mock.calls[0];
@@ -97,7 +99,7 @@ describe('subscribe() — downgrade handling', () => {
       Promise.resolve(code === 'client.enterprise' ? ENTERPRISE : BASIC)
     );
 
-    await subscribe(USER, 'client', { planCode: 'client.enterprise' });
+    await subscribe(USER, 'client', { planCode: 'client.enterprise', paid: true });
 
     const [, update] = mockUpdateById.mock.calls[0];
     expect(update.pendingPlanCode).toBeNull();
@@ -114,11 +116,43 @@ describe('subscribe() — downgrade handling', () => {
       Promise.resolve(code === 'client.basic' ? BASIC : PRO)
     );
 
-    const result = await subscribe(USER, 'client', { planCode: 'client.basic' });
+    const result = await subscribe(USER, 'client', { planCode: 'client.basic', paid: true });
 
     expect(result.scheduled).toBeUndefined();
     const [, update] = mockUpdateById.mock.calls[0];
     expect(update.planCode).toBe('client.basic');
+  });
+
+  it('REFUSES to grant a paid plan when payment has not been proven', async () => {
+    // The whole point of the guard. /subscribe is authenticated but collects no money, so
+    // reaching subscribe() without paid:true must never hand over a priced plan.
+    mockFindActiveByUserId.mockResolvedValue({
+      _id: 'sub1', planCode: 'client.free', currentPeriodEnd: null,
+    });
+    mockFindByCode.mockImplementation((code) =>
+      Promise.resolve(code === 'client.enterprise' ? ENTERPRISE : BASIC)
+    );
+
+    await expect(
+      subscribe(USER, 'client', { planCode: 'client.enterprise' })
+    ).rejects.toMatchObject({ statusCode: 402 });
+
+    expect(mockUpdateById).not.toHaveBeenCalled();
+  });
+
+  it('still allows a DOWNGRADE to be scheduled without payment', async () => {
+    // A downgrade grants nothing today, so the payment guard must not block it — otherwise
+    // a paying subscriber would be trapped on the more expensive plan.
+    mockFindActiveByUserId.mockResolvedValue({
+      _id: 'sub1', planCode: 'client.enterprise', currentPeriodEnd: FUTURE,
+    });
+    mockFindByCode.mockImplementation((code) =>
+      Promise.resolve(code === 'client.basic' ? BASIC : ENTERPRISE)
+    );
+
+    const result = await subscribe(USER, 'client', { planCode: 'client.basic' });
+
+    expect(result.scheduled).toBe(true);
   });
 
   it('rejects a plan belonging to the other role', async () => {

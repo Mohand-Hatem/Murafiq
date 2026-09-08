@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Buffer } from 'node:buffer';
 import env from '../../../config/env.config.js';
 import { logger } from '../../../config/logger.config.js';
 import PaymentProviderInterface from './payment-provider.interface.js';
@@ -96,7 +97,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
 
       const data = await response.json();
       const clientSecret = data.client_secret;
-      const paymentUrl = `https://accept.paymob.com/unifiedcheckout/?publicKey=${this.publicKey}&clientSecret=${clientSecret}`;
+      const paymentUrl = `${this.baseUrl}/unifiedcheckout/?publicKey=${this.publicKey}&clientSecret=${clientSecret}`;
 
       return {
         paymentUrl,
@@ -150,7 +151,14 @@ export default class PaymobProvider extends PaymentProviderInterface {
       .update(concatenated)
       .digest('hex');
 
-    return calculatedHmac.toLowerCase() === receivedHmac.toLowerCase();
+    // Constant-time compare. A plain === leaks how many leading characters matched via
+    // response timing, which is enough to forge a signature byte by byte given retries.
+    // timingSafeEqual throws on a length mismatch, so the lengths are checked first.
+    const a = Buffer.from(calculatedHmac.toLowerCase(), 'utf8');
+    const b = Buffer.from(String(receivedHmac).toLowerCase(), 'utf8');
+    if (a.length !== b.length) return false;
+
+    return crypto.timingSafeEqual(a, b);
   }
 
   async handleCallback(payload = {}, query = {}) {
@@ -242,10 +250,9 @@ export default class PaymobProvider extends PaymentProviderInterface {
     }
   }
 
-  async verify(transactionId) {
-    return {
-      status: 'paid',
-      transactionId,
-    };
-  }
+  // NOTE: there is deliberately no verify(). The previous implementation returned
+  // { status: 'paid' } unconditionally without contacting Paymob -- a stub that would have
+  // silently approved any transaction the moment something started calling it. Payment
+  // confirmation comes from the HMAC-verified webhook. If polling is ever needed, implement
+  // it against Paymob's transaction-inquiry endpoint rather than restoring the stub.
 }

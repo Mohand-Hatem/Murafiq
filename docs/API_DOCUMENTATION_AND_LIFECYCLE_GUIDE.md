@@ -13,7 +13,7 @@ This document breaks down:
 
 - **Base URL:** `/api/v1`
 - **Authentication:**
-  - Standard JWT access token with 15-minute validity passed via `Authorization: Bearer <token>` header or `accessToken` cookie.
+  - Standard JWT access token with 1-hour validity passed via `Authorization: Bearer <token>` header or `accessToken` cookie.
   - Refresh tokens stored in HttpOnly cookies with cryptographic rotation.
   - **Immediate Token Revocation (`tokenVersion`):** When a user is suspended, blocked, or has their password/sessions revoked, their `tokenVersion` in database and in-memory cache is incremented. Any token issued before that bump stops working immediately.
 - **Account Statuses:**
@@ -291,15 +291,18 @@ This document breaks down:
 
 ---
 
-### 💎 3.14 Subscriptions & Entitlements (/api/v1/subscriptions)
+### 💳 3.14 Subscriptions & Plan Billing (/api/v1/subscriptions)
 
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| GET | /subscriptions/plans | Public | List available subscription tiers (Free, Basic, Pro, Enterprise) and features. |
-| GET | /subscriptions/me | Stylist | View active plan, renewal date, and billing status. |
-| GET | /subscriptions/me/entitlements | Stylist | View remaining daily bids, active offer capacity, and commission rate. |
-| POST | /subscriptions/subscribe | Stylist | Upgrade or switch subscription tier. |
-| POST | /subscriptions/cancel | Stylist | Cancel subscription (reverts to Free plan at end of billing cycle). |
+| GET | /subscriptions/plans | Public / Optional | List all active plans with pricing and entitlements (supports `?role=client` or `?role=stylist`). |
+| GET | /subscriptions/me | Authenticated (Client / Stylist) | Get current user's active subscription, status, period dates, daily usage meters, and capacity limits. |
+| GET | /subscriptions/me/entitlements | Authenticated (Client / Stylist) | Flat key-value map of user's current entitlements. |
+| POST | /subscriptions/checkout | Authenticated (Client / Stylist) | Initiate Paymob Unified Checkout intention for a paid plan. Returns `paymentUrl`, `clientSecret`, and `orderId`. |
+| GET | /subscriptions/orders/:orderId | Authenticated (Client / Stylist) | Poll checkout order payment status (`pending`, `paid`, `failed`) after returning from Paymob redirect. |
+| POST | /subscriptions/webhook | Public (Webhook) | Cryptographically verified (HMAC-SHA512) Paymob webhook endpoint that activates plans upon payment confirmation. |
+| POST | /subscriptions/subscribe | Authenticated (Client / Stylist) | Switch to a FREE plan, or schedule a downgrade for the end of the paid billing period. (Direct paid upgrades rejected with 402). |
+| POST | /subscriptions/cancel | Authenticated (Client / Stylist) | Schedule active paid subscription cancellation at period end (reverts to Free plan afterwards). |
 
 ---
 
@@ -371,3 +374,4 @@ This document breaks down:
 ---
 
 *Document compiled and verified against Murafiq API v1.0.0 specifications.*
+

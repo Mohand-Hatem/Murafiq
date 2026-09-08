@@ -106,8 +106,43 @@ Legend:
 >    `$min` (correct under concurrent offer creation) and drives edit-immutability.
 > 6. **`rejectOffer` still reset the parent request to open-with-no-offers**, discarding the sibling
 >    bids the client was actively comparing.
-> 7. **No yearly plans existed** — all 9 were monthly. Added 7 yearly variants derived from their
->    monthly counterpart so entitlements can never drift between billing cycles.
+> 7. **No yearly plans existed** — all 9 were monthly. Yearly pricing was added as a second
+>    price on each plan (`priceYearlyEgp`), so entitlements cannot drift between billing cycles.
+>    *(Superseded shape: this was first built as 7 separate `<code>.yearly` plan codes. That put
+>    the billing cycle in two places — the plan code AND the request's `billingCycle` — with
+>    nothing holding them in agreement, and both mismatches were reachable and charged the wrong
+>    amount. See the subscription-billing correction pass below.)*
+>
+> **Subscription billing correction pass.** Seven defects closed in the subscribe → Paymob
+> checkout cycle, each confirmed against running code rather than documentation:
+> 13. **`POST /subscriptions/subscribe` granted any paid plan to any authenticated user** with no
+>     payment, and posted a matching `SUBSCRIPTION_PAYMENT`/`PLATFORM_FEE` pair to the ledger for
+>     money never collected — so reconciliation saw a balanced book and never alerted. `subscribe()`
+>     now grants a priced plan only for a caller that can prove payment (`paid: true`), which only
+>     `handleSubscriptionWebhook` sets, and only post-HMAC. The route returns 402.
+> 14. **`Subscription.currentPeriodEnd` was `required: true`** while every Free-tier write sets it
+>     to `null`, so *every* free-plan `Subscription.create()` threw. Registration swallowed it in a
+>     try/catch, so no user had a subscription row, and `GET /subscriptions/me` — which does not
+>     catch — was a guaranteed 500. Now `default: null`.
+> 15. **Yearly billing charged the wrong amount in both directions.** `plan.priceYearlyEgp` was read
+>     in two places but defined nowhere, so yearly silently fell back to the monthly price; the
+>     period meanwhile came from an unvalidated client field. `resolvePlanPricing()` is now the sole
+>     source of both price and period, used by `subscribe()` and `checkoutSubscription()` alike.
+> 16. **Every validator in the module was a silent no-op.** They were exported as bare Zod schemas,
+>     but `validate()` dispatches on `{ body, query, params }` keys — so `.strict()` never ran and
+>     `planCode` was never required. Rewrapped to the project convention.
+> 17. **The mock payment provider was reachable in production.** The module had its own provider
+>     factory that honoured `PAYMENT_PROVIDER=mock` (the default) outside tests. It now reuses
+>     `payment.service.getProvider`, which refuses mock unless `NODE_ENV=test`.
+> 18. **The webhook response echoed `rawCallbackData`** — the provider payload, masked PAN included —
+>     on both `/subscriptions/webhook` and the `/payments/callback` delegation path. Both narrowed
+>     to an acknowledgement.
+> 19. **The cycle had no closing step.** Paymob redirects the browser to a frontend URL, so nothing
+>     server-side confirmed payment. Added `GET /subscriptions/orders/:orderId` (owner-scoped).
+>
+> Also: Paymob HMAC comparison moved to `crypto.timingSafeEqual`, the checkout URL now honours
+> `PAYMOB_BASE_URL`, the `verify()` stub that unconditionally returned `paid` was deleted, and
+> ledger idempotency keys are scoped to the order rather than the calendar day.
 >
 > **Second correction pass (same day).** Four further gaps closed, all verified:
 > 8. **Access-token revocation did not work.** `User.tokenVersion` was incremented in three places but

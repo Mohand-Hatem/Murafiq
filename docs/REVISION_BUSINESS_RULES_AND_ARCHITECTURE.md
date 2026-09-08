@@ -913,7 +913,12 @@ MongoDB, so all changes are additive except two index drops. No migration files 
 
 ## K.3 Subscriptions (all new)
 
-`GET /subscriptions/plans` · `GET /subscriptions/me` · `GET /subscriptions/me/entitlements` · `GET /subscriptions/me/usage` · `POST /subscriptions/subscribe` · `POST /subscriptions/change-plan` · `POST /subscriptions/cancel` · `POST /subscriptions/webhook` (Paymob, signature-verified, idempotency-keyed).
+`GET /subscriptions/plans` · `GET /subscriptions/me` · `GET /subscriptions/me/entitlements` · `POST /subscriptions/checkout` · `GET /subscriptions/orders/:orderId` · `POST /subscriptions/subscribe` · `POST /subscriptions/cancel` · `POST /subscriptions/webhook` (Paymob, signature-verified, idempotency-keyed).
+
+> **Correction (implemented build):**
+> - `POST /subscriptions/change-plan` was superseded: paid upgrades go through `POST /subscriptions/checkout` (Paymob payment intention), while free-tier switches and scheduled downgrades use `POST /subscriptions/subscribe`.
+> - `GET /subscriptions/me/usage` was consolidated into `GET /subscriptions/me` (which returns daily usage counters alongside subscription metadata).
+> - `GET /subscriptions/orders/:orderId` was added to enable server-side polling of payment order status after browser redirect from Paymob.
 
 ## K.4 Chat
 

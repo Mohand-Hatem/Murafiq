@@ -45,12 +45,13 @@ export const getMyEntitlements = asyncHandler(async (req, res) => {
 export const subscribe = asyncHandler(async (req, res) => {
   const userId = req.user._id || req.user.sub || req.user.id;
   const role = req.user.role;
-  const { planCode, billingCycle, paymobSubscriptionId } = req.body;
+  const { planCode, billingCycle } = req.body;
 
+  // `paid` is deliberately not forwarded from the request. This route never collects money,
+  // so the service refuses any plan with a price and points the caller at /checkout.
   const subscription = await subscriptionService.subscribe(userId, role, {
     planCode,
     billingCycle,
-    paymobSubscriptionId,
   });
 
   return ApiResponse.success(res, {
@@ -89,9 +90,27 @@ export const checkout = asyncHandler(async (req, res) => {
 export const webhook = asyncHandler(async (req, res) => {
   const result = await subscriptionService.handleSubscriptionWebhook(req.body, req.query);
 
+  // Acknowledge only. The previous response echoed the whole order, including
+  // rawCallbackData -- the provider's payload, which carries the masked PAN and source_data.
+  // Paymob ignores the body, so there is nothing to gain by returning it.
   return ApiResponse.success(res, {
     message: 'Subscription webhook processed successfully',
-    data: result,
+    data: {
+      received: true,
+      status: result.order?.status ?? 'unknown',
+      alreadyProcessed: Boolean(result.alreadyProcessed),
+    },
+  });
+});
+
+export const getOrderStatus = asyncHandler(async (req, res) => {
+  const userId = req.user._id || req.user.sub || req.user.id;
+
+  const order = await subscriptionService.getOrderStatus(req.params.orderId, userId);
+
+  return ApiResponse.success(res, {
+    message: 'Subscription order status retrieved successfully',
+    data: { order },
   });
 });
 
@@ -103,4 +122,5 @@ export default {
   checkout,
   webhook,
   cancel,
+  getOrderStatus,
 };

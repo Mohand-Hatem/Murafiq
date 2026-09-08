@@ -584,11 +584,22 @@ For all API testing tools (Postman, API Dog, Insomnia, cURL):
 
 ---
 
+> **Prerequisite:** the plan catalogue is not seeded at boot. Run `node scripts/seed-plans.js`
+> once against the target database, or `/subscriptions/plans` comes back empty.
+>
+> **Prerequisite for a real charge:** set `PAYMENT_PROVIDER=paymob` with live `PAYMOB_*` keys, and
+> point `API_URL` at a **publicly reachable** origin (an ngrok tunnel locally). Paymob delivers the
+> webhook server-to-server; if it cannot reach `API_URL`, the order stays `pending` forever and the
+> plan is never granted no matter what the browser shows.
+
 ### Step 1: Browse Available Plans
 - **Method:** `GET`
 - **URL:** `/subscriptions/plans?role=stylist`
 - **Headers:** None (Public)
 - **Expected Status:** `200 OK`
+- **Verify:** 4 stylist plans. Each paid plan carries **both** `priceEgp` and `priceYearlyEgp`;
+  the Free plan has `priceYearlyEgp: null`. There are no `*.yearly` plan codes — a yearly purchase
+  is the same plan code with `billingCycle: "yearly"`.
 
 ---
 
@@ -597,33 +608,102 @@ For all API testing tools (Postman, API Dog, Insomnia, cURL):
 - **URL:** `/subscriptions/me/entitlements`
 - **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
 - **Expected Status:** `200 OK`
-- **Verify:** Returns active capacity (`offers.active: 3`), daily limit, and commission rate.
+- **Verify:** Returns the Free tier's active capacity (`offers.active: 3`) and daily limit.
 
 ---
 
-### Step 3: Upgrade to Pro Plan
+### Step 3: Confirm the free-grant path is closed
 - **Method:** `POST`
 - **URL:** `/subscriptions/subscribe`
 - **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
 - **Request Body:**
 ```json
-{
-  "planCode": "stylist.pro",
-  "billingCycle": "monthly",
-  "paymobSubscriptionId": "sub_paymob_987654"
-}
+{ "planCode": "stylist.pro" }
 ```
-- **Expected Status:** `200 OK`
-- **Effect:** Upgrade takes effect **immediately**; daily bids and active offer capacity are unlocked.
+- **Expected Status:** `402 Payment Required`
+- **Why:** This route collects no money. It previously granted any paid plan to any logged-in user
+  and wrote matching ledger entries for revenue that was never collected. It now serves only free
+  plans and scheduled downgrades. **A 2xx here is a live vulnerability.**
 
 ---
 
-### Step 4: Cancel Auto-Renewal
+### Step 4: Start a Paymob checkout (the only way to buy)
+- **Method:** `POST`
+- **URL:** `/subscriptions/checkout`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{
+  "planCode": "stylist.pro",
+  "billingCycle": "monthly"
+}
+```
+- **Expected Status:** `200 OK`
+- **Verify:** `amountEgp` is `125` for monthly and `1500` for `"billingCycle": "yearly"` — the
+  yearly figure must NOT equal the monthly one. Response carries `orderId`, `specialReference`
+  (`subord_<id>`) and `paymentUrl`. A `SubscriptionOrder` now exists with `status: "pending"`.
+- **Negative case:** `{"planCode": "stylist.free", "billingCycle": "yearly"}` → `400` (no yearly
+  variant). `{"planCode": "client.pro"}` from a stylist token → `403`.
+
+---
+
+### Step 5: Pay
+Open `paymentUrl` in a browser and complete the Paymob test card flow. Two things then happen
+independently, and they race — this is expected:
+
+| | Destination | Purpose |
+|---|---|---|
+| **Webhook** (authoritative) | `POST {API_URL}/api/v1/subscriptions/webhook` | HMAC-verified; marks the order paid and grants the plan |
+| **Redirect** | `GET {CLIENT_URL}/subscriptions/status` | Browser only — a **frontend** page, not a backend route |
+
+The redirect proves nothing. Only the webhook grants the plan.
+
+---
+
+### Step 6: Confirm the payment landed
+- **Method:** `GET`
+- **URL:** `/subscriptions/orders/<ORDER_ID>`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** `status` is `"paid"`. This is what the frontend polls after the redirect returns.
+- **Negative case:** the same URL with another user's token → `403`. A malformed id → `400`.
+
+---
+
+### Step 7: Verify the plan is live
+- **Method:** `GET`
+- **URL:** `/subscriptions/me`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** `plan.code` is `stylist.pro`, and `subscription.currentPeriodEnd` is ~30 days out
+  (~365 for a yearly purchase). Entitlements now show the Pro capacity.
+
+---
+
+### Step 8: Schedule a downgrade
+- **Method:** `POST`
+- **URL:** `/subscriptions/subscribe`
+- **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
+- **Request Body:**
+```json
+{ "planCode": "stylist.basic" }
+```
+- **Expected Status:** `200 OK` with `scheduled: true`
+- **Why this is not a 402:** a downgrade grants nothing today. It records a choice the renewal
+  sweep applies once the period already paid for runs out, so Pro stays live until `effectiveAt`.
+
+---
+
+### Step 9: Cancel Auto-Renewal
 - **Method:** `POST`
 - **URL:** `/subscriptions/cancel`
 - **Headers:** `Authorization: Bearer <STYLIST_TOKEN>`
 - **Expected Status:** `200 OK`
-- **Effect:** Plan remains active until `currentPeriodEnd`, then reverts to Free tier.
+- **Effect:** Plan remains active until `currentPeriodEnd`, then the daily sweep reverts it to Free.
+
+> **Note — there is no recurring billing.** `subscription-renewal.cron.js` is an expiry sweep: it
+> downgrades lapsed plans to Free and promotes scheduled downgrades. Paymob recurring billing is not
+> integrated, so a paid subscriber must run Steps 4–6 again each period.
 
 ---
 
@@ -740,4 +820,110 @@ For all API testing tools (Postman, API Dog, Insomnia, cURL):
 
 ---
 
+## 💳 PHASE 6: Subscriptions & Plan Billing Lifecycle (Paymob Checkout & Webhook)
+
+---
+
+### Step 1: List Available Plans
+- **Method:** `GET`
+- **URL:** `/subscriptions/plans?role=client`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns active client plans (`client.free`, `client.basic`, `client.mid`, `client.pro`, `client.enterprise`).
+
+---
+
+### Step 2: Query Current Subscription & Quotas
+- **Method:** `GET`
+- **URL:** `/subscriptions/me`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns default `client.free` subscription with daily usage and capacity meters.
+
+---
+
+### Step 3: Initiate Paid Plan Checkout (Paymob Unified Checkout)
+- **Method:** `POST`
+- **URL:** `/subscriptions/checkout`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
+```json
+{
+  "planCode": "client.pro",
+  "billingCycle": "monthly"
+}
+```
+- **Expected Status:** `200 OK`
+- **Action:** Save `orderId` and `specialReference` from response. Copy `paymentUrl` to complete payment on Paymob or simulate webhook in Step 4.
+
+---
+
+### Step 4: Paymob Webhook Payment Confirmation (Simulated / Live)
+- **Method:** `POST`
+- **URL:** `/subscriptions/webhook`
+- **Request Body (Mock Mode):**
+```json
+{
+  "secret": "dev_mock_webhook_secret",
+  "special_reference": "{{SPECIAL_REFERENCE}}",
+  "status": "paid",
+  "transactionId": "paymob_sub_tx_101"
+}
+```
+- **Expected Status:** `200 OK`
+- **Effect:**
+  - `SubscriptionOrder` status becomes `paid`.
+  - User's subscription promoted to `client.pro`.
+  - `currentPeriodEnd` set to 30 days in future.
+  - Double-entry ledger records `SUBSCRIPTION_PAYMENT` (client DEBIT) and `PLATFORM_FEE` (platform CREDIT).
+
+---
+
+### Step 5: Verify Order Status
+- **Method:** `GET`
+- **URL:** `/subscriptions/orders/{{ORDER_ID}}`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns `{ "status": "paid", "planCode": "client.pro", "paidAt": "..." }`.
+
+---
+
+### Step 6: Verify Upgraded Entitlements
+- **Method:** `GET`
+- **URL:** `/subscriptions/me`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:**
+  - `planCode`: `client.pro`
+  - `status`: `active`
+  - `requests.daily`: 4
+  - `ai.messages.daily`: 80
+
+---
+
+### Step 7: Schedule Downgrade (Pro -> Basic)
+- **Method:** `POST`
+- **URL:** `/subscriptions/subscribe`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Request Body:**
+```json
+{
+  "planCode": "client.basic",
+  "billingCycle": "monthly"
+}
+```
+- **Expected Status:** `200 OK`
+- **Verify:** Returns `{ "scheduled": true, "effectiveAt": "..." }`. The user keeps Pro privileges until `currentPeriodEnd`.
+
+---
+
+### Step 8: Schedule Cancellation of Paid Subscription
+- **Method:** `POST`
+- **URL:** `/subscriptions/cancel`
+- **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
+- **Expected Status:** `200 OK`
+- **Verify:** Returns `cancelAtPeriodEnd: true`. The plan stays active until period end, then reverts to Free.
+
+---
+
 *Manual End-to-End Testing Guide verified against Murafiq API specification.*
+

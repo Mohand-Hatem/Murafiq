@@ -23,9 +23,10 @@ const mockProPlan = {
   name: 'Client Pro',
   role: 'client',
   tier: 'pro',
-  billingCycle: 'monthly',
   priceEgp: 250,
+  priceYearlyEgp: 2900,
   priceUsdDisplay: 5,
+  priceUsdYearlyDisplay: 58,
   entitlements: {
     'requests.daily': 4,
     'requests.active': 4,
@@ -41,8 +42,8 @@ const mockFreePlan = {
   name: 'Client Free',
   role: 'client',
   tier: 'free',
-  billingCycle: 'monthly',
   priceEgp: 0,
+  priceYearlyEgp: null,
   priceUsdDisplay: 0,
   entitlements: {
     'requests.daily': 1,
@@ -57,8 +58,8 @@ const mockStylistPlan = {
   name: 'Stylist Pro',
   role: 'stylist',
   tier: 'pro',
-  billingCycle: 'monthly',
   priceEgp: 300,
+  priceYearlyEgp: 3600,
   isActive: true,
 };
 
@@ -76,6 +77,11 @@ const mockFindBySpecialReference = jest.fn().mockImplementation((ref) => {
 
 const mockFindByTransactionId = jest.fn().mockImplementation((txId) => {
   const order = Object.values(mockOrderStore).find((o) => o.providerTransactionId === txId);
+  return Promise.resolve(order || null);
+});
+
+const mockFindOrderById = jest.fn().mockImplementation((id) => {
+  const order = Object.values(mockOrderStore).find((o) => String(o._id) === String(id));
   return Promise.resolve(order || null);
 });
 
@@ -105,11 +111,13 @@ const mockFindByCode = jest.fn().mockImplementation((code) => {
 jest.unstable_mockModule('../../src/modules/subscriptions/subscription-order.repository.js', () => ({
   default: {
     createOrder: mockCreateOrder,
+    findById: mockFindOrderById,
     findBySpecialReference: mockFindBySpecialReference,
     findByTransactionId: mockFindByTransactionId,
     updateById: mockUpdateOrderById,
   },
   createOrder: mockCreateOrder,
+  findById: mockFindOrderById,
   findBySpecialReference: mockFindBySpecialReference,
   findByTransactionId: mockFindByTransactionId,
   updateById: mockUpdateOrderById,
@@ -269,7 +277,11 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
 
       expect(webhookRes.status).toBe(200);
       expect(webhookRes.body.success).toBe(true);
-      expect(webhookRes.body.data.order.status).toBe('paid');
+      // The webhook response is a bare acknowledgement. It deliberately no longer echoes the
+      // order, whose rawCallbackData carries the provider's masked PAN and source_data.
+      expect(webhookRes.body.data.status).toBe('paid');
+      expect(webhookRes.body.data.received).toBe(true);
+      expect(webhookRes.body.data.order).toBeUndefined();
 
       // Verify subscription updated
       expect(mockUpdateSubscriptionById).toHaveBeenCalledWith(
@@ -333,7 +345,125 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.order.status).toBe('paid');
+      expect(res.body.data.status).toBe('paid');
+    });
+  });
+
+  describe('Retired .yearly plan codes', () => {
+    // Yearly used to be a separate plan document. Collapsing it into a second price on the
+    // parent retired those codes, so an old client gets a 404 for a call that worked before --
+    // it should say what to send instead rather than dead-ending.
+    it('names the replacement code instead of a bare "not found"', async () => {
+      const res = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro.yearly', billingCycle: 'yearly' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.message).toMatch(/no longer exists/i);
+      expect(res.body.message).toContain('"planCode": "client.pro"');
+      expect(res.body.message).toContain('"billingCycle": "yearly"');
+    });
+
+    it('leaves an ordinary unknown code with the plain message', async () => {
+      const res = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.doesnotexist' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.message).toMatch(/not found/i);
+      expect(res.body.message).not.toMatch(/no longer exists/i);
+    });
+  });
+
+  describe('Yearly billing is quoted at the yearly price', () => {
+    it('quotes priceYearlyEgp, not the monthly price, for a yearly checkout', async () => {
+      // The regression: plan.priceYearlyEgp did not exist, so this quoted 250 EGP for a
+      // 2,900 EGP plan and then granted a 365-day period against it.
+      const res = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro', billingCycle: 'yearly' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.amountEgp).toBe(2900);
+      expect(mockCreateOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ amountEgp: 2900, billingCycle: 'yearly' })
+      );
+    });
+
+    it('still quotes the monthly price for a monthly checkout', async () => {
+      const res = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro', billingCycle: 'monthly' });
+
+      expect(res.body.data.amountEgp).toBe(250);
+    });
+
+    it('rejects a yearly cycle on a plan that has no yearly price', async () => {
+      const res = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.free', billingCycle: 'yearly' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /api/v1/subscriptions/orders/:orderId', () => {
+    it('reports the order status so the app can confirm payment after the redirect', async () => {
+      const checkoutRes = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro' });
+
+      const { orderId } = checkoutRes.body.data;
+
+      const res = await request(app)
+        .get(`/api/v1/subscriptions/orders/${orderId}`)
+        .set('Authorization', `Bearer ${clientToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.order.status).toBe('pending');
+      expect(res.body.data.order.planCode).toBe('client.pro');
+      // Narrow projection: the raw provider payload carries the masked PAN.
+      expect(res.body.data.order.rawCallbackData).toBeUndefined();
+    });
+
+    it("refuses to expose another user's order", async () => {
+      const checkoutRes = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro' });
+
+      const otherToken = generateAccessToken({
+        sub: '60f719b8f1a2c81234567999',
+        role: 'client',
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/subscriptions/orders/${checkoutRes.body.data.orderId}`)
+        .set('Authorization', `Bearer ${otherToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects a malformed orderId with 400 rather than a cast error', async () => {
+      const res = await request(app)
+        .get('/api/v1/subscriptions/orders/not-an-object-id')
+        .set('Authorization', `Bearer ${clientToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(app).get(
+        '/api/v1/subscriptions/orders/60f719b8f1a2c81234567811'
+      );
+
+      expect(res.status).toBe(401);
     });
   });
 });

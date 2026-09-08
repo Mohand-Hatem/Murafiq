@@ -23,8 +23,8 @@ const mockProPlan = {
   name: 'Client Pro',
   role: 'client',
   tier: 'pro',
-  billingCycle: 'monthly',
   priceEgp: 250,
+  priceYearlyEgp: 2900,
   priceUsdDisplay: 5,
   entitlements: {
     'requests.daily': 4,
@@ -192,7 +192,11 @@ describe('Stage R3 Integration — Subscriptions Endpoints', () => {
   });
 
   describe('POST /api/v1/subscriptions/subscribe', () => {
-    it('successfully upgrades to a new plan tier', async () => {
+    // This suite previously asserted that an authenticated user could POST themselves a paid
+    // plan and receive 200 — i.e. it encoded the vulnerability as the specification. The
+    // route collects no money, so a priced plan must be refused and the caller sent to
+    // /checkout. Nothing may be written to the subscription row on the way out.
+    it('refuses to grant a PAID plan — no payment is collected on this route', async () => {
       const res = await request(app)
         .post('/api/v1/subscriptions/subscribe')
         .set('Authorization', `Bearer ${clientToken}`)
@@ -201,15 +205,36 @@ describe('Stage R3 Integration — Subscriptions Endpoints', () => {
           billingCycle: 'monthly',
         });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(mockUpdateSubscriptionById).toHaveBeenCalledWith(
-        mockSubscription._id,
-        expect.objectContaining({
+      expect(res.status).toBe(402);
+      expect(res.body.message).toMatch(/requires payment/i);
+      expect(mockUpdateSubscriptionById).not.toHaveBeenCalled();
+    });
+
+    it('refuses a paid YEARLY plan too', async () => {
+      const res = await request(app)
+        .post('/api/v1/subscriptions/subscribe')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({
           planCode: 'client.pro',
-          status: 'active',
-        })
-      );
+          billingCycle: 'yearly',
+        });
+
+      expect(res.status).toBe(402);
+      expect(mockUpdateSubscriptionById).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown field — .strict() is now actually enforced', async () => {
+      // Every validator in this module used to be exported bare, which made validate() a
+      // no-op: .strict() never ran and a client could smuggle in extra fields.
+      const res = await request(app)
+        .post('/api/v1/subscriptions/subscribe')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({
+          planCode: 'client.free',
+          paymobSubscriptionId: 'attacker-supplied-reference',
+        });
+
+      expect(res.status).toBe(400);
     });
   });
 

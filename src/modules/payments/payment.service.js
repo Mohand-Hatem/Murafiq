@@ -1,8 +1,7 @@
 import paymentRepository from './payment.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import userRepository from '../users/user.repository.js';
-import MockProvider from './providers/mock.provider.js';
-import PaymobProvider from './providers/paymob.provider.js';
+import { getProvider } from './providers/provider.factory.js';
 import env from '../../config/env.config.js';
 import logger from '../../config/logger.config.js';
 import eventBus from '../../common/events/event-bus.js';
@@ -15,22 +14,9 @@ import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
-// The mock provider exists solely to keep automated tests deterministic and offline — it is
-// selected by NODE_ENV, never by PAYMENT_PROVIDER. Every non-test environment (dev, staging,
-// production) always hits the real Paymob sandbox/live API, so the integration is actually
-// exercised long before go-live rather than being discovered broken in production.
-export const getProvider = () => {
-  if (env.NODE_ENV === 'test') {
-    return new MockProvider();
-  }
-  if (env.PAYMENT_PROVIDER === 'mock') {
-    throw new ApiError(
-      500,
-      'PAYMENT_PROVIDER=mock is only permitted when NODE_ENV=test. Set PAYMENT_PROVIDER=paymob for local/dev/staging/production.'
-    );
-  }
-  return new PaymobProvider();
-};
+// Re-exported so existing callers and the module's default export keep working unchanged.
+// The rule itself now lives in providers/provider.factory.js -- see the comment there.
+export { getProvider };
 
 export const createPendingPayment = async (
   { bookingId, clientId, amount, currency = 'EGP' },
@@ -176,7 +162,15 @@ export const handleWebhook = async (payload, query = {}) => {
 
   if (result.bookingId && String(result.bookingId).startsWith('subord_')) {
     const { handleSubscriptionWebhook } = await import('../subscriptions/subscription.service.js');
-    return handleSubscriptionWebhook(payload, query);
+    const subResult = await handleSubscriptionWebhook(payload, query);
+    // Narrowed to an acknowledgement, matching /subscriptions/webhook. Returning the order
+    // verbatim would leak rawCallbackData -- the provider payload, masked PAN included --
+    // through this delegation path even after the dedicated endpoint was fixed.
+    return {
+      received: true,
+      status: subResult.order?.status ?? 'unknown',
+      alreadyProcessed: Boolean(subResult.alreadyProcessed),
+    };
   }
 
   let payment = null;

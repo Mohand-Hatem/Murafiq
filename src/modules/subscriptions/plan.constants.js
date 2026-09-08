@@ -5,7 +5,6 @@ export const CANONICAL_PLANS = [
     name: 'Client Free',
     role: 'client',
     tier: 'free',
-    billingCycle: 'monthly',
     priceEgp: 0,
     priceUsdDisplay: 0,
     entitlements: {
@@ -21,7 +20,6 @@ export const CANONICAL_PLANS = [
     name: 'Client Basic',
     role: 'client',
     tier: 'basic',
-    billingCycle: 'monthly',
     priceEgp: 50,
     priceUsdDisplay: 1,
     entitlements: {
@@ -37,7 +35,6 @@ export const CANONICAL_PLANS = [
     name: 'Client Mid',
     role: 'client',
     tier: 'basic', // mapped to basic group for UI
-    billingCycle: 'monthly',
     priceEgp: 150,
     priceUsdDisplay: 3,
     entitlements: {
@@ -53,7 +50,6 @@ export const CANONICAL_PLANS = [
     name: 'Client Pro',
     role: 'client',
     tier: 'pro',
-    billingCycle: 'monthly',
     priceEgp: 250,
     priceUsdDisplay: 5,
     entitlements: {
@@ -69,7 +65,6 @@ export const CANONICAL_PLANS = [
     name: 'Client Enterprise',
     role: 'client',
     tier: 'enterprise',
-    billingCycle: 'monthly',
     priceEgp: 500,
     priceUsdDisplay: 10,
     entitlements: {
@@ -87,7 +82,6 @@ export const CANONICAL_PLANS = [
     name: 'Stylist Free',
     role: 'stylist',
     tier: 'free',
-    billingCycle: 'monthly',
     priceEgp: 0,
     priceUsdDisplay: 0,
     entitlements: {
@@ -102,7 +96,6 @@ export const CANONICAL_PLANS = [
     name: 'Stylist Basic',
     role: 'stylist',
     tier: 'basic',
-    billingCycle: 'monthly',
     priceEgp: 50,
     priceUsdDisplay: 1,
     entitlements: {
@@ -117,7 +110,6 @@ export const CANONICAL_PLANS = [
     name: 'Stylist Pro',
     role: 'stylist',
     tier: 'pro',
-    billingCycle: 'monthly',
     priceEgp: 125,
     priceUsdDisplay: 2.5,
     entitlements: {
@@ -132,7 +124,6 @@ export const CANONICAL_PLANS = [
     name: 'Stylist Enterprise',
     role: 'stylist',
     tier: 'enterprise',
-    billingCycle: 'monthly',
     priceEgp: 250,
     priceUsdDisplay: 5,
     entitlements: {
@@ -150,10 +141,10 @@ export const CANONICAL_PLANS = [
 export const USD_TO_EGP_RATE = 50;
 
 // Annual prices, in USD, per the Decisions Log. Deliberately 12 x monthly for the
-// stylist ladder — the PO set Pro at $30 (12 x $2.50) and Enterprise at $60 (12 x $5),
+// stylist ladder -- the PO set Pro at $30 (12 x $2.50) and Enterprise at $60 (12 x $5),
 // which also resolved the original `$6` stylist-Basic figure as a typo for $12.
-// Free tiers get no yearly variant: a second $0 plan would only create ambiguity about
-// which subscription to auto-provision at registration.
+// Free tiers get no yearly entry: a $0 annual price is meaningless and would let a caller
+// select `billingCycle: 'yearly'` on a plan that has no such thing.
 const YEARLY_USD_PRICES = {
   'client.basic': 12,
   'client.mid': 35,
@@ -164,28 +155,22 @@ const YEARLY_USD_PRICES = {
   'stylist.enterprise': 60,
 };
 
-// Yearly plans are derived from their monthly counterpart so entitlements can never
-// drift between the two billing cycles — a yearly subscriber must get exactly the same
-// capabilities as a monthly one, and duplicating the objects by hand guarantees they
-// eventually diverge. Charged as a single up-front payment: Paymob recurring billing is
-// not integrated, and one-shot annual avoids that dependency entirely.
-const YEARLY_PLANS = Object.entries(YEARLY_USD_PRICES).map(([monthlyCode, usd]) => {
-  const base = CANONICAL_PLANS.find((p) => p.code === monthlyCode);
+// Yearly is a PRICE on the monthly plan, not a plan of its own. The previous shape derived
+// a parallel `<code>.yearly` catalogue entry, which meant the billing cycle lived in two
+// places -- the plan code AND the request's billingCycle field -- with nothing keeping them
+// in agreement. Buying `client.pro` with billingCycle 'yearly' charged the monthly price for
+// 365 days; buying `client.pro.yearly` charged the annual price for 30. Folding the annual
+// figure onto its parent makes the pair inseparable and both bugs unrepresentable.
+// Charged as a single up-front payment: Paymob recurring billing is not integrated, and
+// one-shot annual avoids that dependency entirely.
+for (const [code, usd] of Object.entries(YEARLY_USD_PRICES)) {
+  const base = CANONICAL_PLANS.find((p) => p.code === code);
   if (!base) {
-    throw new Error(`Yearly plan references unknown monthly plan code '${monthlyCode}'`);
+    throw new Error(`Yearly price references unknown plan code '${code}'`);
   }
-  return {
-    ...base,
-    code: `${monthlyCode}.yearly`,
-    name: `${base.name} (Yearly)`,
-    billingCycle: 'yearly',
-    priceEgp: usd * USD_TO_EGP_RATE,
-    priceUsdDisplay: usd,
-    entitlements: { ...base.entitlements },
-  };
-});
-
-CANONICAL_PLANS.push(...YEARLY_PLANS);
+  base.priceYearlyEgp = usd * USD_TO_EGP_RATE;
+  base.priceUsdYearlyDisplay = usd;
+}
 
 export const FALLBACK_FREE_ENTITLEMENTS = {
   client: {

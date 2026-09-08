@@ -150,6 +150,21 @@
 
 ---
 
+## Subscriptions (`/subscriptions`)
+
+| Method | Route | Auth | Status | Description |
+|---|---|---|---|---|
+| GET | `/subscriptions/plans` | 🔓 | ✅ Built | List available subscription plans with pricing & entitlements |
+| POST | `/subscriptions/webhook` | 🔓 (webhook) | ✅ Built | Paymob HMAC-verified webhook for subscription activation |
+| GET | `/subscriptions/me` | 🔐 | ✅ Built | Current user's subscription, period dates, and usage |
+| GET | `/subscriptions/me/entitlements` | 🔐 | ✅ Built | Current user's active feature and quota entitlements |
+| POST | `/subscriptions/checkout` | 🔐 | ✅ Built | Initiate Paymob checkout intention for paid plan |
+| POST | `/subscriptions/subscribe` | 🔐 | ✅ Built | Free-plan switch or scheduled downgrade (402 on paid plans) |
+| POST | `/subscriptions/cancel` | 🔐 | ✅ Built | Schedule cancellation of paid plan at period end |
+| GET | `/subscriptions/orders/:orderId` | 🔐 | ✅ Built | Query order payment status (pending, paid, failed) |
+
+---
+
 ## Admin (`/admin`)
 
 | Method | Route | Auth | Status | Description |

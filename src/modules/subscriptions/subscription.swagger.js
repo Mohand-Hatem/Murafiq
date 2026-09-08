@@ -53,7 +53,11 @@
  * @swagger
  * /api/v1/subscriptions/subscribe:
  *   post:
- *     summary: Subscribe or upgrade to a plan
+ *     summary: Switch to a FREE plan, or schedule a downgrade
+ *     description: >
+ *       Does not collect payment. Any plan with a price is rejected with 402 -- use
+ *       POST /api/v1/subscriptions/checkout to buy one. A move to a cheaper plan is
+ *       scheduled for the end of the paid period rather than applied immediately.
  *     tags: [Subscriptions]
  *     security:
  *       - bearerAuth: []
@@ -75,7 +79,15 @@
  *                 default: monthly
  *     responses:
  *       200:
- *         description: Subscription updated successfully
+ *         description: Subscription updated, or downgrade scheduled
+ *       402:
+ *         description: Plan requires payment -- start a checkout instead
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         description: >
+ *           Plan not found, or retired .yearly code. If an old .yearly plan code is passed,
+ *           returns 404 naming the replacement parent planCode and billingCycle: yearly.
  */
 
 /**
@@ -104,7 +116,43 @@
  *                 default: monthly
  *     responses:
  *       200:
- *         description: Checkout intention initialized with payment URL
+ *         description: >
+ *           Checkout intention initialized. Open `paymentUrl` in a browser; poll
+ *           GET /api/v1/subscriptions/orders/{orderId} after the redirect returns.
+ *       400:
+ *         description: Free plan, or the plan has no yearly billing option
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         description: >
+ *           Plan not found, or retired .yearly code. If an old .yearly plan code is passed,
+ *           returns 404 naming the replacement parent planCode and billingCycle: yearly.
+ *
+ * /api/v1/subscriptions/orders/{orderId}:
+ *   get:
+ *     summary: Read the status of a subscription checkout order
+ *     description: >
+ *       Closing step of the checkout cycle. Paymob redirects the browser to a frontend URL,
+ *       so this is how the app confirms server-side whether the payment landed.
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The orderId returned by POST /subscriptions/checkout
+ *     responses:
+ *       200:
+ *         description: Order status (pending | paid | failed)
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  *
  * /api/v1/subscriptions/webhook:
  *   post:

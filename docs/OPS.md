@@ -65,6 +65,18 @@ Before switching traffic to production, verify every item on this checklist:
 - [ ] **Remove Sandbox Redirect:** Ensure `MAIL_TO_ADDRESS` is **removed** or left empty in `.env` so registration and notification emails deliver directly to end users.
 - [ ] **Configure Payment Gateway:** Set `PAYMENT_PROVIDER=paymob` and provide production Paymob API keys, HMAC secret, and integration IDs.
 - [ ] **Seed Initial Admin:** Run `npm run seed:admin` once to bootstrap the platform superuser.
+- [ ] **Seed Subscription Plan Catalogue:** Run `node scripts/seed-plans.js` once per database to populate canonical client and stylist plans. Without this step, `GET /subscriptions/plans` returns empty and every checkout 404s.
 - [ ] **Verify Reverse Proxy Configuration:** Ensure `app.set('trust proxy', 1)` is enabled (default in `src/app.js`) and Nginx passes `X-Forwarded-For` and `X-Forwarded-Proto` for accurate rate limiting.
 - [ ] **Protect Swagger Documentation:** In production (`NODE_ENV=production`), `/api/docs` automatically requires admin authentication via `authMiddleware` + `restrictTo('admin')`.
 - [ ] **Ensure MongoDB Replica Set:** Ensure production MongoDB is deployed as a replica set with oplog enabled for multi-document transaction support.
+
+---
+
+## 4. Maintenance & Seeding Scripts
+
+- **`node scripts/seed-plans.js` (Required / Production-Safe):**
+  Seeds and updates canonical subscription tiers (client and stylist) and entitlements. Also safely migrates legacy `.yearly` rows to the unified pricing schema. Idempotent and safe to run on live environments.
+
+- **`node scripts/reset-subscription-test-data.js` (DEVELOPMENT / TEST ONLY):**
+  Cleans up unbacked subscription test data, reverts unpaid test accounts to free tier, and clears test checkout orders and ledger dual-writes. **Hard-refuses to run** when `NODE_ENV=production` (throws immediately to protect immutable accounting records). In production, accounting errors must be corrected with offsetting journal entries, never deletions.
+

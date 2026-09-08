@@ -296,6 +296,15 @@ up-front charge (12× monthly).
 \* AI messages and wardrobe photos are **defined but not yet enforced** — the modules that would
 consume them arrive in Phases 15 and 14. This is deliberate, not an oversight.
 
+### How a plan is purchased
+
+- **Checkout is the only purchase path:** Paid plans cannot be activated directly via `POST /subscriptions/subscribe` (which returns `402 Payment Required` for any plan with `priceEgp > 0`). Purchasing requires creating a Paymob checkout intention via `POST /subscriptions/checkout`.
+- **The webhook grants the plan, not the redirect:** The user completes payment inside the Paymob checkout iframe. Paymob redirects the browser to a frontend URL, but the platform grants the subscription solely upon receiving the cryptographically verified (HMAC-SHA512) server-to-server callback (`POST /subscriptions/webhook`). The frontend confirms the payment status via `GET /subscriptions/orders/:orderId`.
+- **Yearly is a billing cycle, not a separate plan:** Yearly options are not separate plan documents (`.yearly` codes are retired). Each plan carries both `priceEgp` and `priceYearlyEgp`. The buyer specifies `billingCycle: 'yearly'` at checkout.
+- **Upgrades charge full price and reset the period:** Moving to a higher tier applies immediately, charges the full plan price, resets the period start to now, and supersedes any queued downgrade.
+- **Downgrades are scheduled to period end:** Switching to a cheaper or free tier via `POST /subscriptions/subscribe` schedules a `pendingPlanCode` effective at `currentPeriodEnd`. Entitlements already paid for remain active until the period expires.
+- **No auto-renewal:** Paymob recurring tokenization is not integrated. Subscriptions do not automatically re-bill. When `currentPeriodEnd` lapses, the daily sweep job downgrades the user to the Free plan (`currentPeriodEnd = null`). Paid subscribers must initiate a new checkout each period.
+
 ## 15. How entitlements work
 
 Four cleanly separated concepts:

@@ -48,9 +48,14 @@ const subscriptionSchema = new Schema(
       enum: ['monthly', 'yearly', null],
       default: null,
     },
+    // NOT required: `null` is the load-bearing signal for "Free tier, never expires".
+    // It is what findExpiringSubscriptions filters on, and what ensureUserSubscription
+    // writes at registration. Marking it required made every free-plan Subscription.create()
+    // throw a ValidationError -- which registration swallowed in a try/catch, leaving users
+    // with no subscription row at all and making GET /subscriptions/me a guaranteed 500.
     currentPeriodEnd: {
       type: Date,
-      required: true,
+      default: null,
     },
     cancelAtPeriodEnd: {
       type: Boolean,

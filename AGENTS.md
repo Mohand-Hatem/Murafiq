@@ -66,6 +66,7 @@ Check `docs/03_SKELETON_STATUS.md` before assuming — it's the live source of t
 Treat the notes below as reminders of what tends to be mixed-state, not a snapshot:
 - Payments: provider is env-switched (`PAYMENT_PROVIDER=mock|paymob`) — never assume
   which is active without checking.
+- Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal.
 - Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push), *not*
   Socket.io/MongoDB. Socket.io (from Phase 0) is used only for the separate Mongo-
   backed Notification system's realtime delivery — don't conflate the two.
@@ -78,8 +79,8 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   skeleton" — vision/embedding calls are real and queued via BullMQ, separate from
   the AI module's shared RAG (which stays unbuilt).
 - `sendgrid.provider.js` is a stub (throws 501) — don't route mail through it.
-- Out of scope, not stubs, genuinely absent: Wallet, Coupons, Favorites, Loyalty,
-  Referral, Video calls, Subscription plans. Don't half-build these "just in case."
+- Out of scope, not stubs, genuinely absent: Wallet, Favorites, Loyalty,
+  Referral, Video calls. Don't half-build these "just in case."
 
 ## Cross-cutting conventions (violating these breaks other modules silently)
 - **Time storage:** Booking/ScheduleBlock times are **integer minutes-since-midnight**
