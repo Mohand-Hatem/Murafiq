@@ -10,8 +10,8 @@
 |---|---|---|---|---|
 | **Phase 12** | Background Jobs & Queues | `data-pipeline-builder` / `bullmq-redis-patterns` | `OneWave-AI/claude-skills` | Queue workers, cron repeats (expiry sweeps, reminders), backoff retry strategies |
 | **Phase 13** | Security Hardening & Audit | `security-reviewer` or `security-pentest-planner` | `Jeffallan/claude-skills` / `OneWave-AI` | NoSQL injection, mass assignment guards, rate limiter audit, CORS, JWT hygiene |
-| **Phase 14** | Wardrobe AI & Embeddings | `rag-engineer` / `langchain-architect` | `Jeffallan/claude-skills` | GPT-4o vision image classification, Pinecone/Qdrant vector embeddings, metadata filters |
-| **Phase 15** | AI Stylist Agent & Tools | `rag-engineer` / `langchain-architect` | `Jeffallan/claude-skills` | LangGraph tool calling, prompt engineering, outfit generator RAG pipeline |
+| **Phase 14** | Wardrobe AI & Embeddings | `rag-engineer` / `langchain-architect` | `Jeffallan/claude-skills` | Gemini vision classification, Upstash Vector embeddings, metadata filters |
+| **Phase 15** | AI Stylist Pipeline | `rag-engineer` | `Jeffallan/claude-skills` | Prompt engineering, structured output, knowledge-base RAG. **Not LangGraph** — see `PHASE_15_AI_SKELETON.md` |
 | **Phase 16** | Production Deployment | `devops-engineer` or `docker-debugger` | `Jeffallan/claude-skills` / `OneWave-AI` | Multi-stage Dockerfile, MongoDB replica set config, Nginx reverse proxy, PM2 clustering |
 
 ---
@@ -32,10 +32,10 @@
 
 ---
 
-### 3. Phases 14 & 15 (Wardrobe AI, Vector Embeddings & LangGraph)
+### 3. Phases 14 & 15 (Wardrobe AI, Vector Embeddings & the Stylist Pipeline)
 * **Skill:** `rag-engineer` (or `langchain-architect`)
 * **Source:** `github.com/Jeffallan/claude-skills/blob/main/skills/rag-engineer/`
-* **Why:** Guides vision model prompting, 1536-dimensional vector embedding generation, vector database cosine similarity queries, strict `userId` metadata filtering (preventing cross-user leaks), and LangGraph agent tool wiring.
+* **Why:** Guides vision model prompting, structured-output schemas, vector similarity queries, and strict per-user namespace isolation (preventing cross-user leaks). **Note:** embeddings are generated server-side by Upstash (you send text, not vectors), and LangGraph is explicitly **not** used — ignore any agent-graph guidance the skill offers.
 
 ---
 

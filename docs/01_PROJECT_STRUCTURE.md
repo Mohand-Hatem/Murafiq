@@ -25,7 +25,7 @@ Murafiq is a production-grade marketplace backend that connects **Clients** with
 | Realtime (chat & notifications) | Firebase (Firestore for Chat + FCM for Push & In-App Notifications, fail-closed in prod, in-memory mock in dev/test) | Active |
 | Queue / Jobs | BullMQ + Redis | 🔲 Planned (Phase 12) |
 | Mail | `mail.service.js` shim (Active) → Resend / SendGrid (🔲 Planned Phase 9) | Partial |
-| AI | LangChain + LangGraph + OpenAI + RAG (Pinecone/Qdrant) | 🔲 Planned (Phase 15) |
+| AI | **Google Gemini `gemini-3.1-flash-lite` (one model, all tasks) + Upstash Vector.** No LangChain, no LangGraph, no OpenAI, no Pinecone/Qdrant | 🔲 Planned (Phase 15 — see `PHASE_15_AI_SKELETON.md`) |
 | Logging | Winston (structured JSON + daily rotating files) + Morgan | Active |
 | Security | Helmet, CORS, express-mongo-sanitize (body/params/query), rate-limiter, trusted proxy headers | Active |
 | Testing | Jest + Supertest (unit + in-memory MongoDB replica-set integration) | Active (39 suites, 163 tests) |

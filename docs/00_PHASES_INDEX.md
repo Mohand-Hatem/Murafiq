@@ -21,7 +21,13 @@ Rule for every phase: **do not start writing code for a phase until the previous
 | 12 | `PHASE_12_BACKGROUND_JOBS.md` | BullMQ queues & workers | 9 |
 | 13 | `PHASE_13_SECURITY_LOGGING_DOCS.md` | Security hardening, Winston/Morgan, Swagger, tests | 12 |
 | 14 | `PHASE_14_WARDROBE.md` | Client wardrobe (closet) + AI photo classification/embedding indexing | 2, 9, 12 |
-| 15 | `PHASE_15_AI_SKELETON.md` | AI assistant module (chat/tools/agent) — includes outfit-suggestion tool built on Phase 14's closet index | 5, 14 |
+| 14.5 | `HARDENING_08_WARDROBE_AI_READINESS.md` | Wardrobe security/cost/attribute hardening — **blocks all of Phase 15** | 14 |
+| 15 | `PHASE_15_AI_SKELETON.md` | **AI Stylist — overview & architecture only. Do not implement from this file.** | 5, 14, 14.5 |
+| 15A | `PHASE_15A_DATA_MODEL_RETRIEVAL.md` | Data model + retrieval primitives (no AI calls) | 14.5 |
+| 15B | `PHASE_15B_STYLIST_PIPELINE.md` | Core stylist pipeline + scope guard (Flow A, text) | 15A |
+| 15C | `PHASE_15C_IMAGE_INPUT.md` | Direct image input in chat (Flow B) | 15B |
+| 15D | `PHASE_15D_FASHION_KNOWLEDGE_RAG.md` | Fashion knowledge base (the only RAG) | 15C |
+| 15E | `PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md` | Grounded external product search — **end of V1** | 15D |
 | 16 | `PHASE_16_DEPLOYMENT_READINESS.md` | Final review, env checklist, deployment prep | 13, 15 |
 
 > **Not a phase — see `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`.** A cross-cutting revision of business rules (subscriptions/entitlements, financial ledger, request/offer lifecycle, cancellation & no-show policy, chat moderation, coupons, stylist reliability) is specified in `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`, with `REVISION_HANDOFF.md` as its implementation brief.
@@ -29,6 +35,20 @@ Rule for every phase: **do not start writing code for a phase until the previous
 > It is **deliberately not numbered as Phase 17.** The `PHASE_XX` files are a build sequence that adds modules in dependency order; the revision instead *changes rules across modules that are already built* — the same role the `HARDENING_*` docs play. Its internal stages are labelled `R0`–`R12`.
 >
 > **It does not wait on Phases 14, 15, or 16.** It revises Phases 1–13 (built), hands two entitlement keys forward to Phases 14 and 15 to enforce when they are built, and is orthogonal to Phase 16. It can run now, in parallel with or ahead of them.
+
+> **Phase 15 Note — rewritten 2026-09-09.** The original `PHASE_15_AI_SKELETON.md` specified
+> an item-centric pairing tool plus eight marketplace concierge stubs on a
+> LangChain/LangGraph + OpenAI + Pinecone stack. **None of that is the decision any more.**
+> The file is now an architecture overview; the work lives in `PHASE_15A`–`PHASE_15E`, which
+> follow the one-file-at-a-time rule below. `HARDENING_08` must complete first — it closes an
+> SSRF hole, an unbounded cost path, and a silent data-corruption class that Phase 15 would
+> otherwise amplify.
+>
+> Locked decisions (do not re-litigate mid-implementation): **one model**
+> (`gemini-3.1-flash-lite`) for every AI task; **no LangChain, no LangGraph**; wardrobe
+> retrieval is a **Mongo slot query**, not vector search; **one** RAG corpus (fashion
+> knowledge); **strictly stylist-scoped** behind a scope guard; **image input yes, image
+> generation no**.
 
 > **Phase 14 Note — deviation from the "AI stays a skeleton" rule:** Every other module before Phase 15 avoids AI dependencies entirely. Phase 14 is the one deliberate exception: the wardrobe feature is only useful if photos get classified and embedded automatically at upload time, so Phase 14 is where the vision/embedding SDK and vector DB client are actually installed and called for real (queued through Phase 12's BullMQ, not blocking the upload request). Phase 15 stays a conversational/orchestration layer on top of what Phase 14 already indexed — it does not duplicate the classification pipeline.
 

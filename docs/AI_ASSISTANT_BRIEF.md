@@ -1,7 +1,12 @@
 # Murafiq — AI Outfit Assistant (Product Brief)
 
 > **STATUS: PLANNED — NOT STARTED.** No code exists. `src/modules/ai/` contains only a `.gitkeep`.
-> No `langchain`, `openai`, or vector-DB package is installed.
+> No `langchain` or `openai` package is installed, and none will be.
+>
+> **All six "Open decisions" below were RESOLVED on 2026-09-09.** They are kept for the
+> rationale, each annotated with its outcome. The decisions themselves now live in
+> `PHASE_15_AI_SKELETON.md`; the work lives in `PHASE_15A`–`PHASE_15E`, gated on
+> `HARDENING_08_WARDROBE_AI_READINESS.md`.
 >
 > **This is the product brief — the "what" and "why".** The technical specs are
 > `PHASE_14_WARDROBE.md` (closet + classification + per-user vector index) and
@@ -37,24 +42,42 @@ situation ("lunch with girlfriend" vs "work" vs "dinner") onto retrievable attri
 time of day, season, setting — and select items that fit. This mapping is the main open design
 question below.
 
-## Open decisions
+## Open decisions — ALL RESOLVED 2026-09-09 (kept for rationale)
 
 1. **Vector store** — Pinecone vs Qdrant. `env.config.js` already reserves `VECTOR_DB_URL` /
    `VECTOR_DB_API_KEY`; the spec never picked one. (Currently `.optional()` — restore to required
    in Phase 14, when the wardrobe classification worker actually calls them.)
+   > **RESOLVED: Upstash Vector.** Shipped in Phase 14. Neither Pinecone nor Qdrant. The dead
+   > `VECTOR_DB_*` env vars are removed in `HARDENING_08` Step 3.
 2. **Embedding strategy** — multimodal image embeddings (CLIP-style) vs embedding the
    vision-generated `aiDescription` text. Phase 14 currently assumes the latter and flags it as open.
    Text embeddings are cheaper and easier to debug; multimodal handles style nuance text loses.
+   > **RESOLVED: text embeddings of `aiDescription`**, generated server-side by Upstash. Also
+   > **demoted** — vector search is no longer the primary wardrobe path. See below.
 3. **Occasion → retrieval mapping** — three candidates: (a) LLM extracts structured filters
    (formality/season/time) and queries by metadata, (b) pure semantic similarity on the query text,
    (c) hybrid: metadata pre-filter then semantic rank. Hybrid is likely right; needs validation
    against real closet data.
+   > **RESOLVED: (c) hybrid, with the pre-filter in MongoDB rather than the vector store.**
+   > `wardrobe.photos.max` caps at 250 items, so a slot-based indexed Mongo query is faster,
+   > free and deterministic — and semantic similarity is the *wrong* primitive for outfit
+   > composition, which needs items complementary across categories, not similar to each other.
+   > Vector search is retained for free-text closet search and Flow B garment matching.
 4. **Orchestration** — LangChain/LangGraph vs direct SDK calls. Phase 15 warns against installing
    LangChain prematurely; a single retrieval + one completion may not need a graph at all.
+   > **RESOLVED: neither.** A deterministic orchestrator plus a thin `llm.provider.js`. The
+   > workflow is a linear pipeline with one conditional branch — a function, not a state graph.
 5. **LLM provider, streaming, conversation persistence** — `ai_conversations` / `ai_messages` do
    not exist. Streaming affects the transport choice (SSE vs plain REST).
+   > **RESOLVED: Google Gemini `gemini-3.1-flash-lite` for every AI task — one model, one
+   > provider.** `AiConversation`/`AiMessage` are Mongo models added in `PHASE_15A`. V1 is
+   > single-turn plain REST; streaming and multi-turn are explicitly post-V1.
 6. **Cost & abuse controls** — per-user rate limits and token budgets. The existing
    `rate-limiter.middleware.js` covers requests, not tokens.
+   > **RESOLVED: entitlement keys, not token budgets.** `ai.messages.daily` (exists),
+   > `ai.imageMessages.daily` (`PHASE_15C`), `ai.productSearch.daily` (`PHASE_15E`),
+   > `wardrobe.photos.max` (enforced in `HARDENING_08`). Plus a scope guard that refuses
+   > out-of-domain requests before any expensive work, and refunds the quota.
 
 ## Dependencies (hard ordering)
 
@@ -68,8 +91,9 @@ question below.
 
 ## Known spec conflicts to resolve first
 
-- `PHASE_15_AI_SKELETON.md` claims OpenAI and vector-DB packages are "already installed as of
-  Phase 14." They are not — Phase 14 was never built. See
-  `HARDENING_07_PHASE_RECONCILIATION.md` Part 2.
+- ~~`PHASE_15_AI_SKELETON.md` claims OpenAI and vector-DB packages are "already installed as of
+  Phase 14."~~ **Resolved** — Phase 14 shipped with Gemini + Upstash, and that file was
+  rewritten on 2026-09-09 as an architecture overview.
 - `PHASE_14_WARDROBE.md` accepts a raw client-supplied `imageUrl`. It must take an internal upload
   reference instead, matching the KYC fix from `HARDENING_03` Step 1.
+  **Still open — this is `HARDENING_08` Step 1, and it blocks all Phase 15 work.**

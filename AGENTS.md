@@ -70,11 +70,15 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push), *not*
   Socket.io/MongoDB. Socket.io (from Phase 0) is used only for the separate Mongo-
   backed Notification system's realtime delivery — don't conflate the two.
-- AI module (`src/modules/ai/`): `getOutfitSuggestions` is the one real tool, built
-  directly on Phase 14's wardrobe vector index. Every other tool
-  (`searchStylists`, `checkAvailability`, `createRequest`, etc.) is a placeholder that
-  throws. `POST /api/v1/ai/chat` returns `501` until the LangGraph agent is actually
-  built — do not wire it "partially real."
+- AI module (`src/modules/ai/`): **empty except `.gitkeep`.** There is no `/api/v1/ai`
+  route at all — it returns `404`, not `501`. The design is specified in
+  `docs/PHASE_15_AI_SKELETON.md` (overview) and built via `PHASE_15A`–`PHASE_15E`.
+  **`HARDENING_08_WARDROBE_AI_READINESS.md` blocks all of it.**
+  Locked decisions: **one model** (`gemini-3.1-flash-lite`) for every AI task;
+  **no LangChain, no LangGraph** (the workflow is a linear pipeline with one branch);
+  wardrobe retrieval is a **Mongo slot query**, not a vector search; RAG is used for
+  **one** corpus only (fashion knowledge); the assistant is **strictly stylist-scoped**
+  behind a scope guard; **image input yes, image generation no.**
 - Wardrobe classification (Phase 14) is a deliberate exception to "AI stays
   skeleton" — vision/embedding calls are real and queued via BullMQ, separate from
   the AI module's shared RAG (which stays unbuilt).
