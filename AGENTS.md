@@ -78,7 +78,10 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   **no LangChain, no LangGraph** (the workflow is a linear pipeline with one branch);
   wardrobe retrieval is a **Mongo slot query**, not a vector search; RAG is used for
   **one** corpus only (fashion knowledge); the assistant is **strictly stylist-scoped**
-  behind a scope guard; **image input yes, image generation no.**
+  behind a scope guard; **image input yes; image generation only in `PHASE_15F`**
+  (virtual try-on — added 2026-09-10, superseding the earlier "no image generation" rule;
+  it is a separate user-initiated endpoint, never a model tool-call, and changes nothing in
+  15A–15E).
 - Wardrobe classification (Phase 14) is a deliberate exception to "AI stays
   skeleton" — vision/embedding calls are real and queued via BullMQ, separate from
   the AI module's shared RAG (which stays unbuilt).

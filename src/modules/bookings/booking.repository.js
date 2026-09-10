@@ -96,6 +96,47 @@ export const updateById = async (id, data, session = null) => {
   ]);
 };
 
+// Atomically records the caller's own completion-confirmation timestamp, scoped to
+// status 'in-progress' (a booking that has moved on -- cancelled, disputed, already
+// completed -- is left untouched, and this returns null rather than resurrecting it).
+// MongoDB serializes writes to a single document, so the { new: true } document
+// returned here always reflects the OTHER party's latest confirmation state too --
+// never a stale pre-fetched read -- which is what makes the caller's "are both parties
+// now confirmed?" check race-free. Two concurrent confirmations (client + stylist)
+// previously could each read the other's field as still null and neither would ever
+// promote the booking to 'completed', stranding it in 'in-progress' forever with the
+// stylist never paid.
+export const setCompletionConfirmation = async (bookingId, field, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: 'in-progress' },
+    { $set: { [field]: new Date() } },
+    options
+  ).populate([
+    { path: 'clientId', select: 'nameEn nameAr profileImage' },
+    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+  ]);
+};
+
+// Promotes to 'completed' only if still 'in-progress' -- a second CAS guard so a
+// concurrent promotion, or any other status change landing in between, can never be
+// double-applied or overwrite a status the booking has since moved on from.
+export const promoteToCompleted = async (bookingId, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: 'in-progress' },
+    { $set: { status: 'completed', completedAt: new Date() } },
+    options
+  ).populate([
+    { path: 'clientId', select: 'nameEn nameAr profileImage' },
+    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+  ]);
+};
+
 
 // Used by payouts (cross-module): bookings eligible for a specific stylist's payout batch —
 // completed, unpaid, and past the dispute-window hold. Keeps the payouts module off the raw
@@ -106,11 +147,20 @@ export const updateById = async (id, data, session = null) => {
 // happily pay out money that is supposed to be held pending review — see §I.4 step 7 and
 // AGENTS.md: "a booking with an open dispute or open safety report must never appear as
 // payable."
+// A booking becomes payout-eligible via two paths: a normal completed session
+// (anchored on completedAt), or a resolved client no-show, where NO_SHOW_POLICY.CLIENT
+// entitles the stylist to a partial share even though the session never happened and
+// completedAt is never set (see no-show.service.js resolveNoShow — it sets
+// payoutStatus: 'unpaid' specifically in anticipation of this). Without this second
+// path a client no-show's stylist compensation is computed correctly on the Payment
+// record but can never actually be batched into a payout.
 const PAYOUT_ELIGIBILITY = (cutoffDate) => ({
-  status: 'completed',
   payoutStatus: 'unpaid',
   isFrozen: { $ne: true },
-  completedAt: { $ne: null, $lte: cutoffDate },
+  $or: [
+    { status: 'completed', completedAt: { $ne: null, $lte: cutoffDate } },
+    { status: 'no-show-client', 'noShowDetails.confirmedAt': { $ne: null, $lte: cutoffDate } },
+  ],
 });
 
 export const findEligibleForPayout = async (stylistId, cutoffDate) => {
@@ -159,7 +209,7 @@ export const findCompletedAndCancelledByStylistId = async (stylistId, session = 
   const query = Booking.find({
     stylistId,
     status: { $in: ['completed', 'cancelled'] },
-  }).select('status cancelledBy checkedInAt scheduledDate');
+  }).select('status cancelledBy checkInAt scheduledDate scheduledStartMinute');
   if (session) query.session(session);
   return query;
 };
@@ -189,6 +239,8 @@ export default {
   findDisputedBookings,
   findCompletedAndCancelledByStylistId,
   updateById,
+  setCompletionConfirmation,
+  promoteToCompleted,
   getBookingStats,
 };
 

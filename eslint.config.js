@@ -8,6 +8,7 @@ export default [
         console: 'readonly',
         process: 'readonly',
         fetch: 'readonly',
+        AbortController: 'readonly',
         crypto: 'readonly',
         Buffer: 'readonly',
         URL: 'readonly',

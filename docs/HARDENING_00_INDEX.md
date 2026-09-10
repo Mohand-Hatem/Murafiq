@@ -21,6 +21,7 @@ real, not stylistic.
 | 5 | `HARDENING_05_BUSINESS_GAPS.md` | Payouts (money out), dispute resolution, stylist cancellation policy, daily caps | **Product** | No — but the product is incomplete without it |
 | 6 | `HARDENING_06_DOCS_TRUTH.md` | Correcting inaccurate status docs, adding missing README / data model / permissions / ops docs | **Docs** | No |
 | 7 | `HARDENING_07_PHASE_RECONCILIATION.md` | Making Phases 9–16 executable: what hardening already delivered, what conflicts, what's broken in each phase doc | **Reference** | No |
+| — | [`hardening/POST_PHASE_15_HARDENING_BACKLOG.md`](hardening/POST_PHASE_15_HARDENING_BACKLOG.md) | **Post-Phase-15 hardening backlog** — 14 verified issues from the pre-Phase-15 audit, intentionally deferred after that fix pass. Not part of the `01`–`07` repair sequence above; reviewed separately, before Phase 16 | Mixed (see backlog) | 3 items yes (see doc) |
 
 ### Scope note: repair vs. roadmap
 

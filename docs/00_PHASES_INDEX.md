@@ -27,8 +27,15 @@ Rule for every phase: **do not start writing code for a phase until the previous
 | 15B | `PHASE_15B_STYLIST_PIPELINE.md` | Core stylist pipeline + scope guard (Flow A, text) | 15A |
 | 15C | `PHASE_15C_IMAGE_INPUT.md` | Direct image input in chat (Flow B) | 15B |
 | 15D | `PHASE_15D_FASHION_KNOWLEDGE_RAG.md` | Fashion knowledge base (the only RAG) | 15C |
-| 15E | `PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md` | Grounded external product search — **end of V1** | 15D |
+| 15E | `PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md` | Grounded external product search — **end of original V1** | 15D |
+| 15F | `PHASE_15F_VIRTUAL_TRY_ON.md` | Shape Model + Virtual Try-On (image **generation**) | 15E, **HARDEN-004**, provider go/no-go spike |
 | 16 | `PHASE_16_DEPLOYMENT_READINESS.md` | Final review, env checklist, deployment prep | 13, 15 |
+
+> **Before starting Phase 16, also read
+> [`hardening/POST_PHASE_15_HARDENING_BACKLOG.md`](hardening/POST_PHASE_15_HARDENING_BACKLOG.md)** —
+> the post-Phase-15 hardening backlog. It documents 14 verified issues left deliberately
+> unresolved after the pre-Phase-15 audit fix pass and must be reviewed again before
+> production deployment.
 
 > **Not a phase — see `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`.** A cross-cutting revision of business rules (subscriptions/entitlements, financial ledger, request/offer lifecycle, cancellation & no-show policy, chat moderation, coupons, stylist reliability) is specified in `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`, with `REVISION_HANDOFF.md` as its implementation brief.
 >
@@ -49,6 +56,13 @@ Rule for every phase: **do not start writing code for a phase until the previous
 > retrieval is a **Mongo slot query**, not vector search; **one** RAG corpus (fashion
 > knowledge); **strictly stylist-scoped** behind a scope guard; **image input yes, image
 > generation no**.
+>
+> **Amendment 2026-09-10 — `PHASE_15F` added.** The last of those locked decisions ("image
+> generation no") is **superseded**: virtual try-on ships as `PHASE_15F_VIRTUAL_TRY_ON.md`.
+> Every other locked decision above stands. 15F is additive — it changes nothing in 15A–15E,
+> adds no new orchestration framework and no new vector store, and is gated on **HARDEN-004**
+> (upload role authorization) plus a provider quality spike that is a genuine go/no-go.
+> Because generated images cost 17–34× a text request, its quota is **monthly**, not daily.
 
 > **Phase 14 Note — deviation from the "AI stays a skeleton" rule:** Every other module before Phase 15 avoids AI dependencies entirely. Phase 14 is the one deliberate exception: the wardrobe feature is only useful if photos get classified and embedded automatically at upload time, so Phase 14 is where the vision/embedding SDK and vector DB client are actually installed and called for real (queued through Phase 12's BullMQ, not blocking the upload request). Phase 15 stays a conversational/orchestration layer on top of what Phase 14 already indexed — it does not duplicate the classification pipeline.
 

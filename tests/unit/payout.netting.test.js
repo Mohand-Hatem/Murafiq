@@ -18,6 +18,7 @@ jest.unstable_mockModule('../../src/modules/payouts/payout.repository.js', () =>
   },
   create: mockPayoutCreate,
   getEligibleBookingsForStylist: mockGetEligibleBookings,
+  PAYABLE_PAYMENT_STATUSES: ['paid', 'partially_refunded'],
 }));
 
 jest.unstable_mockModule('../../src/modules/penalties/penalty.repository.js', () => ({

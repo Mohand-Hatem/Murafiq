@@ -5,6 +5,7 @@ import wardrobeService from '../../src/modules/wardrobe/wardrobe.service.js';
 import wardrobeRepo from '../../src/modules/wardrobe/wardrobe.repository.js';
 import queueModule from '../../src/jobs/queues/wardrobe.queue.js';
 import vectorConfig from '../../src/config/vector.config.js';
+import entitlementService from '../../src/modules/subscriptions/entitlement.service.js';
 import { CLASSIFICATION_STATUS } from '../../src/modules/wardrobe/wardrobe-item.model.js';
 
 describe('Wardrobe Service Unit Tests', () => {
@@ -24,6 +25,9 @@ describe('Wardrobe Service Unit Tests', () => {
         classificationStatus: CLASSIFICATION_STATUS.PENDING,
       };
 
+      jest
+        .spyOn(entitlementService, 'capacity')
+        .mockResolvedValue({ limit: 25, used: 0, available: 25, hasCapacity: true });
       jest.spyOn(wardrobeRepo, 'createWardrobeItem').mockResolvedValue(mockCreatedItem);
       const queueSpy = jest.spyOn(queueModule, 'addWardrobeClassificationJob').mockResolvedValue({ id: 'job-1' });
 
@@ -31,6 +35,7 @@ describe('Wardrobe Service Unit Tests', () => {
         imageUrl: 'https://example.com/item.jpg',
       });
 
+      expect(entitlementService.capacity).toHaveBeenCalledWith(mockUserId, 'wardrobe.photos.max', 'client');
       expect(wardrobeRepo.createWardrobeItem).toHaveBeenCalledWith({
         userId: mockUserId,
         imageUrl: 'https://example.com/item.jpg',
@@ -42,6 +47,21 @@ describe('Wardrobe Service Unit Tests', () => {
         imageUrl: 'https://example.com/item.jpg',
       });
       expect(result).toEqual(mockCreatedItem);
+    });
+
+    it('rejects with 429 when the wardrobe.photos.max cap is reached, before creating anything', async () => {
+      jest
+        .spyOn(entitlementService, 'capacity')
+        .mockResolvedValue({ limit: 7, used: 7, available: 0, hasCapacity: false });
+      const createSpy = jest.spyOn(wardrobeRepo, 'createWardrobeItem');
+      const queueSpy = jest.spyOn(queueModule, 'addWardrobeClassificationJob');
+
+      await expect(
+        wardrobeService.createWardrobeItem(mockUserId, { imageUrl: 'https://example.com/item.jpg' })
+      ).rejects.toMatchObject({ statusCode: 429 });
+
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(queueSpy).not.toHaveBeenCalled();
     });
   });
 

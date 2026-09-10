@@ -1,4 +1,5 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { getBusinessDayRange } from '../../src/common/utils/businessDay.util.js';
 
 const mockFindCompletedAndCancelledByStylistId = jest.fn();
 const mockAggregateRating = jest.fn();
@@ -49,9 +50,9 @@ describe('Stylist Reliability Scoring Engine (Unit)', () => {
   it('marks stylist with < 5 completed bookings as NEW with baseline 100.0 score', async () => {
     // 3 completed bookings
     mockFindCompletedAndCancelledByStylistId.mockResolvedValueOnce([
-      { status: 'completed', checkedInAt: new Date(), scheduledDate: new Date() },
-      { status: 'completed', checkedInAt: new Date(), scheduledDate: new Date() },
-      { status: 'completed', checkedInAt: new Date(), scheduledDate: new Date() },
+      { status: 'completed', checkInAt: new Date(), scheduledDate: new Date(), scheduledStartMinute: 600 },
+      { status: 'completed', checkInAt: new Date(), scheduledDate: new Date(), scheduledStartMinute: 600 },
+      { status: 'completed', checkInAt: new Date(), scheduledDate: new Date(), scheduledStartMinute: 600 },
     ]);
 
     const result = await reliabilityService.calculateReliability(stylistId);
@@ -63,12 +64,24 @@ describe('Stylist Reliability Scoring Engine (Unit)', () => {
   });
 
   it('computes weighted formula correctly for mature stylist with partial completion and 4.0 rating', async () => {
+    // Regression coverage for the checkedInAt/checkInAt field-name mismatch and the
+    // scheduledDate-without-scheduledStartMinute bug: scheduledDate alone is midnight of
+    // the appointment's calendar day, not the actual scheduled instant -- the on-time
+    // comparison must add scheduledStartMinute on top of it, the same way
+    // getAppointmentDateTime does in booking.service.js.
+    const scheduledDate = new Date('2026-08-27T00:00:00.000Z');
+    const scheduledStartMinute = 600; // 10:00 local business time
+    const { startOfDay } = getBusinessDayRange(scheduledDate);
+    const scheduledInstant = new Date(startOfDay.getTime() + scheduledStartMinute * 60 * 1000);
+    const onTimeCheckIn = new Date(scheduledInstant.getTime() + 5 * 60 * 1000); // 5 min late
+
     // 8 completed, 2 stylist cancelled, 5 client cancelled (client cancels ignored)
     const bookings = [
       ...Array(8).fill({
         status: 'completed',
-        checkedInAt: new Date('2026-08-27T10:05:00Z'),
-        scheduledDate: new Date('2026-08-27T10:00:00Z'),
+        checkInAt: onTimeCheckIn,
+        scheduledDate,
+        scheduledStartMinute,
       }),
       { status: 'cancelled', cancelledBy: 'stylist' },
       { status: 'cancelled', cancelledBy: 'stylist' },
@@ -99,9 +112,35 @@ describe('Stylist Reliability Scoring Engine (Unit)', () => {
     expect(result.metrics.completionRate).toBe(80.0);
   });
 
+  it('correctly classifies a check-in as late when it is more than 15 minutes after the actual scheduled instant (not midnight)', async () => {
+    // If this regressed back to comparing against scheduledDate alone (midnight), a
+    // check-in at a normal time of day would always appear "late" -- this instead
+    // constructs a genuinely-late check-in relative to the CORRECT scheduled instant, so
+    // the assertion only passes if the on-time math is right in both directions.
+    const scheduledDate = new Date('2026-08-27T00:00:00.000Z');
+    const scheduledStartMinute = 600;
+    const { startOfDay } = getBusinessDayRange(scheduledDate);
+    const scheduledInstant = new Date(startOfDay.getTime() + scheduledStartMinute * 60 * 1000);
+    const lateCheckIn = new Date(scheduledInstant.getTime() + 30 * 60 * 1000); // 30 min late
+
+    mockFindCompletedAndCancelledByStylistId.mockResolvedValueOnce([
+      ...Array(5).fill({
+        status: 'completed',
+        checkInAt: lateCheckIn,
+        scheduledDate,
+        scheduledStartMinute,
+      }),
+    ]);
+
+    const result = await reliabilityService.calculateReliability(stylistId);
+
+    expect(result.metrics.completedCount).toBe(5);
+    expect(result.metrics.punctualityRate).toBe(0);
+  });
+
   it('updates stylist profile document with computed score', async () => {
     mockFindCompletedAndCancelledByStylistId.mockResolvedValueOnce([
-      { status: 'completed', checkedInAt: new Date(), scheduledDate: new Date() },
+      { status: 'completed', checkInAt: new Date(), scheduledDate: new Date(), scheduledStartMinute: 600 },
     ]);
 
     await reliabilityService.updateStylistReliability(stylistId);

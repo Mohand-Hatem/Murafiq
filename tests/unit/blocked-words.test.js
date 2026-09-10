@@ -40,8 +40,18 @@ describe('Blocked Words Moderation & Lexicon (Unit)', () => {
   });
 
   describe('Validator — blocked-word.validator', () => {
+    // Schemas are shaped { body: z.object(...) } to match validate.middleware.js's
+    // contract (it reads schema.body/.query/.params) -- they were previously exported
+    // as bare Zod schemas, which meant validate() found nothing to parse and silently
+    // let every request through unvalidated.
+    it('exposes body/query on the exported schema, not a bare Zod schema', () => {
+      expect(typeof addBlockedWordSchema.body?.safeParse).toBe('function');
+      expect(typeof addBlockedWordsBulkSchema.body?.safeParse).toBe('function');
+      expect(addBlockedWordSchema.safeParse).toBeUndefined();
+    });
+
     it('validates single blocked word schema', () => {
-      const valid = addBlockedWordSchema.safeParse({
+      const valid = addBlockedWordSchema.body.safeParse({
         word: 'unacceptable',
         language: 'en',
         category: 'INSULT',
@@ -51,20 +61,32 @@ describe('Blocked Words Moderation & Lexicon (Unit)', () => {
     });
 
     it('rejects word shorter than 2 chars', () => {
-      const invalid = addBlockedWordSchema.safeParse({
+      const invalid = addBlockedWordSchema.body.safeParse({
         word: 'x',
       });
       expect(invalid.success).toBe(false);
     });
 
     it('validates bulk blocked words schema', () => {
-      const valid = addBlockedWordsBulkSchema.safeParse({
+      const valid = addBlockedWordsBulkSchema.body.safeParse({
         words: [
           { word: 'wordone', severity: 'LOW' },
           { word: 'wordtwo', category: 'PROFANITY' },
         ],
       });
       expect(valid.success).toBe(true);
+    });
+
+    it('normalizes word casing to lowercase (scanner matching depends on this running)', () => {
+      const result = addBlockedWordSchema.body.safeParse({ word: 'MixedCase' });
+      expect(result.success).toBe(true);
+      expect(result.data.word).toBe('mixedcase');
+    });
+
+    it('enforces the 100-word cap on bulk requests', () => {
+      const words = Array.from({ length: 101 }, (_, i) => ({ word: `word${i}` }));
+      const result = addBlockedWordsBulkSchema.body.safeParse({ words });
+      expect(result.success).toBe(false);
     });
   });
 

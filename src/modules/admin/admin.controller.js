@@ -136,7 +136,10 @@ export const getLedgerStatements = asyncHandler(async (req, res) => {
   if (direction) filter.direction = direction;
   if (correlationId) filter.correlationId = correlationId;
   if (bookingId) filter.bookingId = bookingId;
-  if (subjectId) filter.subjectId = subjectId;
+  // LedgerEntry's schema field is accountId, not subjectId -- filtering on the latter
+  // (kept as the query param name for API-contract stability) previously always
+  // returned zero rows for every requested user.
+  if (subjectId) filter.accountId = subjectId;
 
   const result = await ledgerRepository.findEntries(filter, { page, limit });
   return ApiResponse.success(res, {

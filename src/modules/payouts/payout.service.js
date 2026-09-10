@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
-import payoutRepository from './payout.repository.js';
+import payoutRepository, { PAYABLE_PAYMENT_STATUSES } from './payout.repository.js';
 import stylistRepository from '../stylists/stylist.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
+import paymentRepository from '../payments/payment.repository.js';
 import penaltyRepository from '../penalties/penalty.repository.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
@@ -248,18 +249,38 @@ class PayoutService {
         session
       );
 
-      // Dual-write to ledger: Escrow DEBIT, Stylist CREDIT per payout booking
+      // Dual-write to ledger: Escrow DEBIT, Stylist CREDIT per payout booking.
+      // Amounts are read strictly from Payment.stylistPayoutAmount / .platformFeeAmount --
+      // never recomputed as `Booking.price * 0.85`, which ignores PLATFORM_FEE_PERCENTAGE,
+      // coupons, and partial refunds. See MONEY_AND_LEDGER.md Section 1 rule 1.
       const payoutIdStr = payout._id.toString();
       const stylistIdStr = (payout.stylistId._id || payout.stylistId).toString();
 
+      const payments = await paymentRepository.findByBookingIds(
+        payout.bookingIds,
+        PAYABLE_PAYMENT_STATUSES
+      );
+      const paymentByBookingId = new Map(
+        payments.map((p) => [(p.bookingId._id || p.bookingId).toString(), p])
+      );
+
       for (const bookingId of payout.bookingIds) {
         const bookingIdStr = (bookingId._id || bookingId).toString();
-        const bookingDoc = await bookingRepository.findById(bookingIdStr);
-        const payoutAmountEgp =
-          bookingDoc && bookingDoc.price
-            ? Math.round(bookingDoc.price * 0.85 * 100) / 100
-            : payout.amount / (payout.bookingIds.length || 1);
-        const payoutMinor = egpToPiastres(payoutAmountEgp);
+        const payment = paymentByBookingId.get(bookingIdStr);
+
+        if (!payment || !(payment.stylistPayoutAmount > 0)) {
+          // A booking on a payout must have a payable Payment -- this is the same
+          // authoritative source getEligibleBookingsForStylist used to build the payout
+          // in the first place. If it's missing now, something is wrong; guessing an
+          // amount here would silently move the wrong sum, so it's surfaced instead.
+          logger.error(
+            `[Payout Ledger] No payable Payment found for booking ${bookingIdStr} on payout ${payoutIdStr} - skipping ledger entries for this booking.`
+          );
+          continue;
+        }
+
+        const stylistPayoutMinor = egpToPiastres(payment.stylistPayoutAmount);
+        const platformFeeMinor = egpToPiastres(payment.platformFeeAmount || 0);
 
         try {
           await ledgerService.postEntry(
@@ -268,8 +289,9 @@ class PayoutService {
               entryType: 'ESCROW_RELEASE',
               accountType: 'ESCROW',
               direction: 'DEBIT',
-              amountMinor: payoutMinor,
+              amountMinor: stylistPayoutMinor,
               bookingId: bookingIdStr,
+              paymentId: payment._id,
               payoutId: payoutIdStr,
               correlationId: `payout_${payoutIdStr}`,
               notes: 'Escrow release for stylist payout disbursement',
@@ -283,8 +305,9 @@ class PayoutService {
               entryType: 'PAYOUT_DISBURSEMENT',
               accountType: 'STYLIST',
               direction: 'CREDIT',
-              amountMinor: payoutMinor,
+              amountMinor: stylistPayoutMinor,
               bookingId: bookingIdStr,
+              paymentId: payment._id,
               payoutId: payoutIdStr,
               accountId: stylistIdStr,
               correlationId: `payout_${payoutIdStr}`,
@@ -292,34 +315,58 @@ class PayoutService {
             },
             session
           );
+
+          // Platform-fee recognition: escrow was credited `payment.amount` at payment
+          // time (stylistPayoutAmount + platformFeeAmount). The stylist's share just
+          // left escrow above; the platform's share must leave escrow too, or the
+          // commission sits in ESCROW forever and is never recognised as revenue.
+          if (platformFeeMinor > 0) {
+            await ledgerService.postDoubleEntry(
+              {
+                idempotencyKey: `payout:escrow_fee:${payoutIdStr}:${bookingIdStr}`,
+                entryType: 'PLATFORM_FEE',
+                accountType: 'ESCROW',
+                amountMinor: platformFeeMinor,
+                bookingId: bookingIdStr,
+                paymentId: payment._id,
+                payoutId: payoutIdStr,
+                correlationId: `payout_${payoutIdStr}`,
+                notes: 'Escrow release of platform commission',
+              },
+              {
+                idempotencyKey: `payout:platform_fee:${payoutIdStr}:${bookingIdStr}`,
+                entryType: 'PLATFORM_FEE',
+                accountType: 'PLATFORM',
+                amountMinor: platformFeeMinor,
+                bookingId: bookingIdStr,
+                paymentId: payment._id,
+                payoutId: payoutIdStr,
+                correlationId: `payout_${payoutIdStr}`,
+                notes: 'Platform commission recognised as revenue',
+              },
+              session
+            );
+          }
         } catch (ledgerErr) {
           logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
         }
       }
 
-      // If penalties were deducted, post ledger settlement entry
-      if (payout.deductions && payout.deductions.length > 0) {
-        for (const deduction of payout.deductions) {
-          try {
-            await ledgerService.postEntry(
-              {
-                idempotencyKey: `payout:penalty_settled:${payoutIdStr}:${deduction.penaltyId}`,
-                entryType: 'PENALTY_SETTLEMENT',
-                accountType: 'STYLIST',
-                accountId: stylistIdStr,
-                direction: 'CREDIT', // Settling debt
-                amountMinor: deduction.amountMinor,
-                payoutId: payoutIdStr,
-                correlationId: `payout_${payoutIdStr}`,
-                notes: `Penalty debt settlement against payout #${payoutIdStr}`,
-              },
-              session
-            );
-          } catch (lErr) {
-            logger.error(`[Ledger Dual-Write Warning] ${lErr.message}`);
-          }
-        }
-      }
+      // No separate PENALTY_SETTLEMENT ledger entry is posted here. PENALTY_ASSESSMENT
+      // already fully records the economic fact -- DEBIT STYLIST / CREDIT PLATFORM, posted
+      // the moment the penalty is assessed (see booking.service.js / no-show.service.js) --
+      // and the per-booking loop above already credits the stylist the FULL gross
+      // stylistPayoutAmount for each booking. Summed together, the stylist's ledger balance
+      // already nets to exactly what actually reaches their bank account (gross credits
+      // minus the earlier assessment debits), with no further entry needed.
+      //
+      // The single-sided `CREDIT STYLIST` entry that used to be posted here was not just
+      // unbalanced, it was actively wrong: added to the (correct) assessment DEBIT, it
+      // cancelled the debt out of the stylist's ledger balance entirely, making it look
+      // like the deduction never happened even though the payout genuinely sent less money.
+      // `penaltyRepository.settlePenalty()` in createBatchPayouts remains the authoritative
+      // record of when/how much of each penalty this payout collected (Penalty.settledMinor
+      // / .status), together with `payout.deductions[]` -- both untouched by this change.
     };
 
     if (mongoose.connection?.readyState === 1) {
@@ -374,6 +421,17 @@ class PayoutService {
         { payoutStatus: 'unpaid', payoutId: null },
         session
       );
+
+      // Reverse any penalty settlements applied when this payout was created (netting in
+      // createBatchPayouts calls penaltyRepository.settlePenalty eagerly, before the money
+      // has actually moved). A failed disbursement must not leave the stylist's debt wiped
+      // out for free -- the deduction never actually happened.
+      if (payout.deductions && payout.deductions.length > 0) {
+        for (const deduction of payout.deductions) {
+          if (!deduction.penaltyId || !(deduction.amountMinor > 0)) continue;
+          await penaltyRepository.settlePenalty(deduction.penaltyId, -deduction.amountMinor, session);
+        }
+      }
     };
 
     if (mongoose.connection?.readyState === 1) {

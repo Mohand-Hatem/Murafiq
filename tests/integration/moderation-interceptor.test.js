@@ -96,6 +96,26 @@ describe('Stage R7 Integration — Moderation Endpoints', () => {
 
       expect(res.status).toBe(403);
     });
+
+    // Regression test: getModerationEventsSchema was previously exported bare, so
+    // validate() found nothing to parse and this query string passed through
+    // untouched -- the schema's max(100) cap on `limit` never applied, and an
+    // oversized limit reached the repository (and the DB) directly.
+    it('rejects an oversized limit now that query validation actually runs', async () => {
+      const res = await request(app)
+        .get('/api/v1/admin/moderation/events?limit=999999')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an unknown query parameter (strict schema)', async () => {
+      const res = await request(app)
+        .get('/api/v1/admin/moderation/events?notARealField=x')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('POST /api/v1/admin/moderation/blocked-domains', () => {
@@ -111,6 +131,18 @@ describe('Stage R7 Integration — Moderation Endpoints', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.domain).toBe('phishingsite.com');
+    });
+
+    // Regression test: addBlockedDomainSchema was previously exported bare, so this
+    // request would have passed through unvalidated and reached the repository/DB with
+    // an obviously-invalid domain.
+    it('rejects a domain shorter than the minimum length now that body validation actually runs', async () => {
+      const res = await request(app)
+        .post('/api/v1/admin/moderation/blocked-domains')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ domain: 'ab' });
+
+      expect(res.status).toBe(400);
     });
   });
 

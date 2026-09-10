@@ -3,7 +3,18 @@ import stylistRepository from './stylist.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import reviewRepository from '../reviews/review.repository.js';
 import penaltyRepository from '../penalties/penalty.repository.js';
+import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
 import logger from '../../config/logger.config.js';
+
+// Same computation as booking.service.js's getAppointmentDateTime -- duplicated rather
+// than imported to avoid a circular dependency (booking.service.js already imports this
+// module for its own dispute/cancellation reliability triggers). scheduledDate alone is
+// midnight of the appointment's calendar day; the actual scheduled instant needs
+// scheduledStartMinute added on top of it.
+const getScheduledInstant = (booking) => {
+  const { startOfDay } = getBusinessDayRange(booking.scheduledDate);
+  return new Date(startOfDay.getTime() + (booking.scheduledStartMinute || 0) * 60 * 1000);
+};
 
 export class ReliabilityService {
   /**
@@ -41,10 +52,13 @@ export class ReliabilityService {
     for (const b of bookings) {
       if (b.status === 'completed') {
         completedCount += 1;
-        if (b.checkedInAt) {
+        // Was checkedInAt (field does not exist on Booking -- the schema has
+        // checkInAt), so this was always 0 and punctuality was hardcoded to 100% for
+        // every stylist -- 20% of the composite reliability score was fabricated.
+        if (b.checkInAt) {
           checkedInCount += 1;
-          const scheduled = new Date(b.scheduledDate).getTime();
-          const checkIn = new Date(b.checkedInAt).getTime();
+          const scheduled = getScheduledInstant(b).getTime();
+          const checkIn = new Date(b.checkInAt).getTime();
           // On-time if checked in up to 15 mins after scheduled time
           if (checkIn <= scheduled + 15 * 60 * 1000) {
             onTimeCount += 1;

@@ -27,8 +27,12 @@ export const findByPayoutId = async (payoutId) => {
   return await LedgerEntry.find({ payoutId }).sort({ createdAt: 1 });
 };
 
-export const findBySubjectId = async (subjectId, filter = {}, options = {}) => {
-  return await LedgerEntry.find({ subjectId, ...filter }, null, options).sort({ createdAt: -1 });
+// Renamed from findBySubjectId: LedgerEntry has no `subjectId` field (the schema field is
+// `accountId`, see ledger-entry.model.js), so the previous query always matched zero
+// documents -- both getUserStatement and the admin ledger-statement `subjectId` filter
+// silently returned empty results for every user.
+export const findByAccountId = async (accountId, filter = {}, options = {}) => {
+  return await LedgerEntry.find({ accountId, ...filter }, null, options).sort({ createdAt: -1 });
 };
 
 export const findByCorrelationId = async (correlationId) => {
@@ -87,7 +91,7 @@ export default {
   findByBookingId,
   findByPaymentId,
   findByPayoutId,
-  findBySubjectId,
+  findByAccountId,
   findByCorrelationId,
   aggregateBookingBalance,
   findEntries,

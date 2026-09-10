@@ -71,10 +71,12 @@ jest.unstable_mockModule('../../src/modules/penalties/penalty.repository.js', ()
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: jest.fn().mockResolvedValue({ _id: 'led-1' }),
+    postDoubleEntry: jest.fn().mockResolvedValue([{ _id: 'led-1a' }, { _id: 'led-1b' }]),
     egpToPiastres: (egp) => Math.round(egp * 100),
     piastresToEgp: (piastres) => Math.round(piastres) / 100,
   },
   postEntry: jest.fn().mockResolvedValue({ _id: 'led-1' }),
+  postDoubleEntry: jest.fn().mockResolvedValue([{ _id: 'led-1a' }, { _id: 'led-1b' }]),
   egpToPiastres: (egp) => Math.round(egp * 100),
   piastresToEgp: (piastres) => Math.round(piastres) / 100,
 }));

@@ -1,9 +1,9 @@
+import mongoose from 'mongoose';
 import paymentRepository from './payment.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import userRepository from '../users/user.repository.js';
 import { getProvider } from './providers/provider.factory.js';
 import env from '../../config/env.config.js';
-import logger from '../../config/logger.config.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { PAYMENT_STATUS } from '../../common/constants/statuses.constant.js';
@@ -87,47 +87,89 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
   // Redemption is a CAS inside couponService, so two concurrent checkouts cannot both
   // consume the same coupon.
   if (couponCode && !payment.couponCode) {
-    const { discountAmount } = await couponService.redeemCoupon(
-      clientIdStr,
-      couponCode,
-      booking._id,
-      booking.price
-    );
+    const applyCoupon = async (session) => {
+      const { discountAmount } = await couponService.redeemCoupon(
+        clientIdStr,
+        couponCode,
+        booking._id,
+        booking.price,
+        session
+      );
 
-    // Floor at zero: a discount can never make the platform owe the client money here.
-    const discountedAmount = round2(Math.max(0, booking.price - discountAmount));
-    const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
+      // Floor at zero: a discount can never make the platform owe the client money here.
+      const discountedAmount = round2(Math.max(0, booking.price - discountAmount));
+      const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
 
-    // The platform absorbs the discount, not the stylist. The stylist agreed a price
-    // with the client and must be paid against it — a marketing or compensation cost
-    // is the platform's to bear, and silently deducting it from the stylist's payout
-    // would be taking money from someone who had no part in the decision.
-    const stylistPayoutAmount = round2(booking.price - booking.price * (platformFeePercentage / 100));
-    const platformFeeAmount = round2(discountedAmount - stylistPayoutAmount);
+      // The platform absorbs the discount, not the stylist -- the stylist agreed a price
+      // with the client and must be paid against it. Clamped to what was actually
+      // collected (discountedAmount): a steep enough coupon can push the platform's normal
+      // fee-percentage share to zero, but never negative -- a negative platformFeeAmount
+      // previously failed the schema's `min: 0` validator AFTER the coupon had already been
+      // atomically consumed above, permanently destroying it with no compensating rollback.
+      const uncappedStylistShare = round2(booking.price - booking.price * (platformFeePercentage / 100));
+      const stylistPayoutAmount = Math.min(uncappedStylistShare, discountedAmount);
+      const platformFeeAmount = round2(Math.max(0, discountedAmount - stylistPayoutAmount));
 
-    payment = await paymentRepository.updateById(payment._id, {
-      couponCode: String(couponCode).toUpperCase(),
-      discountAmount,
-      grossAmount: booking.price,
-      amount: discountedAmount,
-      platformFeeAmount,
-      stylistPayoutAmount,
-    });
+      payment = await paymentRepository.updateById(
+        payment._id,
+        {
+          couponCode: String(couponCode).toUpperCase(),
+          discountAmount,
+          grossAmount: booking.price,
+          amount: discountedAmount,
+          platformFeeAmount,
+          stylistPayoutAmount,
+        },
+        session
+      );
 
-    try {
-      await ledgerService.postEntry({
-        idempotencyKey: `coupon:redeem:${booking._id}:${String(couponCode).toUpperCase()}`,
-        entryType: 'COUPON_DISCOUNT',
-        accountType: 'PLATFORM',
-        direction: 'DEBIT',
-        amountMinor: egpToPiastres(discountAmount),
-        bookingId: booking._id,
-        paymentId: payment._id,
-        correlationId: `booking_${booking._id}`,
-        notes: `Coupon ${String(couponCode).toUpperCase()} applied to booking #${booking._id}`,
-      });
-    } catch (ledgerErr) {
-      logger.error(`[Ledger] coupon discount entry failed: ${ledgerErr.message}`);
+      // Paired entry: the discount never enters escrow (the client only pays the already-
+      // discounted amount into it), so this records it as a value transfer from the
+      // platform to the client -- a merchant-funded discount, not a movement of money the
+      // system is already holding. Previously single-sided (DEBIT PLATFORM only), which
+      // made every coupon-discounted booking permanently unbalanced in the nightly
+      // reconciliation sweep.
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `coupon:redeem:platform:${booking._id}:${String(couponCode).toUpperCase()}`,
+          entryType: 'COUPON_DISCOUNT',
+          accountType: 'PLATFORM',
+          amountMinor: egpToPiastres(discountAmount),
+          bookingId: booking._id,
+          paymentId: payment._id,
+          correlationId: `booking_${booking._id}`,
+          notes: `Coupon ${String(couponCode).toUpperCase()} applied to booking #${booking._id}`,
+        },
+        {
+          idempotencyKey: `coupon:redeem:client:${booking._id}:${String(couponCode).toUpperCase()}`,
+          entryType: 'COUPON_DISCOUNT',
+          accountType: 'CLIENT',
+          amountMinor: egpToPiastres(discountAmount),
+          bookingId: booking._id,
+          paymentId: payment._id,
+          accountId: clientIdStr,
+          correlationId: `booking_${booking._id}`,
+          notes: `Coupon ${String(couponCode).toUpperCase()} discount benefit`,
+        },
+        session
+      );
+    };
+
+    // Coupon redemption (a CAS write), the Payment update, and the ledger pair must all
+    // succeed or all roll back together -- previously three independent, un-sessioned
+    // writes, so a failure after redemption (e.g. the fee-validation crash this comment
+    // used to sit next to) burned the coupon with no discount ever applied.
+    if (mongoose.connection?.readyState === 1) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          await applyCoupon(session);
+        });
+      } finally {
+        session.endSession();
+      }
+    } else {
+      await applyCoupon(null);
     }
   }
 
@@ -294,7 +336,17 @@ export const getClientHistory = async (user, queryString = {}) => {
   return paymentRepository.findClientHistory(userId, queryString);
 };
 
-export const processRefund = async ({ bookingId, refundPercentage = 100, reason = '' }) => {
+export const processRefund = async ({
+  bookingId,
+  refundPercentage = 100,
+  reason = '',
+  // Caller-supplied EGP amount the stylist should keep from whatever this refund does
+  // NOT return to the client (see NO_SHOW_POLICY.CLIENT.STYLIST_PERCENTAGE and
+  // MONEY_AND_LEDGER.md Section 4.2's dispute-split example). Left unspecified (0) for
+  // pure pre-session cancellations, where the documented policy awards the stylist
+  // nothing since the session never took place.
+  stylistPayoutOverrideAmount = 0,
+} = {}) => {
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (!payment) {
     throw new ApiError(404, 'Payment record not found for this booking');
@@ -326,16 +378,23 @@ export const processRefund = async ({ bookingId, refundPercentage = 100, reason 
   }
 
   const isPartial = refundPercentage < 100;
-  const retainedFee = isPartial ? round2(payment.amount - refundAmount) : 0;
   const status = isPartial ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
+
+  // Whatever isn't refunded to the client (`retainedAmount`) splits between the stylist
+  // (per the caller's policy override) and the platform (whatever's left). Clamping the
+  // override to retainedAmount means a caller bug can never make the platform "owe" more
+  // than it actually kept.
+  const retainedAmount = round2(Math.max(0, payment.amount - refundAmount));
+  const stylistPayoutAmount = Math.min(round2(Math.max(0, stylistPayoutOverrideAmount)), retainedAmount);
+  const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
 
   const updateFields = {
     status,
     refundAmount,
     refundReason: reason,
     refundedAt: new Date(),
-    platformFeeAmount: isPartial ? retainedFee : 0,
-    stylistPayoutAmount: 0,
+    platformFeeAmount,
+    stylistPayoutAmount,
   };
 
   const updated = await paymentRepository.updateById(payment._id, updateFields);

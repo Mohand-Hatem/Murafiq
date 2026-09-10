@@ -6,7 +6,7 @@ import QueryBuilder from '../../common/query-builder/QueryBuilder.js';
 // Only these payment statuses still carry a payable stylistPayoutAmount — a full refund flips a
 // payment to 'refunded' with stylistPayoutAmount 0, so it's naturally excluded here, not filtered
 // out specially.
-const PAYABLE_PAYMENT_STATUSES = ['paid', 'partially_refunded'];
+export const PAYABLE_PAYMENT_STATUSES = ['paid', 'partially_refunded'];
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -21,15 +21,25 @@ export const findById = async (id, session = null) => {
 };
 
 export const findStylistPayouts = async (stylistId, queryString = {}) => {
-  const queryObj = { ...queryString, stylistId };
-  const baseQuery = Payout.find();
+  // Ownership must be enforced on the base query itself, never routed through
+  // QueryBuilder's filter allowlist — an allowlist that omits a key silently
+  // drops it, which previously turned this into an unscoped Payout.find({})
+  // and leaked every stylist's payouts (including bank account details).
+  if (!stylistId) {
+    throw new Error('findStylistPayouts requires a stylistId');
+  }
+  const baseQuery = Payout.find({ stylistId });
 
-  const builder = new QueryBuilder(baseQuery, queryObj)
+  const builder = new QueryBuilder(baseQuery, queryString)
     .filter(['status', 'method'])
     .sort()
     .select();
 
-  await builder.paginate(Payout);
+  // paginate() computes its own count via buildFilter(queryString) for the
+  // pagination meta, which does not see the stylistId scope applied above to
+  // the base query — pass it explicitly so `meta.total` matches what's
+  // actually returned, not every stylist's payout count.
+  await builder.paginate(Payout, { stylistId });
   const payouts = await builder.mongooseQuery.exec();
 
   return {

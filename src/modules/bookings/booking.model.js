@@ -47,6 +47,10 @@ const bookingSchema = new Schema(
       lat: Number,
       lng: Number,
     },
+    // Set once the upcoming-session reminder sweep (session-reminder.cron.js) has
+    // dispatched a reminder for this booking, so the hourly sweep's rolling 24h window
+    // cannot re-notify the same booking on every subsequent run.
+    reminderSentAt: Date,
     clientConfirmedAt: Date,
     stylistConfirmedAt: Date,
     liveTrackingEnabled: { type: Boolean, default: false },

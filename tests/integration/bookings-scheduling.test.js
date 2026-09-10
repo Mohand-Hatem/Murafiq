@@ -111,6 +111,19 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
       mockBookingDoc = { ...mockBookingDoc, ...data };
       return Promise.resolve(mockBookingDoc);
     }),
+    // Mirrors the real atomic CAS behaviour: a no-op (null) once the booking has left
+    // 'in-progress', otherwise applies the write to the same shared mock document the
+    // rest of this suite mutates via updateById.
+    setCompletionConfirmation: jest.fn().mockImplementation((id, field) => {
+      if (mockBookingDoc.status !== 'in-progress') return Promise.resolve(null);
+      mockBookingDoc = { ...mockBookingDoc, [field]: new Date() };
+      return Promise.resolve(mockBookingDoc);
+    }),
+    promoteToCompleted: jest.fn().mockImplementation(() => {
+      if (mockBookingDoc.status !== 'in-progress') return Promise.resolve(null);
+      mockBookingDoc = { ...mockBookingDoc, status: 'completed', completedAt: new Date() };
+      return Promise.resolve(mockBookingDoc);
+    }),
   },
 }));
 

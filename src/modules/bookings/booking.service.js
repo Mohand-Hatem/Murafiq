@@ -258,26 +258,36 @@ export const confirmCompletion = async (user, bookingId) => {
     );
   }
 
-  const updateData = {};
-  if (userIdStr === clientIdStr) {
-    updateData.clientConfirmedAt = new Date();
+  // Atomic and race-free: see setCompletionConfirmation's comment in
+  // booking.repository.js. The returned document is never the stale `booking` read
+  // above -- it's the freshly-written state, which is what lets the very next check
+  // see the OTHER party's confirmation even if they wrote it a moment ago.
+  const confirmationField = userIdStr === clientIdStr ? 'clientConfirmedAt' : 'stylistConfirmedAt';
+  let updated = await bookingRepository.setCompletionConfirmation(bookingId, confirmationField);
+  if (!updated) {
+    // The booking moved on (cancelled/disputed/already completed) between the read
+    // above and this write -- a genuine race, surfaced rather than silently no-op'd.
+    throw new ApiError(
+      400,
+      'Cannot confirm completion: booking is no longer in-progress'
+    );
   }
-  if (userIdStr === stylistIdStr) {
-    updateData.stylistConfirmedAt = new Date();
-  }
 
-  const isClientDone = updateData.clientConfirmedAt || booking.clientConfirmedAt;
-  const isStylistDone = updateData.stylistConfirmedAt || booking.stylistConfirmedAt;
-
-  if (isClientDone && isStylistDone) {
-    updateData.status = 'completed';
-    updateData.completedAt = new Date();
-  }
-
-  const updated = await bookingRepository.updateById(bookingId, updateData);
-
-  if (updateData.status === 'completed') {
-    eventBus.emit(EVENTS.SESSION_COMPLETED, { bookingId: updated._id.toString() });
+  if (updated.clientConfirmedAt && updated.stylistConfirmedAt) {
+    // Second CAS: only the request that actually observes both fields set attempts
+    // this, and the { status: 'in-progress' } filter means only one concurrent
+    // attempt can ever succeed -- so SESSION_COMPLETED is emitted exactly once.
+    const promoted = await bookingRepository.promoteToCompleted(bookingId);
+    if (promoted) {
+      updated = promoted;
+      // stylistId is required here -- stylist.listener.js destructures it to trigger
+      // reliability recalculation on session completion. Previously omitted, so a
+      // stylist's score was never recalculated when a session actually completed.
+      eventBus.emit(EVENTS.SESSION_COMPLETED, {
+        bookingId: updated._id.toString(),
+        stylistId: (updated.stylistId._id || updated.stylistId).toString(),
+      });
+    }
   }
 
   return toPublicBookingDto(updated);
@@ -450,12 +460,27 @@ export const resolveDispute = async (
     finalRefundPercentage = refundPercentage;
   }
 
-  // If refund is required, execute via paymentService
+  // If refund is required, execute via paymentService. On a genuine split/partial outcome
+  // the stylist keeps their normal fee-split share of whatever is NOT refunded to the
+  // client (MONEY_AND_LEDGER.md Section 4.2, e.g. 750 EGP retained * 0.85 = 637.50 EGP to
+  // the stylist) -- arbitration should not silently zero out a stylist's earnings on
+  // whatever portion of the booking the admin decided they keep.
   if (finalRefundPercentage > 0) {
+    let stylistPayoutOverrideAmount = 0;
+    if (finalRefundPercentage < 100) {
+      const payment = await paymentRepository.findByBookingId(bookingId);
+      if (payment) {
+        const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
+        const retainedAmount = round2(payment.amount * (1 - finalRefundPercentage / 100));
+        stylistPayoutOverrideAmount = round2(retainedAmount * (1 - platformFeePercentage / 100));
+      }
+    }
+
     await paymentService.processRefund({
       bookingId,
       refundPercentage: finalRefundPercentage,
       reason: resolutionNotes || `Dispute arbitration resolution: ${outcome}`,
+      stylistPayoutOverrideAmount,
     });
   }
 
@@ -495,7 +520,15 @@ export const resolveDispute = async (
   });
 
   if (targetStatus === 'completed') {
-    eventBus.emit(EVENTS.SESSION_COMPLETED, { bookingId: updated._id.toString() });
+    // Same payload contract as the confirmCompletion emit above -- stylist.listener.js
+    // destructures stylistId. reliabilityService is also called directly a few lines up
+    // in this function, so this particular path isn't silently broken by the omission,
+    // but the emitted event should still carry a correct, complete payload for any other
+    // listener that reacts to session completion.
+    eventBus.emit(EVENTS.SESSION_COMPLETED, {
+      bookingId: updated._id.toString(),
+      stylistId: stylistUserId,
+    });
   }
 
   return toPublicBookingDto(updated);
@@ -657,7 +690,14 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
     );
   }
 
-  const outcome = calculateCancellationOutcome(booking, cancelledBy, new Date());
+  // calculateCancellationOutcome only special-cases 'client' -- everything else falls
+  // through to the stylist-penalty branch. An admin cancelling a booking is neither party's
+  // fault, so it must be priced on the (no-penalty) client branch, exactly like
+  // getCancellationQuote already does -- otherwise an admin cancellation silently assesses
+  // a penalty debt against an innocent stylist, and the quote a client/admin sees before
+  // cancelling disagrees with what actually happens when they do.
+  const outcomeRole = cancelledBy === 'admin' ? 'client' : cancelledBy;
+  const outcome = calculateCancellationOutcome(booking, outcomeRole, new Date());
 
   let session = null;
   let updated;
@@ -752,17 +792,31 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
       ? CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE
       : CANCELLATION_POLICY.LATE_STYLIST_PENALTY_PERCENTAGE;
     try {
-      await ledgerService.postEntry({
-        idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:${bookingId}`,
-        entryType: 'PENALTY_ASSESSMENT',
-        accountType: 'STYLIST',
-        accountId: (booking.stylistId._id || booking.stylistId).toString(),
-        direction: 'DEBIT',
-        amountMinor: egpToPiastres(outcome.penaltyAmount),
-        bookingId,
-        correlationId: `booking_${bookingId}`,
-        notes: `Stylist cancellation penalty (${penaltyPct}%) for booking #${bookingId}`,
-      });
+      // Paired: the platform recognises this as revenue from the moment the penalty is
+      // assessed (accrual basis), not only if/when it's later collected via a payout
+      // deduction. Previously single-sided (DEBIT STYLIST only), which permanently
+      // unbalanced this booking's ledger entries in the nightly reconciliation sweep.
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:stylist:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'STYLIST',
+          accountId: (booking.stylistId._id || booking.stylistId).toString(),
+          amountMinor: egpToPiastres(outcome.penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `Stylist cancellation penalty (${penaltyPct}%) for booking #${bookingId}`,
+        },
+        {
+          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:platform:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'PLATFORM',
+          amountMinor: egpToPiastres(outcome.penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `Stylist cancellation penalty (${penaltyPct}%) recognised against booking #${bookingId}`,
+        }
+      );
     } catch (ledgerErr) {
       logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
     }

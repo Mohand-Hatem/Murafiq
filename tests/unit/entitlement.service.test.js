@@ -6,6 +6,7 @@ const mockFindOneAndUpdate = jest.fn();
 const mockUpdateOne = jest.fn();
 const mockCountRequests = jest.fn();
 const mockCountOffers = jest.fn();
+const mockCountWardrobeItems = jest.fn();
 
 jest.unstable_mockModule('../../src/modules/subscriptions/subscription.repository.js', () => ({
   default: {
@@ -37,6 +38,12 @@ jest.unstable_mockModule('../../src/modules/requests/request.model.js', () => ({
 jest.unstable_mockModule('../../src/modules/offers/offer.model.js', () => ({
   default: {
     countDocuments: mockCountOffers,
+  },
+}));
+
+jest.unstable_mockModule('../../src/modules/wardrobe/wardrobe-item.model.js', () => ({
+  default: {
+    countDocuments: mockCountWardrobeItems,
   },
 }));
 
@@ -123,6 +130,38 @@ describe('Entitlement Service (Unit)', () => {
         /Daily quota exceeded for requests.daily/
       );
     });
+
+    // Regression test for the first-call-of-period bypass: `used: { $lte: limit - count }` is a
+    // range predicate that Mongo does NOT copy into an upserted document, so on the very first
+    // call of a period (no counter document exists yet) the insert previously proceeded
+    // unconditionally — a `limit: 0` entitlement granted one free use per user per day.
+    it('rejects immediately when limit is 0, without ever attempting the upsert', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({ planCode: 'client.free' });
+      mockFindByCode.mockResolvedValueOnce({
+        code: 'client.free',
+        tier: 'free',
+        entitlements: { 'ai.productSearch.daily': 0 },
+      });
+
+      await expect(consume(clientId, 'ai.productSearch.daily', 1, 'client')).rejects.toThrow(
+        /Daily quota exceeded for ai.productSearch.daily/
+      );
+      expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects immediately when count exceeds the limit, without ever attempting the upsert', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({ planCode: 'client.free' });
+      mockFindByCode.mockResolvedValueOnce({
+        code: 'client.free',
+        tier: 'free',
+        entitlements: { 'requests.daily': 5 },
+      });
+
+      await expect(consume(clientId, 'requests.daily', 10, 'client')).rejects.toThrow(
+        /Daily quota exceeded for requests.daily/
+      );
+      expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    });
   });
 
   describe('capacity', () => {
@@ -159,6 +198,26 @@ describe('Entitlement Service (Unit)', () => {
       expect(result.limit).toBe(1);
       expect(result.used).toBe(1);
       expect(result.available).toBe(0);
+      expect(result.hasCapacity).toBe(false);
+    });
+
+    // Regression test: wardrobe.photos.max was previously hardcoded to `used: 0`
+    // (a "Phase 14 placeholder"), making wardrobe uploads unlimited on every plan.
+    it('computes live wardrobe.photos.max usage from WardrobeItem.countDocuments', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({ planCode: 'client.free' });
+      mockFindByCode.mockResolvedValueOnce({
+        code: 'client.free',
+        tier: 'free',
+        entitlements: { 'wardrobe.photos.max': 7 },
+      });
+
+      mockCountWardrobeItems.mockResolvedValueOnce(7);
+
+      const result = await capacity(clientId, 'wardrobe.photos.max', 'client');
+
+      expect(mockCountWardrobeItems).toHaveBeenCalledWith({ userId: clientId });
+      expect(result.limit).toBe(7);
+      expect(result.used).toBe(7);
       expect(result.hasCapacity).toBe(false);
     });
   });

@@ -6,6 +6,12 @@ export const create = async (data) => {
 };
 
 export const findByUserId = async (userId) => {
+  // Guard against an unscoped query: a falsy userId must never be silently
+  // dropped into an empty Mongoose filter (findOne({userId: undefined}) => {}),
+  // which would match an arbitrary document instead of failing closed.
+  if (!userId) {
+    throw new Error('findByUserId requires a userId');
+  }
   return StylistProfile.findOne({ userId }).populate(
     'userId',
     'name profileImage verification accountStatus'
@@ -20,6 +26,12 @@ export const findById = async (id) => {
 };
 
 export const updateByUserId = async (userId, data) => {
+  // Same guard as findByUserId — an unscoped update here can overwrite
+  // another stylist's payout bank account (findOneAndUpdate({}, ...) targets
+  // the first document in natural order).
+  if (!userId) {
+    throw new Error('updateByUserId requires a userId');
+  }
   return StylistProfile.findOneAndUpdate({ userId }, data, {
     returnDocument: 'after',
     runValidators: true,

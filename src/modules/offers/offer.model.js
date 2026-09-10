@@ -23,6 +23,12 @@ const offerSchema = new Schema(
       default: OFFER_STATUS.PENDING,
     },
     expiresAt: Date,
+    // Hard 30-day ceiling independent of expiresAt (offer.service.js:
+    // "24-hour standard expiry, 30-day long-stop expiry"). Was previously absent from
+    // this schema, so Mongoose's default strict mode silently stripped it on every
+    // create -- the $or clause in expireOldOffers that checks it could never match
+    // anything, and the long-stop expiry did not exist in practice.
+    longStopExpiresAt: Date,
   },
   { timestamps: true }
 );

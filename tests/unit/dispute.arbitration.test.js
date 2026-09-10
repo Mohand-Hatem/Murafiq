@@ -3,6 +3,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
+const mockPaymentFindByBookingId = jest.fn();
 const mockReliabilityUpdate = jest.fn();
 const mockChatLock = jest.fn();
 const mockChatOpen = jest.fn();
@@ -23,6 +24,13 @@ jest.unstable_mockModule('../../src/modules/payments/payment.service.js', () => 
   },
   round2: (val) => Math.round(val * 100) / 100,
   processRefund: mockPaymentProcessRefund,
+}));
+
+jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () => ({
+  default: {
+    findByBookingId: mockPaymentFindByBookingId,
+  },
+  findByBookingId: mockPaymentFindByBookingId,
 }));
 
 jest.unstable_mockModule('../../src/modules/stylists/reliability.service.js', () => ({
@@ -64,6 +72,9 @@ describe('Dispute & Arbitration Engine (Unit)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // resolveDispute looks this up to compute the stylist's fee-split share of a
+    // partial-refund's retained amount; irrelevant to most tests here, so a sane default.
+    mockPaymentFindByBookingId.mockResolvedValue({ amount: 1000, platformFeePercentage: 15 });
   });
 
   describe('fileDispute — 48h Window', () => {

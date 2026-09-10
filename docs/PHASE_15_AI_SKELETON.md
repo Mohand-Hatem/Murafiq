@@ -6,8 +6,11 @@
 > so existing references (`00_PHASES_INDEX.md`, `AGENTS.md`) still resolve.
 >
 > **This is an overview, not a work unit.** Do not implement from this file. Implement from
-> `PHASE_15A` … `PHASE_15E`, one file at a time, in order — per the handoff rule in
+> `PHASE_15A` … `PHASE_15F`, one file at a time, in order — per the handoff rule in
 > `00_PHASES_INDEX.md`.
+>
+> **Amended 2026-09-10:** `PHASE_15F_VIRTUAL_TRY_ON.md` was added, superseding the locked
+> "image generation: NOT in V1" decision. Every other locked decision below stands unchanged.
 
 ## Status
 
@@ -19,6 +22,7 @@
 | 15C | `PHASE_15C_IMAGE_INPUT.md` | ⛔ Not started |
 | 15D | `PHASE_15D_FASHION_KNOWLEDGE_RAG.md` | ⛔ Not started |
 | 15E | `PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md` | ⛔ Not started |
+| 15F | `PHASE_15F_VIRTUAL_TRY_ON.md` | ⛔ Not started — **added 2026-09-10**, blocked by `HARDEN-004` and a provider go/no-go spike |
 
 `src/modules/ai/` currently contains only `.gitkeep`. There is **no** `/api/v1/ai` route —
 it returns `404`, not `501`, contrary to what older docs claim.
@@ -55,7 +59,7 @@ These were reviewed and approved. **Do not re-litigate them mid-implementation.*
 | **Vector DB** | **Upstash Vector, kept, demoted** | Secondary use only: free-text closet search, garment matching in Flow B, and the shared knowledge base. No Pinecone, no pgvector, no new store |
 | **RAG scope** | **Exactly one corpus: fashion knowledge** | The wardrobe is a Mongo query, the event taxonomy is code constants, preferences are one document, products are a live grounded search. RAG is for corpora too large to fit in a prompt — a 250-item wardrobe is not that |
 | **Domain** | **Strictly stylist-only**, enforced by a scope guard | See below |
-| **Image generation** | **NOT in V1** | Image *input* is in V1 (15C); image *generation* is not. They share no code, no model call, no cost line |
+| **Image generation** | ~~**NOT in V1**~~ → **superseded 2026-09-10 by `PHASE_15F`** | Original rationale: image *input* is in V1 (15C); image *generation* is not. They share no code, no model call, no cost line. **That separation still holds** — 15F adds generation as a parallel, user-initiated endpoint and changes nothing in 15A–15E. See `PHASE_15F_VIRTUAL_TRY_ON.md` § "Amendment" |
 | **Weather** | **Season inferred from event date** in `Africa/Cairo` | No weather API. The `season` field already captures the value |
 | **Language** | **Arabic + English** | Documents stay canonical English; only input understanding and final rendering are language-aware. No re-index needed |
 
@@ -171,6 +175,8 @@ module** — ask "does this user have capacity for X?", never "is this user on `
 | `ai.imageMessages.daily` | requests carrying an image | **New** — added in `PHASE_15C` |
 | `wardrobe.photos.max` | permanent wardrobe storage, at save time only | Exists, enforced by `HARDENING_08` |
 | `ai.productSearch.daily` | external product search | **New** — added in `PHASE_15E` |
+| `ai.tryOn.monthly` | virtual try-on generations | **New** — added in `PHASE_15F`. **Monthly, not daily** — one try-on costs 17–34× a text request |
+| `ai.tryOn.trial.lifetime` | free-tier one-off try-on trial | **New** — added in `PHASE_15F` |
 
 ---
 
@@ -186,6 +192,7 @@ All at $0.25 in / $1.50 out per 1M tokens.
 | Refusal, image | ~$0.0010 |
 | Wardrobe classification | ~$0.0005 per item, **once** |
 | External product search | **$14 per 1,000 grounded queries**, 5,000/month free |
+| **Virtual try-on (`PHASE_15F`)** | **$0.0336–$0.067 per generated image** — a different model and a different pricing basis from every row above. This is why 15F's quota is monthly |
 
 At `client.basic` (50 EGP ≈ $1.00/month, 10 messages/day ≈ 300/month): **~$0.60/month**,
 ~$0.50 with context caching. Viable but thin — which is why the single-model decision and
@@ -230,10 +237,13 @@ one-model dead end.
 
 ## Explicitly out of scope for V1
 
-- **Image generation** of outfits. Deferred and not guaranteed. If ever built, it is a pure
-  consumer of a persisted `Outfit` — read the record, fetch its items' Cloudinary images,
-  generate, write a URL back. It touches nothing in the pipeline, which is what makes
-  deferring it costless.
+- ~~**Image generation** of outfits.~~ **Superseded 2026-09-10 — now `PHASE_15F`.** The
+  deferral predicted that generation, if built, "touches nothing in the pipeline." That
+  prediction held: 15F adds a parallel endpoint and changes nothing in 15A–15E. Note the
+  delivered feature is a **superset** of what was deferred here — it renders *the client's
+  own body* wearing garments, accepts garments **not in the wardrobe**, and needs **no
+  `Outfit` record**, so it is not the "pure consumer of a persisted `Outfit`" this bullet
+  anticipated. `Outfit` still gets no `visualizationUrl`.
 - **Marketplace concierge tools** — `searchStylists`, `findNearestStylists`,
   `checkAvailability`, `createRequest`, `getBookings`, `getBookingDetails`, `cancelBooking`,
   `searchServices`. The previous version of this file specified all eight as stubs. They are

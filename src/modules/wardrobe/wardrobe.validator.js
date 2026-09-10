@@ -1,9 +1,27 @@
 import { z } from 'zod';
 import { WARDROBE_CATEGORIES } from './wardrobe-item.model.js';
 
+// Trusted-host allowlist, mirroring the pattern already used for KYC document
+// references (user.validator.js): the classification worker (gemini.config.js)
+// server-side fetches whatever URL is stored here, so an unrestricted URL is an
+// SSRF vector (internal network addresses, cloud metadata endpoints, etc).
+// Wardrobe photos are only ever expected to arrive via POST /uploads/wardrobe,
+// which stores them on Cloudinary and returns a res.cloudinary.com secure_url —
+// so that host is the only one ever legitimately needed here.
+const isCloudinaryUrl = (val) => {
+  try {
+    return new URL(val).hostname === 'res.cloudinary.com';
+  } catch {
+    return false;
+  }
+};
+
 export const createWardrobeItemSchema = {
   body: z.object({
-    imageUrl: z.string().url('Invalid image URL format'),
+    imageUrl: z
+      .string()
+      .url('Invalid image URL format')
+      .refine(isCloudinaryUrl, 'imageUrl must be a Cloudinary URL obtained via POST /uploads/wardrobe'),
   }).strict(),
 };
 

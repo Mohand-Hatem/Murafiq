@@ -71,6 +71,13 @@ jest.unstable_mockModule('../../src/modules/payments/payment.service.js', () => 
   processRefund: jest.fn().mockResolvedValue({}),
 }));
 
+jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () => ({
+  default: {
+    findByBookingId: jest.fn().mockResolvedValue({ amount: 500, platformFeePercentage: 15 }),
+  },
+  findByBookingId: jest.fn().mockResolvedValue({ amount: 500, platformFeePercentage: 15 }),
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Stage R9 Integration — Dispute Evidence & Arbitration Endpoints', () => {

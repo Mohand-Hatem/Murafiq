@@ -14,8 +14,14 @@ Flow B: the client attaches a photo to a stylist message.
 This is **additive**. Same model, same orchestrator, same scope guard, same entitlement
 service, same stores. **No new model, provider, framework, vector store, queue or service.**
 
-> **Image *input*, not image *generation*.** Generating a picture of an outfit is out of V1
-> and not guaranteed. The two share no code, no model call and no cost line.
+> **Image *input*, not image *generation*.** The two share no code, no model call and no cost
+> line — and that stays true.
+>
+> **Amended 2026-09-10:** image generation is no longer out of scope project-wide; it lands
+> separately in `PHASE_15F_VIRTUAL_TRY_ON.md`, downstream of this phase. **15F reuses this
+> phase's `ai-chat` upload folder and its ownership-from-reference validator** for
+> client-uploaded garments, so that no second image-input path — and no second SSRF
+> surface — is ever created. Nothing in 15C changes.
 
 ## Depends on
 
@@ -251,6 +257,6 @@ easily. Do not guess — measure.
 - [ ] An image request consumes both metrics; a refusal refunds both; an over-cap image request is rejected **before** any model call.
 - [ ] `ai.imageMessages.daily` exists in `plan.constants.js` and `FALLBACK_FREE_ENTITLEMENTS`. **No plan name appears anywhere in `src/modules/ai/`.**
 - [ ] **Still no** LangChain, LangGraph, second provider, or new vector store in `package.json`.
-- [ ] **No image-generation code, dependency, queue or quota key exists.**
+- [ ] **No image-generation code, dependency, queue or quota key exists** — *as of this phase*. **Scoped 2026-09-10:** image generation now lands in `PHASE_15F`, which is downstream of this one. This check asserts 15C introduces none of it; it is not a permanent project-wide invariant.
 - [ ] Golden set extended with image cases; both languages verified.
 - [ ] Full Jest suite green.

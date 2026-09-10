@@ -124,6 +124,14 @@ jest.unstable_mockModule('../../src/modules/offers/offer.model.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../src/modules/wardrobe/wardrobe-item.model.js', () => ({
+  default: {
+    countDocuments: jest.fn().mockResolvedValue(0),
+  },
+  WARDROBE_CATEGORIES: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress'],
+  CLASSIFICATION_STATUS: { PENDING: 'pending', DONE: 'done', FAILED: 'failed' },
+}));
+
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: jest.fn().mockResolvedValue({}),

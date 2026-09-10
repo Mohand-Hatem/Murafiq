@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import '../../src/common/globals.js';
 import bookingService from '../../src/modules/bookings/booking.service.js';
 import bookingRepository from '../../src/modules/bookings/booking.repository.js';
+import paymentRepository from '../../src/modules/payments/payment.repository.js';
 import paymentService from '../../src/modules/payments/payment.service.js';
 
 describe('Dispute Resolution & Filing Window Unit Tests', () => {
@@ -100,14 +101,18 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
       });
 
       expect(res.status).toBe('cancelled');
+      // A 100% refund leaves nothing retained, so no stylist share applies and
+      // paymentRepository.findByBookingId (only needed to compute a partial split) is
+      // never called.
       expect(paymentService.processRefund).toHaveBeenCalledWith({
         bookingId,
         refundPercentage: 100,
         reason: 'Stylist no-show confirmed',
+        stylistPayoutOverrideAmount: 0,
       });
     });
 
-    it('resolves dispute as completed with partial refund', async () => {
+    it('resolves dispute as completed with partial refund, preserving the stylist fee-split share of the retained amount', async () => {
       jest.spyOn(bookingRepository, 'findById').mockResolvedValue({
         _id: bookingId,
         status: 'disputed',
@@ -115,6 +120,12 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         stylistId: { _id: stylistId },
       });
 
+      // MONEY_AND_LEDGER.md Section 4.2's own worked example: 1000 EGP payment, 25%
+      // refunded -> 750 EGP retained, stylist keeps 85% of that (750 * 0.85 = 637.50).
+      jest.spyOn(paymentRepository, 'findByBookingId').mockResolvedValue({
+        amount: 1000,
+        platformFeePercentage: 15,
+      });
       jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
       jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
         _id: bookingId,
@@ -134,6 +145,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         bookingId,
         refundPercentage: 25,
         reason: 'Session shortened by 30 mins',
+        stylistPayoutOverrideAmount: 637.5,
       });
     });
   });

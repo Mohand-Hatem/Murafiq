@@ -236,7 +236,12 @@ export const rejectOffer = async (clientUser, offerId) => {
   // The request deliberately STAYS OPEN. Rejecting one bid must not reset the request:
   // it may still hold several other live offers the client is comparing.
 
-  eventBus.emit(EVENTS.OFFER_REJECTED, { offerId });
+  // stylistId is required here -- notification.listener.js destructures it to notify the
+  // stylist their offer was declined. Previously omitted, so that notification never sent.
+  eventBus.emit(EVENTS.OFFER_REJECTED, {
+    offerId,
+    stylistId: (offerDoc.stylistId._id || offerDoc.stylistId).toString(),
+  });
 
   return toPublicOfferDto(updatedOffer);
 };

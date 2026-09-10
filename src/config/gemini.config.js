@@ -11,6 +11,40 @@ export const getGeminiClient = () => {
   return aiClient;
 };
 
+const IMAGE_FETCH_TIMEOUT_MS = 10_000;
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024; // 10MB, matching the upload module's own cap
+
+// Bounded fetch of the (already host-validated, see wardrobe.validator.js)
+// wardrobe image: a timeout so a slow/unresponsive host can't hang a worker
+// job indefinitely, and a size cap so a single image can't balloon memory or
+// the outbound payload to Gemini.
+const fetchImageBounded = async (imageUrl) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(imageUrl, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Image fetch failed with status ${response.status}`);
+    }
+
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > IMAGE_MAX_BYTES) {
+      throw new Error(`Image exceeds maximum size of ${IMAGE_MAX_BYTES} bytes`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > IMAGE_MAX_BYTES) {
+      throw new Error(`Image exceeds maximum size of ${IMAGE_MAX_BYTES} bytes`);
+    }
+
+    const mimeType = response.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
+    return { buffer: Buffer.from(arrayBuffer), mimeType };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 /**
  * Classify a clothing item image using Gemini Flash Vision
  * @param {string} imageUrl
@@ -33,6 +67,7 @@ export const classifyClothingImage = async (imageUrl) => {
   }
 
   try {
+    const { buffer: imageBuffer, mimeType } = await fetchImageBounded(imageUrl);
     const ai = getGeminiClient();
     const prompt = `You are an expert fashion stylist and clothing classifier.
 Analyze this garment image and return ONLY a valid JSON object matching this schema:
@@ -58,8 +93,8 @@ Ensure the JSON is strictly formatted with no surrounding markdown backticks or 
             { text: prompt },
             {
               inlineData: {
-                mimeType: 'image/jpeg',
-                data: Buffer.from(await (await fetch(imageUrl)).arrayBuffer()).toString('base64'),
+                mimeType,
+                data: imageBuffer.toString('base64'),
               },
             },
           ],
