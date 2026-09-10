@@ -30,6 +30,12 @@ Rule for every phase: **do not start writing code for a phase until the previous
 | 15E | `PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md` | Grounded external product search — **end of V1** | 15D |
 | 16 | `PHASE_16_DEPLOYMENT_READINESS.md` | Final review, env checklist, deployment prep | 13, 15 |
 
+> **Before starting Phase 16, also read
+> [`hardening/POST_PHASE_15_HARDENING_BACKLOG.md`](hardening/POST_PHASE_15_HARDENING_BACKLOG.md)** —
+> the post-Phase-15 hardening backlog. It documents 14 verified issues left deliberately
+> unresolved after the pre-Phase-15 audit fix pass and must be reviewed again before
+> production deployment.
+
 > **Not a phase — see `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`.** A cross-cutting revision of business rules (subscriptions/entitlements, financial ledger, request/offer lifecycle, cancellation & no-show policy, chat moderation, coupons, stylist reliability) is specified in `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`, with `REVISION_HANDOFF.md` as its implementation brief.
 >
 > It is **deliberately not numbered as Phase 17.** The `PHASE_XX` files are a build sequence that adds modules in dependency order; the revision instead *changes rules across modules that are already built* — the same role the `HARDENING_*` docs play. Its internal stages are labelled `R0`–`R12`.
