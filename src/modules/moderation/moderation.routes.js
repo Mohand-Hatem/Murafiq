@@ -20,7 +20,7 @@ router.use(authMiddleware);
 router.get(
   '/events',
   restrictTo(ROLES.ADMIN, ROLES.OPERATOR),
-  validate(getModerationEventsSchema, 'query'),
+  validate(getModerationEventsSchema),
   moderationController.getEvents
 );
 router.post(
@@ -43,7 +43,7 @@ router.delete('/blocked-domains/:id', restrictTo(ROLES.ADMIN), moderationControl
 router.get(
   '/blocked-words',
   restrictTo(ROLES.ADMIN),
-  validate(getBlockedWordsSchema, 'query'),
+  validate(getBlockedWordsSchema),
   moderationController.getBlockedWords
 );
 router.post(

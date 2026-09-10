@@ -1,10 +1,26 @@
 import wardrobeRepo from './wardrobe.repository.js';
 import queueModule from '../../jobs/queues/wardrobe.queue.js';
 import vectorConfig from '../../config/vector.config.js';
+import entitlementService from '../subscriptions/entitlement.service.js';
 import { CLASSIFICATION_STATUS } from './wardrobe-item.model.js';
 import { logger } from '../../config/logger.config.js';
 
 export const createWardrobeItem = async (userId, { imageUrl }) => {
+  // 0. Enforce the plan's wardrobe.photos.max cap BEFORE creating anything or spending a
+  // vision-classification call — previously unenforced (entitlement.service.js hardcoded
+  // used: 0), so uploads were unlimited regardless of plan.
+  const { hasCapacity, limit } = await entitlementService.capacity(
+    userId,
+    'wardrobe.photos.max',
+    'client'
+  );
+  if (!hasCapacity) {
+    throw new ApiError(
+      429,
+      `Wardrobe photo limit reached. Your plan allows ${limit} item(s). Upgrade your plan for more storage.`
+    );
+  }
+
   // 1. Create initial pending item in MongoDB
   const item = await wardrobeRepo.createWardrobeItem({
     userId,

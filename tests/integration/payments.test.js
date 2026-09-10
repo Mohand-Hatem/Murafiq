@@ -100,15 +100,29 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
  * ledger is invoked with the right arguments.
  */
 const mockPostEntry = jest.fn().mockResolvedValue({ _id: '60f719b8f1a2c81234567866' });
+const mockPostDoubleEntry = jest.fn().mockResolvedValue([
+  { _id: '60f719b8f1a2c81234567867' },
+  { _id: '60f719b8f1a2c81234567868' },
+]);
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockPostEntry,
+    postDoubleEntry: mockPostDoubleEntry,
     egpToPiastres: (egp) => Math.round(egp * 100),
     piastresToEgp: (p) => p / 100,
   },
   postEntry: mockPostEntry,
+  postDoubleEntry: mockPostDoubleEntry,
   egpToPiastres: (egp) => Math.round(egp * 100),
   piastresToEgp: (p) => p / 100,
+}));
+
+const mockRedeemCoupon = jest.fn();
+jest.unstable_mockModule('../../src/modules/coupons/coupon.service.js', () => ({
+  default: {
+    redeemCoupon: mockRedeemCoupon,
+  },
+  redeemCoupon: mockRedeemCoupon,
 }));
 
 const { default: app } = await import('../../src/app.js');
@@ -144,6 +158,42 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.paymentUrl).toBeDefined();
       expect(res.body.data.payment.amount).toBe(1000.0);
+    });
+
+    // Regression test for the audit finding: a coupon discount steep enough to exceed the
+    // platform's normal fee share previously drove platformFeeAmount negative, which threw
+    // a schema ValidationError AFTER the coupon had already been atomically consumed --
+    // permanently destroying it with no discount ever applied and a 500 to the client.
+    it('applies a steep coupon without a negative platformFeeAmount, and never loses the coupon on failure', async () => {
+      mockFindPaymentByBookingId.mockResolvedValueOnce({ ...mockPayment, couponCode: undefined });
+      // 500 EGP off a 1000 EGP booking (50%) -- far more than the 15% platform fee would
+      // ever cover, forcing the clamp path: without it, platformFeeAmount would compute to
+      // 500 - 850 = -350 and throw.
+      mockRedeemCoupon.mockResolvedValueOnce({ discountAmount: 500 });
+
+      const res = await request(app)
+        .post(`/api/v1/payments/${bookingId}/initialize`)
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ couponCode: 'STEEP50OFF' });
+
+      expect(res.status).toBe(200);
+      expect(mockRedeemCoupon).toHaveBeenCalledTimes(1);
+
+      const couponUpdateCall = mockUpdatePaymentById.mock.calls.find(
+        (call) => call[1] && call[1].couponCode === 'STEEP50OFF'
+      );
+      expect(couponUpdateCall).toBeDefined();
+      const [, updateFields] = couponUpdateCall;
+
+      expect(updateFields.amount).toBe(500); // 1000 - 500 discount
+      // The whole discounted amount goes to the stylist; the platform's fee is squeezed to
+      // zero, never negative.
+      expect(updateFields.stylistPayoutAmount).toBe(500);
+      expect(updateFields.platformFeeAmount).toBe(0);
+      expect(updateFields.platformFeeAmount).toBeGreaterThanOrEqual(0);
+      expect(
+        Math.round((updateFields.stylistPayoutAmount + updateFields.platformFeeAmount) * 100) / 100
+      ).toBe(updateFields.amount);
     });
   });
 

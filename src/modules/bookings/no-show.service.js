@@ -207,7 +207,11 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
     payoutStatus: policy.STYLIST_PERCENTAGE > 0 ? 'unpaid' : 'paid', // 'paid' == nothing owed
   });
 
-  // 1. Refund the client their share.
+  // 1. Refund the client their share, and preserve the stylist's policy-entitled cut of
+  //    whatever isn't refunded (NO_SHOW_POLICY.CLIENT.STYLIST_PERCENTAGE — e.g. the stylist
+  //    travelled and lost the slot on a client no-show, so they keep 20%). Computed against
+  //    payment.amount (what was actually collected, post-coupon), matching how processRefund
+  //    itself computes the refunded/retained split.
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
     try {
@@ -215,6 +219,7 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
         bookingId,
         refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
         reason: reason || `No-show by ${against}`,
+        stylistPayoutOverrideAmount: round2(payment.amount * (policy.STYLIST_PERCENTAGE / 100)),
       });
     } catch (refundErr) {
       await paymentRepository.updateById(payment._id, {
@@ -242,17 +247,33 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
       if (err.code !== 11000) throw err;
     }
     try {
-      await ledgerService.postEntry({
-        idempotencyKey: `penalty:no_show:${bookingId}`,
-        entryType: 'PENALTY_ASSESSMENT',
-        accountType: 'STYLIST',
-        accountId: stylistId,
-        direction: 'DEBIT',
-        amountMinor: egpToPiastres(penaltyAmount),
-        bookingId,
-        correlationId: `booking_${bookingId}`,
-        notes: `No-show penalty (${policy.STYLIST_PENALTY_PERCENTAGE}%) for booking #${bookingId}`,
-      });
+      // Paired: the stylist owes the platform this amount from the moment it's assessed
+      // (accrual recognition), not only once it happens to be collected via a later payout
+      // deduction -- see the identical pairing and rationale in booking.service.js's
+      // stylist-cancellation penalty. Previously single-sided (DEBIT STYLIST only), which
+      // permanently unbalanced this booking's ledger entries in the nightly reconciliation
+      // sweep.
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `penalty:no_show:stylist:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'STYLIST',
+          accountId: stylistId,
+          amountMinor: egpToPiastres(penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `No-show penalty (${policy.STYLIST_PENALTY_PERCENTAGE}%) for booking #${bookingId}`,
+        },
+        {
+          idempotencyKey: `penalty:no_show:platform:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'PLATFORM',
+          amountMinor: egpToPiastres(penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `No-show penalty (${policy.STYLIST_PENALTY_PERCENTAGE}%) recognised against booking #${bookingId}`,
+        }
+      );
     } catch (ledgerErr) {
       logger.error(`[Ledger] no-show penalty entry failed: ${ledgerErr.message}`);
     }

@@ -126,7 +126,7 @@ export const getBookingStatement = async (bookingId) => {
  * @returns {Promise<Array>}
  */
 export const getUserStatement = async (accountId, filter = {}, options = {}) => {
-  return await ledgerRepository.findBySubjectId(accountId, filter, options);
+  return await ledgerRepository.findByAccountId(accountId, filter, options);
 };
 
 export default {

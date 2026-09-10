@@ -65,7 +65,7 @@ describe('checkIn() emits CHECK_IN_COMPLETED', () => {
 describe('confirmCompletion() / resolveDispute() set completedAt', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('confirmCompletion writes completedAt in the same update as status: completed', async () => {
+  it('confirmCompletion promotes to completed with completedAt once both parties have confirmed', async () => {
     jest.spyOn(bookingRepository, 'findById').mockResolvedValue({
       _id: bookingId,
       clientId: { _id: clientId },
@@ -73,19 +73,50 @@ describe('confirmCompletion() / resolveDispute() set completedAt', () => {
       status: 'in-progress',
       clientConfirmedAt: new Date(),
     });
-    const updateSpy = jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    // setCompletionConfirmation returns the atomically-updated document, which -- per
+    // its own contract -- reflects the OTHER party's already-set field too (here, the
+    // client's prior confirmation), not just the field this call just wrote.
+    jest.spyOn(bookingRepository, 'setCompletionConfirmation').mockResolvedValue({
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'in-progress',
+      clientConfirmedAt: new Date(),
+      stylistConfirmedAt: new Date(),
+    });
+    const promoteSpy = jest.spyOn(bookingRepository, 'promoteToCompleted').mockResolvedValue({
       _id: bookingId,
       clientId: { _id: clientId },
       stylistId: { _id: stylistId },
       status: 'completed',
+      completedAt: new Date(),
     });
 
     await bookingService.confirmCompletion({ _id: stylistId, role: 'stylist' }, bookingId);
 
-    expect(updateSpy).toHaveBeenCalledWith(
-      bookingId,
-      expect.objectContaining({ status: 'completed', completedAt: expect.any(Date) })
-    );
+    expect(promoteSpy).toHaveBeenCalledWith(bookingId);
+  });
+
+  it('confirmCompletion does not promote to completed when only one party has confirmed', async () => {
+    jest.spyOn(bookingRepository, 'findById').mockResolvedValue({
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'in-progress',
+    });
+    jest.spyOn(bookingRepository, 'setCompletionConfirmation').mockResolvedValue({
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'in-progress',
+      clientConfirmedAt: new Date(),
+      stylistConfirmedAt: null,
+    });
+    const promoteSpy = jest.spyOn(bookingRepository, 'promoteToCompleted');
+
+    await bookingService.confirmCompletion({ _id: clientId, role: 'client' }, bookingId);
+
+    expect(promoteSpy).not.toHaveBeenCalled();
   });
 
   it('resolveDispute writes completedAt only when the outcome is completed, not cancelled', async () => {

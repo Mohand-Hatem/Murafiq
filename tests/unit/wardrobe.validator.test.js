@@ -30,6 +30,24 @@ describe('Wardrobe Validator Unit Tests', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    // Regression test for the SSRF finding: the classification worker fetches this URL
+    // server-side (gemini.config.js), so any non-Cloudinary host must be rejected here,
+    // before it ever reaches the worker.
+    it('should reject non-Cloudinary URLs (SSRF guard)', () => {
+      const attempts = [
+        'http://169.254.169.254/latest/meta-data/',
+        'http://localhost:6379/',
+        'http://127.0.0.1:27017/',
+        'https://evil.example.com/fake.jpg',
+        'https://res.cloudinary.com.evil.com/fake.jpg',
+      ];
+
+      for (const imageUrl of attempts) {
+        const result = createWardrobeItemSchema.body.safeParse({ imageUrl });
+        expect(result.success).toBe(false);
+      }
+    });
   });
 
   describe('updateWardrobeItemSchema', () => {

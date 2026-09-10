@@ -33,12 +33,27 @@ export const updateById = async (id, data, session = null) => {
   return Penalty.findByIdAndUpdate(id, data, options);
 };
 
+// settledMinorIncrement may be negative -- markFailed() reverses a settlement applied at
+// batch-creation time when the disbursement never actually went through, so the debt must
+// go back to (partially) OUTSTANDING rather than staying incorrectly marked as collected.
+// Clamped to [0, assessedMinor] both to fix the reversal case and to close a pre-existing
+// over-settlement bug (a read-modify-write race could previously push settledMinor above
+// assessedMinor, making outstanding debt negative and reducing other penalties' collectable
+// debt in the netting loop).
 export const settlePenalty = async (id, settledMinorIncrement, session = null) => {
   const penalty = await Penalty.findById(id).session(session || null);
   if (!penalty) return null;
 
-  const newSettled = (penalty.settledMinor || 0) + settledMinorIncrement;
-  const newStatus = newSettled >= penalty.assessedMinor ? 'SETTLED' : 'PARTIALLY_SETTLED';
+  const newSettled = Math.max(
+    0,
+    Math.min(penalty.assessedMinor, (penalty.settledMinor || 0) + settledMinorIncrement)
+  );
+  const newStatus =
+    newSettled >= penalty.assessedMinor
+      ? 'SETTLED'
+      : newSettled > 0
+        ? 'PARTIALLY_SETTLED'
+        : 'OUTSTANDING';
 
   const options = { returnDocument: 'after', runValidators: true };
   if (session) options.session = session;

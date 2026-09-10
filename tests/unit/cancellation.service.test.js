@@ -7,6 +7,7 @@ const mockPaymentFindByBookingId = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
 const mockPenaltyCreate = jest.fn();
 const mockLedgerPostEntry = jest.fn();
+const mockLedgerPostDoubleEntry = jest.fn().mockResolvedValue([{}, {}]);
 
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
@@ -51,8 +52,10 @@ jest.unstable_mockModule('../../src/modules/penalties/penalty.repository.js', ()
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockLedgerPostEntry,
+    postDoubleEntry: mockLedgerPostDoubleEntry,
   },
   postEntry: mockLedgerPostEntry,
+  postDoubleEntry: mockLedgerPostDoubleEntry,
   egpToPiastres: (egp) => Math.round(egp * 100),
   piastresToEgp: (piastres) => Math.round(piastres) / 100,
 }));
@@ -67,6 +70,8 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
 
   const mockClientUser = { _id: clientId, id: clientId, role: 'client' };
   const mockStylistUser = { _id: stylistId, id: stylistId, role: 'stylist' };
+  const adminId = '60f719b8f1a2c81234567899';
+  const mockAdminUser = { _id: adminId, id: adminId, role: 'admin' };
 
   const futureDate = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h from now
   const soonDate = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6h from now
@@ -205,16 +210,78 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         null
       );
 
-      expect(mockLedgerPostEntry).toHaveBeenCalledWith(
+      // Now posted as a balanced pair (postDoubleEntry): DEBIT STYLIST / CREDIT PLATFORM.
+      expect(mockLedgerPostDoubleEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           entryType: 'PENALTY_ASSESSMENT',
           accountType: 'STYLIST',
-          direction: 'DEBIT',
+          amountMinor: 20000,
+        }),
+        expect.objectContaining({
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'PLATFORM',
           amountMinor: 20000,
         })
       );
 
       expect(result).toBeDefined();
+    });
+
+    // Regression test: admin cancellation must be priced on the same (no-penalty) branch
+    // as getCancellationQuote already uses for an admin -- previously cancelBooking only
+    // special-cased 'client', so 'admin' fell through to the stylist-penalty branch and
+    // assessed a penalty debt against a stylist who did nothing wrong, disagreeing with
+    // the quote the admin was shown before cancelling.
+    it('does not assess a stylist penalty when an admin cancels a late booking, and refunds at the client rate', async () => {
+      mockBookingFindById.mockResolvedValue(mockLateBooking);
+      mockBookingUpdateById.mockResolvedValueOnce({
+        ...mockLateBooking,
+        status: 'cancelled',
+        cancelledBy: 'admin',
+      });
+      mockPaymentFindByBookingId.mockResolvedValueOnce({
+        _id: 'pay-1',
+        status: 'paid',
+        amount: 1000,
+      });
+
+      await cancelBooking(bookingId, mockAdminUser, {
+        reason: 'Platform-initiated cancellation',
+      });
+
+      expect(mockPenaltyCreate).not.toHaveBeenCalled();
+      expect(mockLedgerPostEntry).not.toHaveBeenCalledWith(
+        expect.objectContaining({ entryType: 'PENALTY_ASSESSMENT' })
+      );
+      // Late-cancel-by-client tier: 80% refund, matching what getCancellationQuote would
+      // have shown this same admin for this same booking.
+      expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
+        expect.objectContaining({ refundPercentage: 80 })
+      );
+    });
+
+    it('quote and actual cancellation agree for an admin on the same booking', async () => {
+      mockBookingFindById.mockResolvedValueOnce(mockLateBooking);
+      const quote = await getCancellationQuote(mockAdminUser, bookingId);
+
+      mockBookingFindById.mockResolvedValue(mockLateBooking);
+      mockBookingUpdateById.mockResolvedValueOnce({
+        ...mockLateBooking,
+        status: 'cancelled',
+        cancelledBy: 'admin',
+      });
+      mockPaymentFindByBookingId.mockResolvedValueOnce({
+        _id: 'pay-1',
+        status: 'paid',
+        amount: 1000,
+      });
+      await cancelBooking(bookingId, mockAdminUser, { reason: 'Platform-initiated' });
+
+      expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
+        expect.objectContaining({ refundPercentage: quote.refundPercentage })
+      );
+      expect(quote.penaltyAmount).toBe(0);
+      expect(mockPenaltyCreate).not.toHaveBeenCalled();
     });
   });
 });

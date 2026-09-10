@@ -11,7 +11,7 @@ jest.unstable_mockModule('../../src/modules/ledger/ledger.repository.js', () => 
     findByBookingId: jest.fn(),
     findByPaymentId: jest.fn(),
     findByPayoutId: jest.fn(),
-    findBySubjectId: jest.fn(),
+    findByAccountId: jest.fn(),
     findByCorrelationId: jest.fn(),
     aggregateBookingBalance: jest.fn(),
   },

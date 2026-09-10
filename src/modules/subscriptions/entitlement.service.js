@@ -1,6 +1,10 @@
 import UsageCounter from './usage-counter.model.js';
 import Request from '../requests/request.model.js';
 import Offer from '../offers/offer.model.js';
+// Documented cross-module exception (see AGENTS.md — "Architecture rules"): entitlement.service
+// may import another module's model directly, but only for read-only countDocuments capacity
+// checks, never writes. WardrobeItem joins Request/Offer under that same exception.
+import WardrobeItem from '../wardrobe/wardrobe-item.model.js';
 import subscriptionRepository from './subscription.repository.js';
 import planRepository from './plan.repository.js';
 import { FALLBACK_FREE_ENTITLEMENTS } from './plan.constants.js';
@@ -65,6 +69,18 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
     return { success: true, used: 0, limit: Infinity };
   }
 
+  // Guard the first-call-of-period bypass: `used: { $lte: limit - count }` below is a range
+  // predicate, so when no counter document exists yet for today Mongo's upsert does NOT copy
+  // it into the inserted document — the insert proceeds unconditionally regardless of `limit`.
+  // A `limit: 0` entitlement (or any `count > limit`) would otherwise grant exactly one free
+  // use per period before the unique-index guard ever gets a chance to fire.
+  if (count > limit) {
+    throw new ApiError(
+      429,
+      `Daily quota exceeded for ${metric}. Your limit is ${limit}/day on the ${planCode} plan. Upgrade your plan for higher limits.`
+    );
+  }
+
   const { startOfDay } = getBusinessDayRange();
   const periodKey = startOfDay.toISOString().split('T')[0]; // "YYYY-MM-DD"
 
@@ -126,8 +142,9 @@ export const capacity = async (userId, metric, role = 'client') => {
       status: OFFER_STATUS.PENDING,
     });
   } else if (metric === 'wardrobe.photos.max') {
-    // Wardrobe module placeholder (Phase 14)
-    used = 0;
+    // WardrobeItem uses hard delete (AGENTS.md), so every remaining document is a live photo —
+    // no isArchived/isDeleted filter needed.
+    used = await WardrobeItem.countDocuments({ userId });
   }
 
   const available = Math.max(0, limit - used);
