@@ -72,9 +72,11 @@ always need is pure overhead.
 
 Index `{ userId: 1, createdAt: -1 }`.
 
-**Do not add `visualizationUrl`.** Image generation is out of V1; if it is ever built, the
-field is added then, which in Mongo costs nothing. Getting this record right is the *entire*
-decoupling requirement for that future feature.
+**Do not add `visualizationUrl`.** This instruction **stands unchanged** after
+`PHASE_15F_VIRTUAL_TRY_ON.md` was added on 2026-09-10, and the reason is now stronger rather
+than weaker: 15F's generated images live in their own `TryOnGeneration` collection, because a
+try-on may reference garments the client uploaded and may have **no `Outfit` at all**. A
+generation is not a property of an outfit. Do not add the field "now that generation exists."
 
 This model is also the evaluation dataset — every recommendation the system makes is
 recoverable, which is what makes prompt regressions measurable.

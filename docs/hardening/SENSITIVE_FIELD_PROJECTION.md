@@ -78,6 +78,15 @@ explicit allowlist parameter); `.select()` should follow the same shape.
 ## When To Fix
 During Final Hardening (pre-production).
 
+> **Note 2026-09-10 — `PHASE_15F` designed around this, not on top of it.**
+> Virtual try-on stores each client's full-body Shape Model photo in its own
+> collection rather than as a `select: false` field on `User`, precisely because
+> this gap would otherwise let `GET /admin/users?fields=shapeModel` return body
+> images to any admin or operator. That choice keeps this item off 15F's critical
+> path — it does **not** reduce its severity for the fields it already affects
+> (`passwordHash`, `sessions`, `otpCode`). **If the Shape Model is ever moved onto
+> `User`, this item becomes a hard pre-15F blocker.**
+
 ## Verification Plan
 - A test confirming `GET /admin/users?fields=passwordHash` (and `sessions`,
   `otpCode`) no longer returns those fields in the response, while legitimate

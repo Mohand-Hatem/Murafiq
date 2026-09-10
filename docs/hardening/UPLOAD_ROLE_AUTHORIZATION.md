@@ -72,7 +72,18 @@ route layer, so any future direct caller of the service is protected too.
   distinct gap (visibility, not write-authorization) and not part of this item.
 
 ## When To Fix
-Before Production / During Final Hardening.
+Before Production / During Final Hardening — **or earlier: this is now a hard blocker for
+`PHASE_15F_VIRTUAL_TRY_ON.md`, whichever comes first.**
+
+> **Promoted 2026-09-10 — prerequisite for Phase 15F.** Phase 15F introduces a
+> `shape-models` upload folder holding full-body photographs of clients. With no per-folder
+> role authorization, any authenticated principal could write into it — and the same gap
+> would apply to the `try-on-results` folder. The fix described above is unchanged in
+> substance; what changed is its scheduling. **15F Step 1 implements it**, together with the
+> related privacy generalization (`PRIVATE_FOLDERS` beyond `kyc-documents`, per-user
+> `public_id` namespacing, and wiring up the currently-dead `getSignedKycUrl` as a general
+> `getSignedUrl`) — which is the "distinct gap" the Dependencies section above flags as worth
+> revisiting in the same pass. It is now genuinely in the same pass.
 
 ## Verification Plan
 - HTTP-level authorization test (matching the pattern established in

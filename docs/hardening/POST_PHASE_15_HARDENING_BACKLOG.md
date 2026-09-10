@@ -25,7 +25,7 @@ this backlog's creation; it is documentation only.
 | HARDEN-001 | Payout batch creation missing CAS guard on `payoutStatus` | HIGH | Concurrency / Money | DEFERRED | Final Hardening |
 | HARDEN-002 | `getPendingBalancesSummary` preview calc diverges from actual batch netting | MEDIUM | Money / Data Integrity | DEFERRED | Final Hardening |
 | HARDEN-003 | `resolveNoShow` performs multiple writes with no Mongoose transaction | HIGH | Concurrency / Money | DEFERRED | Final Hardening |
-| HARDEN-004 | No per-folder role authorization on uploads (KYC bucket writable by any user) | HIGH | Security | DEFERRED | Before Production |
+| HARDEN-004 | No per-folder role authorization on uploads (KYC bucket writable by any user) | HIGH | Security | DEFERRED — **promoted 2026-09-10** | **Blocks `PHASE_15F`**, else Before Production |
 | HARDEN-005 | `NODE_ENV` defaults to development; dev secrets fall back silently | CRITICAL | Security / Production Hardening | DEFERRED | Before Production |
 | HARDEN-006 | Mock payment provider cannot simulate a failed webhook | LOW | Reliability / Testing | DEFERRED | Final Hardening |
 | HARDEN-007 | Swagger path-prefix inconsistency (`/api/v1` doubled) in 2 modules | LOW | Documentation / Tooling | DEFERRED | Final Hardening |
@@ -39,7 +39,8 @@ this backlog's creation; it is documentation only.
 
 ## Recommended Fix Order
 
-1. **Security** — HARDEN-005, HARDEN-004, HARDEN-009
+1. **Security** — HARDEN-005, HARDEN-004 (**earlier if `PHASE_15F` is built** — see
+   the amendment below), HARDEN-009
 2. **Money / Data Integrity** — HARDEN-001, HARDEN-003, HARDEN-002
 3. **Concurrency** — (HARDEN-001 and HARDEN-003 above are also the concurrency
    items; no additional purely-concurrency items beyond those)
@@ -71,6 +72,24 @@ before real user data and real money are at stake, independent of when Phase
 16 itself happens to be scheduled. The remainder are appropriately scheduled
 for Final Hardening rather than treated as launch blockers, per their
 individual priority assessments.
+
+### Amendment 2026-09-10 — Phase 15F interactions
+
+Adding `PHASE_15F_VIRTUAL_TRY_ON.md` (Shape Model + Virtual Try-On) changes the
+scheduling of two items in this backlog, without changing their substance:
+
+- **HARDEN-004 is promoted to a hard prerequisite for 15F.** That phase adds a
+  `shape-models` upload folder containing full-body photographs of clients; with
+  no per-folder role authorization, any authenticated principal could write to
+  it. 15F Step 1 implements the fix, alongside the related upload-privacy
+  generalization. If 15F is built before Phase 16, HARDEN-004 lands first.
+- **HARDEN-009 is *not* promoted — deliberately.** 15F stores the Shape Model in
+  its own collection rather than as a `select: false` field on `User`,
+  specifically so that the `QueryBuilder.select()` projection gap cannot expose
+  body images through `GET /admin/users?fields=…`. This keeps HARDEN-009 off
+  15F's critical path. **If anyone later moves the Shape Model onto `User` for
+  convenience, HARDEN-009 immediately becomes a body-image disclosure and a hard
+  blocker.**
 
 ## Individual Documents
 
