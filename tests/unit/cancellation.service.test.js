@@ -1,7 +1,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import '../../src/common/globals.js';
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingTransitionStatus = jest.fn((id, from, patch, session) =>
+  session ? mockBookingUpdateById(id, patch, session) : mockBookingUpdateById(id, patch)
+);
 const mockScheduleDelete = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
@@ -13,9 +17,11 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    transitionStatus: mockBookingTransitionStatus,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  transitionStatus: mockBookingTransitionStatus,
 }));
 
 jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', () => ({
@@ -195,7 +201,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         amount: 1000,
       });
 
-      const result = await cancelBooking(bookingId, mockStylistUser, {
+      const result = await cancelBooking(mockStylistUser, bookingId, {
         reason: 'Stylist emergency',
       });
 
@@ -245,7 +251,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         amount: 1000,
       });
 
-      await cancelBooking(bookingId, mockAdminUser, {
+      await cancelBooking(mockAdminUser, bookingId, {
         reason: 'Platform-initiated cancellation',
       });
 
@@ -275,7 +281,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         status: 'paid',
         amount: 1000,
       });
-      await cancelBooking(bookingId, mockAdminUser, { reason: 'Platform-initiated' });
+      await cancelBooking(mockAdminUser, bookingId, { reason: 'Platform-initiated' });
 
       expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
         expect.objectContaining({ refundPercentage: quote.refundPercentage })
@@ -293,11 +299,20 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
       mockBookingFindById.mockResolvedValue({ ...mockLateBooking, status: 'in-progress' });
 
       await expect(
-        cancelBooking(bookingId, mockClientUser, { reason: 'Changed my mind' })
+        cancelBooking(mockClientUser, bookingId, { reason: 'Changed my mind' })
       ).rejects.toThrow(/in progress/i);
 
       expect(mockBookingUpdateById).not.toHaveBeenCalled();
       expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    });
+
+    it('refuses to cancel if booking left confirmed status after read (CAS race)', async () => {
+      mockBookingFindById.mockResolvedValueOnce(mockLateBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      await expect(
+        cancelBooking(mockClientUser, bookingId, { reason: 'Changed my mind' })
+      ).rejects.toThrow(/no longer cancellable/i);
     });
   });
 });

@@ -60,7 +60,7 @@ export const getCancellationQuote = asyncHandler(async (req, res) => {
 });
 
 export const cancelBooking = asyncHandler(async (req, res) => {
-  const booking = await bookingService.cancelBooking(req.params.id, req.user, req.body);
+  const booking = await bookingService.cancelBooking(req.user, req.params.id, req.body);
   return ApiResponse.success(res, {
     message: 'Booking cancelled successfully',
     data: booking,

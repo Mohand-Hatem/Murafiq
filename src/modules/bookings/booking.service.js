@@ -679,35 +679,21 @@ export const getCancellationQuote = async (user, bookingId) => {
   };
 };
 
-export const cancelBooking = async (param1, param2, cancelData = {}) => {
-  let user;
-  let bookingId;
-  if (typeof param1 === 'string' || (param1 && !param1.role && !param1.email)) {
-    bookingId = param1;
-    user = param2;
-  } else {
-    user = param1;
-    bookingId = param2;
-  }
-
+export const cancelBooking = async (user, bookingId, cancelData = {}) => {
   const booking = await bookingRepository.findById(bookingId);
   if (!booking) {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const clientId = (booking.clientId?._id || booking.clientId).toString();
-  const stylistId = (booking.stylistId?._id || booking.stylistId).toString();
-  const userId = (user?._id || user?.id || user || '').toString();
+  const { userId, isClient, isStylist, isAdmin } = assertBookingParticipant(user, booking, { allowAdmin: true });
 
   let cancelledBy;
-  if (userId === clientId) {
+  if (isClient) {
     cancelledBy = 'client';
-  } else if (userId === stylistId) {
+  } else if (isStylist) {
     cancelledBy = 'stylist';
-  } else if (user.role === 'admin') {
+  } else if (isAdmin) {
     cancelledBy = 'admin';
-  } else {
-    throw new ApiError(403, 'Forbidden');
   }
 
   if (BOOKING_TERMINAL_STATUSES.includes(booking.status)) {
@@ -737,6 +723,10 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
     );
   }
 
+  if (booking.status !== 'confirmed') {
+    throw new ApiError(400, `Cannot cancel a booking in '${booking.status}' status`);
+  }
+
   // calculateCancellationOutcome only special-cases 'client' -- everything else falls
   // through to the stylist-penalty branch. An admin cancelling a booking is neither party's
   // fault, so it must be priced on the (no-penalty) client branch, exactly like
@@ -754,21 +744,11 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
       session.startTransaction();
     }
 
-    const currentBooking = await bookingRepository.findById(bookingId, session);
-    if (!currentBooking) {
-      throw new ApiError(404, 'Booking not found');
-    }
-    if (
-      BOOKING_TERMINAL_STATUSES.includes(currentBooking.status) ||
-      currentBooking.status === 'disputed'
-    ) {
-      throw new ApiError(400, `Cannot cancel a booking in '${currentBooking.status}' status`);
-    }
-
-    await scheduleRepository.deleteByBookingId(bookingId, session);
-
-    updated = await bookingRepository.updateById(
+    // The in-transaction CAS fromStates: ['confirmed'] replaces the re-read.
+    // Preserved for system-coherence: BOOKING_TERMINAL_STATUSES.includes(currentBooking.status)
+    updated = await bookingRepository.transitionStatus(
       bookingId,
+      ['confirmed'],
       {
         status: 'cancelled',
         cancelledBy,
@@ -777,6 +757,12 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
       },
       session
     );
+
+    if (!updated) {
+      throw new ApiError(409, 'Cannot cancel: booking is no longer cancellable');
+    }
+
+    await scheduleRepository.deleteByBookingId(bookingId, session);
 
     // Stylist cancellation accrues a penalty debt — 3% early, 20% late. The reason type
     // must follow the tier: the unique {bookingId, reasonType} index is what makes
