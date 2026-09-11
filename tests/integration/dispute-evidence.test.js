@@ -26,15 +26,18 @@ const mockDisputedBooking = {
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingTransitionStatus = jest.fn((id, from, patch, session) => mockBookingUpdateById(id, patch, session));
 
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    transitionStatus: mockBookingTransitionStatus,
     findCompletedAndCancelledByStylistId: jest.fn().mockResolvedValue([]),
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  transitionStatus: mockBookingTransitionStatus,
   findCompletedAndCancelledByStylistId: jest.fn().mockResolvedValue([]),
 }));
 
@@ -112,6 +115,21 @@ describe('Stage R9 Integration — Dispute Evidence & Arbitration Endpoints', ()
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+    });
+
+    it('refuses to submit evidence if booking left disputed status after the read (CAS race)', async () => {
+      mockBookingFindById.mockResolvedValue(mockDisputedBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post(`/api/v1/bookings/${bookingId}/dispute/evidence`)
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({
+          text: 'Photo taken right after the session',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/not in disputed status/i);
     });
   });
 

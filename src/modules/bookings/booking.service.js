@@ -15,6 +15,7 @@ import { timeToMinutes } from '../../common/utils/timeUtils.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
+import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import {
   PAYMENT_STATUS,
@@ -388,13 +389,7 @@ export const addDisputeEvidence = async (user, bookingId, { text, images = [] })
     throw new ApiError(400, 'Cannot submit evidence: booking is not in disputed status');
   }
 
-  const userId = (user._id || user.id).toString();
-  const clientId = (booking.clientId._id || booking.clientId).toString();
-  const stylistId = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (userId !== clientId && userId !== stylistId && user.role !== ROLES.ADMIN) {
-    throw new ApiError(403, 'Forbidden: You are not a participant in this booking');
-  }
+  const { userId } = assertBookingParticipant(user, booking, { allowAdmin: true });
 
   if (text) {
     await moderationService.scanAndEnforce(userId, 'MESSAGE', text, { bookingId });
@@ -407,9 +402,13 @@ export const addDisputeEvidence = async (user, bookingId, { text, images = [] })
     submittedAt: new Date(),
   };
 
-  const updated = await bookingRepository.updateById(bookingId, {
+  const updated = await bookingRepository.transitionStatus(bookingId, ['disputed'], {
     $push: { 'disputeDetails.evidence': evidenceEntry },
   });
+
+  if (!updated) {
+    throw new ApiError(400, 'Cannot submit evidence: booking is not in disputed status');
+  }
 
   return toPublicBookingDto(updated);
 };

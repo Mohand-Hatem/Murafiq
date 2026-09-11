@@ -180,11 +180,12 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
  * @returns {Promise<Object|null>}
  */
 export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
-  if (patch.status) {
+  const targetStatus = patch?.status ?? patch?.$set?.status;
+  if (targetStatus) {
     for (const from of fromStates) {
-      if (!isLegalTransition(from, patch.status)) {
+      if (!isLegalTransition(from, targetStatus)) {
         throw new Error(
-          `Illegal booking transition declared: '${from}' -> '${patch.status}'. ` +
+          `Illegal booking transition declared: '${from}' -> '${targetStatus}'. ` +
             'Update BOOKING_TRANSITIONS deliberately if this is a real new edge.'
         );
       }
@@ -194,9 +195,12 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
   const options = { returnDocument: 'after', runValidators: true };
   if (session) options.session = session;
 
+  const hasOperator = Object.keys(patch || {}).some((key) => key.startsWith('$'));
+  const updateDoc = hasOperator ? patch : { $set: patch };
+
   return Booking.findOneAndUpdate(
     { _id: bookingId, status: { $in: fromStates } },
-    { $set: patch },
+    updateDoc,
     options
   ).populate([
     { path: 'clientId', select: 'name profileImage' },
