@@ -1,4 +1,5 @@
 import Booking from './booking.model.js';
+import { isLegalTransition } from './booking.transitions.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -158,6 +159,51 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
   ]);
 };
 
+/**
+ * The one compare-and-set primitive for booking lifecycle writes.
+ *
+ * Generalises the three hand-written CAS functions above (setCompletionConfirmation,
+ * promoteToCompleted, settleNoShow) so the five writers that previously used the
+ * precondition-free updateById get the same protection. Returns the updated document, or
+ * `null` when the CAS lost -- the booking moved on between the caller's read and this
+ * write. Callers MUST treat null as "the booking is no longer in a state this operation
+ * applies to" and surface a 400/409, never retry blindly and never fall back to updateById.
+ *
+ * The legality assertion is a DEVELOPER guard, not a runtime authorization check: it fails
+ * loudly if a caller asks for a transition BOOKING_TRANSITIONS does not contain, which is
+ * a programming error. Authorization stays in the service layer.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} bookingId
+ * @param {string[]} fromStates  statuses this write is allowed to apply from
+ * @param {Object}   patch       $set payload; `patch.status` is the target status
+ * @param {import('mongoose').ClientSession|null} [session]
+ * @returns {Promise<Object|null>}
+ */
+export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
+  if (patch.status) {
+    for (const from of fromStates) {
+      if (!isLegalTransition(from, patch.status)) {
+        throw new Error(
+          `Illegal booking transition declared: '${from}' -> '${patch.status}'. ` +
+            'Update BOOKING_TRANSITIONS deliberately if this is a real new edge.'
+        );
+      }
+    }
+  }
+
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: { $in: fromStates } },
+    { $set: patch },
+    options
+  ).populate([
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
+  ]);
+};
+
 
 // Used by payouts (cross-module): bookings eligible for a specific stylist's payout batch —
 // completed, unpaid, and past the dispute-window hold. Keeps the payouts module off the raw
@@ -263,6 +309,7 @@ export default {
   setCompletionConfirmation,
   promoteToCompleted,
   settleNoShow,
+  transitionStatus,
   getBookingStats,
 };
 
