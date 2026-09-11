@@ -87,6 +87,10 @@ describe('Money-affecting events are audit-logged', () => {
       'PAYMENT_REFUNDED',
       'PAYOUT_PAID',
       'DISPUTE_RESOLVED',
+      // Grants paid-tier entitlements with no payment behind it. Not a ledger movement, but
+      // it hands out something of value on one admin's say-so, so losing its audit listener
+      // would be exactly as bad as losing a refund's.
+      'SUBSCRIPTION_ADMIN_GRANTED',
     ];
     const missing = mustAudit.filter((k) => !audit.includes(`EVENTS.${k}`));
     expect(missing).toEqual([]);

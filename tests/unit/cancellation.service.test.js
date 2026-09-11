@@ -283,5 +283,21 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
       expect(quote.penaltyAmount).toBe(0);
       expect(mockPenaltyCreate).not.toHaveBeenCalled();
     });
+
+    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X10: a session
+    // already checked into ('in-progress') used to be cancellable like any other booking,
+    // letting a client collect an 80% refund for work the stylist actually performed,
+    // with no recourse for the stylist (fileDispute requires 'in-progress' or 'completed',
+    // never 'cancelled' -- so once cancelled the stylist had no way back).
+    it('refuses to cancel a session already in progress', async () => {
+      mockBookingFindById.mockResolvedValue({ ...mockLateBooking, status: 'in-progress' });
+
+      await expect(
+        cancelBooking(bookingId, mockClientUser, { reason: 'Changed my mind' })
+      ).rejects.toThrow(/in progress/i);
+
+      expect(mockBookingUpdateById).not.toHaveBeenCalled();
+      expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    });
   });
 });

@@ -281,5 +281,33 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
       expect(res.body.data.status).toBe('partially_refunded');
       expect(res.body.data.refundAmount).toBe(750.0);
     });
+
+    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X21: the schema was
+    // `.strict()` with no field for the stylist's share of a partial refund, so this
+    // request body was silently rejected (or, before that, always forwarded as 0
+    // regardless of what the admin wanted) -- an admin had no way to let the stylist
+    // keep any of a partial goodwill refund even when that was the deliberate intent.
+    it('honours an explicit stylistPayoutOverrideAmount instead of always zeroing it', async () => {
+      mockFindPaymentByBookingId.mockResolvedValueOnce({
+        ...mockPayment,
+        status: 'paid',
+        providerTransactionId: 'mock_tx_paid',
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/payments/${bookingId}/refund`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          refundPercentage: 50,
+          reason: 'Goodwill 50/50 split with the stylist',
+          stylistPayoutOverrideAmount: 500,
+        });
+
+      expect(res.status).toBe(200);
+      // Retained = 1000 - 500 (50% refund) = 500. The whole retained amount goes to the
+      // stylist per the override, leaving nothing for the platform.
+      expect(res.body.data.stylistPayoutAmount).toBe(500);
+      expect(res.body.data.platformFeeAmount).toBe(0);
+    });
   });
 });

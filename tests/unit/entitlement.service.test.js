@@ -93,6 +93,56 @@ describe('Entitlement Service (Unit)', () => {
       expect(result.entitlements['requests.daily']).toBe(4);
       expect(result.entitlements['ai.messages.daily']).toBe(80);
     });
+
+    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X16: entitlements
+    // used to be resolved purely from `status: 'active'` with no comparison against
+    // currentPeriodEnd, so a plan that had already lapsed kept granting full paid
+    // entitlements until the once-daily renewal sweep got around to downgrading it.
+    it('falls back to Free entitlements once currentPeriodEnd has passed, even though status is still active', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({
+        planCode: 'client.pro',
+        currentPeriodEnd: new Date(Date.now() - 60 * 1000), // lapsed one minute ago
+      });
+
+      const result = await getEntitlements(clientId, 'client');
+
+      expect(result.planCode).toBe('client.free');
+      expect(result.tier).toBe('free');
+      expect(mockFindByCode).not.toHaveBeenCalled();
+    });
+
+    it('still grants a paid plan whose currentPeriodEnd is in the future', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({
+        planCode: 'client.pro',
+        currentPeriodEnd: new Date(Date.now() + 60 * 1000),
+      });
+      mockFindByCode.mockResolvedValueOnce({
+        code: 'client.pro',
+        tier: 'pro',
+        entitlements: { 'requests.daily': 4 },
+      });
+
+      const result = await getEntitlements(clientId, 'client');
+
+      expect(result.planCode).toBe('client.pro');
+    });
+
+    it('still grants a Free plan whose currentPeriodEnd is null (never expires)', async () => {
+      mockFindActiveByUserId.mockResolvedValueOnce({
+        planCode: 'client.free',
+        currentPeriodEnd: null,
+      });
+      mockFindByCode.mockResolvedValueOnce({
+        code: 'client.free',
+        tier: 'free',
+        entitlements: { 'requests.daily': 1 },
+      });
+
+      const result = await getEntitlements(clientId, 'client');
+
+      expect(result.planCode).toBe('client.free');
+      expect(mockFindByCode).toHaveBeenCalled();
+    });
   });
 
   describe('consume', () => {

@@ -9,6 +9,10 @@ export const recordAction = async ({
   targetId,
   metadata = {},
   ip = null,
+  // Defaults to the model's own 'info'. Passed through rather than ignored so a caller that
+  // marks an action 'warn'/'critical' (e.g. an admin granting paid entitlements for free)
+  // actually lands at that severity instead of being silently downgraded.
+  severity = undefined,
 }) => {
   try {
     return await auditLogRepository.create({
@@ -19,6 +23,7 @@ export const recordAction = async ({
       targetId: String(targetId),
       metadata,
       ip,
+      ...(severity ? { severity } : {}),
     });
   } catch (err) {
     logger.error(`Failed to write audit log for action ${action}: ${err.message}`);

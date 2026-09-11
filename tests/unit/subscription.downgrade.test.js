@@ -14,6 +14,10 @@ const mockFindActiveByUserId = jest.fn();
 const mockUpdateById = jest.fn();
 const mockCreateSubscription = jest.fn();
 const mockPostEntry = jest.fn();
+// The immediate-grant path writes through replaceActivePlanCAS and snapshots the replaced
+// plan first; only the SCHEDULED downgrade still goes through the plain updateById.
+const mockReplaceActivePlanCAS = jest.fn();
+const mockCreateHistoryEntry = jest.fn();
 
 jest.unstable_mockModule('../../src/modules/subscriptions/plan.repository.js', () => ({
   default: { findByCode: mockFindByCode },
@@ -24,10 +28,14 @@ jest.unstable_mockModule('../../src/modules/subscriptions/subscription.repositor
     findActiveByUserId: mockFindActiveByUserId,
     updateById: mockUpdateById,
     createSubscription: mockCreateSubscription,
+    replaceActivePlanCAS: mockReplaceActivePlanCAS,
+    createHistoryEntry: mockCreateHistoryEntry,
   },
   findActiveByUserId: mockFindActiveByUserId,
   updateById: mockUpdateById,
   createSubscription: mockCreateSubscription,
+  replaceActivePlanCAS: mockReplaceActivePlanCAS,
+  createHistoryEntry: mockCreateHistoryEntry,
 }));
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: { postEntry: mockPostEntry, egpToPiastres: (n) => Math.round(n * 100) },
@@ -49,6 +57,8 @@ const ENTERPRISE = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockUpdateById.mockImplementation((_id, data) => Promise.resolve({ _id, ...data }));
+  mockReplaceActivePlanCAS.mockImplementation((_id, data) => Promise.resolve({ _id, ...data }));
+  mockCreateHistoryEntry.mockResolvedValue({});
 });
 
 describe('subscribe() — downgrade handling', () => {
@@ -86,9 +96,11 @@ describe('subscribe() — downgrade handling', () => {
     const result = await subscribe(USER, 'client', { planCode: 'client.enterprise', paid: true });
 
     expect(result.scheduled).toBeUndefined();
-    const [, update] = mockUpdateById.mock.calls[0];
+    const [, update] = mockReplaceActivePlanCAS.mock.calls[0];
     expect(update.planCode).toBe('client.enterprise');
     expect(update.currentPeriodEnd).toBeInstanceOf(Date);
+    // An upgrade is a PAID transition -- provenance must say so, not 'admin_grant'.
+    expect(update.source).toBe('paid');
   });
 
   it('clears a queued downgrade when the user upgrades instead', async () => {
@@ -101,7 +113,7 @@ describe('subscribe() — downgrade handling', () => {
 
     await subscribe(USER, 'client', { planCode: 'client.enterprise', paid: true });
 
-    const [, update] = mockUpdateById.mock.calls[0];
+    const [, update] = mockReplaceActivePlanCAS.mock.calls[0];
     expect(update.pendingPlanCode).toBeNull();
     expect(update.pendingBillingCycle).toBeNull();
   });
@@ -119,7 +131,7 @@ describe('subscribe() — downgrade handling', () => {
     const result = await subscribe(USER, 'client', { planCode: 'client.basic', paid: true });
 
     expect(result.scheduled).toBeUndefined();
-    const [, update] = mockUpdateById.mock.calls[0];
+    const [, update] = mockReplaceActivePlanCAS.mock.calls[0];
     expect(update.planCode).toBe('client.basic');
   });
 

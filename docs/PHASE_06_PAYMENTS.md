@@ -67,22 +67,33 @@ const stylistPayoutAmount = round2(amount - platformFeeAmount);
 
 ### B. Cancellation Refund Policy
 
-| Who Cancels | Timing | Client Refund | Platform Keeps | Stylist Payout |
-|---|---|---|---|---|
-| **Client** | **≥ 24 hours** before session | **100%** (`refundAmount = amount`) | **0%** (`0.00 EGP`) | `0.00 EGP` |
-| **Client** | **< 24 hours** before session | **75%** (`round2(amount * 0.75)`) | **25%** (`round2(amount * 0.25)`) | `0.00 EGP` |
-| **Stylist** | **Any time** / no-show | **100%** (`refundAmount = amount`) | **0%** (`0.00 EGP`) | `0.00 EGP` |
+> **Corrected 2026-09-11** — the Business Rules Revision's Stage R6 changed the client
+> tiers from 100%/75% to 97%/80% and added a stylist cancellation penalty; this table had
+> not been updated to match. See `src/common/constants/statuses.constant.js`
+> `CANCELLATION_POLICY` for the authoritative values.
+
+| Who Cancels | Timing | Client Refund | Platform Keeps | Stylist Payout | Stylist Penalty |
+|---|---|---|---|---|---|
+| **Client** | **≥ 24 hours** before session | **97%** (`round2(amount * 0.97)`) | **3%** (`round2(amount * 0.03)`) | `0.00 EGP` | — |
+| **Client** | **< 24 hours** before session | **80%** (`round2(amount * 0.80)`) | **20%** (`round2(amount * 0.20)`) | `0.00 EGP` | — |
+| **Stylist** | **≥ 24 hours** before session | **100%** (`refundAmount = amount`) | **0%** (`0.00 EGP`) | `0.00 EGP` | **3%**, accrued as debt against a future payout |
+| **Stylist** | **< 24 hours** before session | **100%** (`refundAmount = amount`) | **0%** (`0.00 EGP`) | `0.00 EGP` | **20%**, accrued as debt; client also becomes coupon-eligible |
+
+A stylist penalty is separate money from the client's refund, not a split of the retained
+amount — the client always gets their configured percentage back regardless of what the
+stylist owes.
 
 *Example (Session Price = 1000.00 EGP):*
 1. Client cancels 30 hours before session:
-   - Client Refund = `1000.00 EGP`
-   - Platform keeps = `0.00 EGP`
+   - Client Refund = `970.00 EGP`
+   - Platform keeps = `30.00 EGP`
 2. Client cancels 10 hours before session:
-   - Client Refund = `750.00 EGP`
-   - Platform keeps = `250.00 EGP`
+   - Client Refund = `800.00 EGP`
+   - Platform keeps = `200.00 EGP`
 3. Stylist cancels 2 hours before session:
    - Client Refund = `1000.00 EGP`
    - Platform keeps = `0.00 EGP`
+   - Stylist penalty assessed = `200.00 EGP` (20%, settled against a future payout)
 
 ---
 
@@ -158,7 +169,7 @@ class PaymentProviderInterface {
 - [x] Mock provider: full initialize → callback → `status: paid` flow works end-to-end.
 - [x] `platformFeeAmount` + `stylistPayoutAmount` always sum to `amount` exactly (verified via unit test with decimal values).
 - [x] All amounts in the DB and API responses are decimal EGP values (e.g. `250.00`, `750.00`).
-- [x] Cancellation refund policy strictly follows the 100% (≥24h) / 75% (<24h) / 100% (stylist) breakdown.
+- [x] Cancellation refund policy strictly follows the 97%/3% (≥24h) / 80%/20% (<24h) client tiers, plus the 100%-refund / 3%-or-20%-penalty stylist tiers (see §3.B above, corrected 2026-09-11).
 - [x] Attempting to check in to a booking with an unpaid Payment is blocked (`400`).
 - [x] Paymob Intention API initialization and HMAC webhook signature verification are covered with unit tests.
 - [x] `PaymentSucceeded` event fires with correct payload.

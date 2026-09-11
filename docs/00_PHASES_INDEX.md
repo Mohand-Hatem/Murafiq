@@ -37,6 +37,16 @@ Rule for every phase: **do not start writing code for a phase until the previous
 > unresolved after the pre-Phase-15 audit fix pass and must be reviewed again before
 > production deployment.
 
+> **Before resuming Phase 15, read
+> [`AUDIT_2026_09_FULL_SYSTEM.md`](AUDIT_2026_09_FULL_SYSTEM.md)** — a full
+> Phase-0-to-15 audit (2026-09-11) covering all source, all 68 docs, cross-phase
+> consistency, concurrency and Phase 15 readiness. It records **6 P0 defects that the
+> passing test suite does not catch** — including a stylist no-show that never refunds
+> the client, a moderation enforcement gate that can never fire, and an inoperative OTP
+> lockout. Verdict: **⚠️ continue with fixes**; close P0 before Phase 15 code or any
+> deployment. It also re-verifies all 14 `POST_PHASE_15_HARDENING_BACKLOG` items —
+> **none has been fixed**.
+
 > **Not a phase — see `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`.** A cross-cutting revision of business rules (subscriptions/entitlements, financial ledger, request/offer lifecycle, cancellation & no-show policy, chat moderation, coupons, stylist reliability) is specified in `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`, with `REVISION_HANDOFF.md` as its implementation brief.
 >
 > It is **deliberately not numbered as Phase 17.** The `PHASE_XX` files are a build sequence that adds modules in dependency order; the revision instead *changes rules across modules that are already built* — the same role the `HARDENING_*` docs play. Its internal stages are labelled `R0`–`R12`.

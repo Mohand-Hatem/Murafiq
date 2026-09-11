@@ -80,6 +80,40 @@ Legend:
 > **Business Rules Revision — Stages R0 through R12: 100% COMPLETE & VERIFIED.** `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`
 > (added 2026-08-27) is a cross-cutting revision of business rules across Phases 1–13, **not a Phase 17**
 > — it does not extend the build sequence and does not wait on Phases 14–16. Its stages are `R0`–`R12`.
+### Subscriptions — manual admin entitlement (added 2026-09-11)
+
+Three admin-only endpoints now sit alongside the paid Paymob flow:
+`GET`/`POST /api/v1/admin/users/:userId/subscription` and
+`GET /api/v1/admin/users/:userId/subscription/history`.
+
+- **Not a payment.** The grant never calls the payment provider and creates no `Payment`,
+  no `SubscriptionOrder` and **no `LedgerEntry`** — a comp that minted balanced ledger rows
+  would book revenue nobody paid while still reconciling cleanly, so nothing would alert.
+- **Same entitlements as a paid plan.** Both the webhook and the admin grant write through one
+  primitive, `subscriptionService.applyPlanGrant()`, so the two cannot drift.
+- **Provenance.** `Subscription.source` is `free_default` | `paid` | `admin_grant`, plus
+  `grantedBy` / `grantReason`.
+- **History.** Every plan transition is snapshotted into the new append-only
+  `SubscriptionHistory` collection before the live row is overwritten. The implicit free-tier
+  provisioning in `ensureUserSubscription` is the one exception — it replaces nothing.
+- **Semantics.** A grant REPLACES the current period outright (no stacking); admin downgrades
+  and revocations to `*.free` apply IMMEDIATELY, bypassing the customer-facing
+  scheduled-downgrade rule.
+- **RBAC.** `restrictTo(ROLES.ADMIN)` only — deliberately not `ROLES.OPERATOR`.
+
+### Subscriptions — one-active-row invariant (added 2026-09-11)
+
+`Subscription` now carries a partial unique index `uniq_active_subscription_per_user`
+(`{ userId: 1 }` where `status: 'active'`). The previous `{ userId, currentPeriodStart }`
+constraint did nothing to stop two active rows for one user, and `findActiveByUserId` picked
+between them arbitrarily. `ensureUserSubscription` is now a findOrCreate that swallows E11000
+and re-reads, and the grant path writes through `replaceActivePlanCAS` (a compare-and-swap
+keyed on `status: 'active'`) instead of a bare `updateById`.
+
+**Before deploying to an existing database**, run the read-only pre-flight:
+`node scripts/check-duplicate-active-subscriptions.js` — it exits non-zero and names every user
+holding duplicate active rows. It never deletes or merges anything.
+
 > **Stage R0 (Corrections), Stage R1 (Domain Foundation), Stage R2 (Financial Ledger), Stage R3 (Subscriptions & Entitlements Engine), Stage R4 (Request Lifecycle Revision), Stage R5 (Offer Lifecycle Revision), Stage R6 (Cancellation, Refunds & Penalties), Stage R7 (Safety & Real-Time Content Moderation), Stage R8 (Reviews & Reliability Scoring), Stage R9 (Disputes & Arbitration Enforcement), Stage R10 (Geo / Location Engine & Egyptian Administrative Hierarchy), Stage R11 (Admin & Operations Controls), and Stage R12 (Final Verification, Full 73-Suite Regression & Rollout Hardening) are 100% complete, passing, and verified.** All blocking business values are now decided (see its Decisions
 > Log); two human sign-offs remain before the moderation enforcement cutover.
 

@@ -1,13 +1,29 @@
-import { toPublicUser } from '../auth/auth.dto.js';
-import { toPublicClientDto } from '../users/user.dto.js';
 import { minutesToTime } from '../../common/utils/timeUtils.js';
+
+// Deliberately NOT toPublicUser (email/phone/role/accountStatus) and NOT
+// toPublicClientDto (client-specific fields — rating, verification — that make no sense
+// on a stylist and are undefined anyway once the populate below is fixed). A booking
+// response only ever needs to show the counterparty's name and photo. This was the fix
+// half of docs/AUDIT_2026_09_FULL_SYSTEM.md finding X26: the populate `.select()` was
+// requesting nonexistent fields (`nameEn nameAr`, copy-pasted from the governorate
+// shape), so `name` came back `undefined` on every booking response -- and simply
+// widening that select without ALSO replacing toPublicUser here would have started
+// leaking the stylist's email and phone to every client on every booking read.
+const toBookingParty = (userDoc) => {
+  if (!userDoc || typeof userDoc !== 'object') return userDoc || null;
+  return {
+    id: (userDoc._id || userDoc.id)?.toString(),
+    name: userDoc.name || null,
+    profileImage: userDoc.profileImage || null,
+  };
+};
 
 export const toPublicBookingDto = (bookingDoc) => {
   if (!bookingDoc) return null;
   const doc = bookingDoc.toObject ? bookingDoc.toObject() : bookingDoc;
 
-  const client = doc.clientId && typeof doc.clientId === 'object' ? toPublicClientDto(doc.clientId) : doc.clientId;
-  const stylist = doc.stylistId && typeof doc.stylistId === 'object' ? toPublicUser(doc.stylistId) : doc.stylistId;
+  const client = toBookingParty(doc.clientId);
+  const stylist = toBookingParty(doc.stylistId);
 
   return {
     id: doc._id?.toString() || doc.id,

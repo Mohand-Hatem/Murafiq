@@ -49,10 +49,28 @@ describe('QueryBuilder Unit Tests', () => {
     expect(mockMongooseQuery.select).toHaveBeenCalledWith('name email');
   });
 
-  it('should strip "+" so a client cannot force-select a select:false field', () => {
+  // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X23: this test's own
+  // name says a client cannot force-select a select:false field, but its assertion used
+  // to prove the opposite -- passwordHash was still passed straight through to
+  // `.select()` after only the `+` character was stripped. Mongoose's `select: false` is
+  // a DEFAULT projection, and naming the field explicitly overrides that default, so the
+  // old behavior was a live latent leak, closed here by an actual denylist.
+  it('strips a select:false field name outright, not just its "+" prefix', () => {
     const qb = new QueryBuilder(mockMongooseQuery, { fields: '+passwordHash,name' });
     qb.select();
-    expect(mockMongooseQuery.select).toHaveBeenCalledWith('passwordHash name');
+    expect(mockMongooseQuery.select).toHaveBeenCalledWith('name');
+  });
+
+  it('falls back to the default exclusion when every requested field is sensitive', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, { fields: 'passwordHash,otpCode' });
+    qb.select();
+    expect(mockMongooseQuery.select).toHaveBeenCalledWith('-__v');
+  });
+
+  it('strips a select:false field name from a client-supplied sort too', () => {
+    const qb = new QueryBuilder(mockMongooseQuery, { sort: 'otpAttempts,-createdAt' });
+    qb.sort();
+    expect(mockMongooseQuery.sort).toHaveBeenCalledWith('-createdAt');
   });
 
   it('should not treat an operator-like string value as a Mongo operator', () => {

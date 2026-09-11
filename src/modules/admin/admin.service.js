@@ -2,6 +2,7 @@ import userService from '../users/user.service.js';
 import userRepository from '../users/user.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
+import subscriptionService from '../subscriptions/subscription.service.js';
 import { getBusinessMonthRange } from '../../common/utils/businessDay.util.js';
 
 export const getVerifications = async (queryString) => {
@@ -63,6 +64,24 @@ export const unblockUser = async (userId, adminId, notes) => {
   return userService.unblockUser(userId, adminId, notes);
 };
 
+// --- Manual subscription entitlement (administrative, NOT a customer payment) ---
+// Thin delegations, matching how verification and moderation defer to userService:
+// subscriptionService owns the Subscription aggregate, so the rules live there and this
+// module stays the HTTP-facing admin surface. Note what is absent -- no payment provider,
+// no Payment, no SubscriptionOrder, no ledger write.
+
+export const grantSubscription = async (targetUserId, adminId, payload) => {
+  return subscriptionService.adminGrantSubscription(targetUserId, adminId, payload);
+};
+
+export const getUserSubscription = async (targetUserId) => {
+  return subscriptionService.getSubscriptionForAdmin(targetUserId);
+};
+
+export const getUserSubscriptionHistory = async (targetUserId, queryString) => {
+  return subscriptionService.getSubscriptionHistory(targetUserId, queryString);
+};
+
 export default {
   getVerifications,
   getAllUsers,
@@ -76,4 +95,7 @@ export default {
   unrestrictUser,
   revokeUserSessions,
   getDashboardStats,
+  grantSubscription,
+  getUserSubscription,
+  getUserSubscriptionHistory,
 };

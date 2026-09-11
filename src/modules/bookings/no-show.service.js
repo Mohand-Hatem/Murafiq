@@ -131,6 +131,9 @@ export const respondToNoShow = async (user, bookingId, { contest, message = '' }
   if (contest) {
     const updated = await bookingRepository.updateById(bookingId, {
       status: BOOKING_STATUS.DISPUTED,
+      // Snapshot the pre-dispute status so adminResolveNoShow can restore it exactly on
+      // dismissal, instead of assuming every no-show report was filed from 'confirmed'.
+      'noShowDetails.contestedFromStatus': booking.status,
       'noShowDetails.respondedAt': new Date(),
       'noShowDetails.response': message,
       disputeDetails: {
@@ -200,18 +203,41 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
   // Free the stylist's calendar slot — the session is not happening.
   await scheduleRepository.deleteByBookingId(bookingId);
 
-  const updated = await bookingRepository.updateById(bookingId, {
+  // Claim the booking atomically, guarded on it still being in a REPORTABLE status.
+  // Without this CAS, a race between this no-show sweep and a genuine mutual-completion
+  // confirmation landing at the same time could overwrite a booking that actually just
+  // completed successfully -- money already earned, reliability already recomputed --
+  // with a no-show status. Deliberately does NOT set payoutStatus yet: that write comes
+  // after the refund below, not before (see the X1 note there). See
+  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X9.
+  const claimed = await bookingRepository.settleNoShow(bookingId, {
     status: targetStatus,
     'noShowDetails.confirmedBy': confirmedBy,
     'noShowDetails.confirmedAt': new Date(),
-    payoutStatus: policy.STYLIST_PERCENTAGE > 0 ? 'unpaid' : 'paid', // 'paid' == nothing owed
   });
+  if (!claimed) {
+    // The booking moved on (most likely: both parties confirmed completion) between our
+    // initial read and this write. Nothing financial has happened yet, so there is
+    // nothing to unwind -- just report the booking's actual current state.
+    const current = await bookingRepository.findById(bookingId);
+    logger.warn(
+      `resolveNoShow: booking ${bookingId} left status '${booking.status}' before it could be settled; no money moved.`
+    );
+    return toPublicBookingDto(current);
+  }
 
-  // 1. Refund the client their share, and preserve the stylist's policy-entitled cut of
-  //    whatever isn't refunded (NO_SHOW_POLICY.CLIENT.STYLIST_PERCENTAGE — e.g. the stylist
-  //    travelled and lost the slot on a client no-show, so they keep 20%). Computed against
-  //    payment.amount (what was actually collected, post-coupon), matching how processRefund
-  //    itself computes the refunded/retained split.
+  // Refund BEFORE flipping the booking's own payoutStatus. processRefund() refuses to run
+  // once booking.payoutStatus is anything other than 'unpaid' (its guard means "this booking
+  // has already been batched into a real Payout, reconcile that first"). At this point in the
+  // flow payoutStatus is still whatever it was before this no-show was reported -- 'unpaid',
+  // since only a completed/no-show-client booking can ever be batched -- so calling the refund
+  // here is always correctly attempted regardless of which side is at fault.
+  //
+  // This ordering used to be reversed: the booking below was updated to
+  // payoutStatus:'paid' FIRST when policy.STYLIST_PERCENTAGE is 0 (meaning "nothing owed to
+  // the stylist"), and processRefund's guard then read that same 'paid' value as "already
+  // disbursed, refuse" -- so a stylist no-show (STYLIST_PERCENTAGE: 0) permanently and
+  // silently failed to refund the client. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X1.
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
     try {
@@ -229,6 +255,10 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
       logger.error(`No-show refund failed for booking ${bookingId}: ${refundErr.message}`);
     }
   }
+
+  const updated = await bookingRepository.updateById(bookingId, {
+    payoutStatus: policy.STYLIST_PERCENTAGE > 0 ? 'unpaid' : 'paid', // 'paid' == nothing owed
+  });
 
   // 2. Penalise the stylist, if they were the no-show. Recorded as debt against a
   //    future payout — never as a charge, since no stylist payment instrument is held.
@@ -323,7 +353,12 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
 };
 
 /**
- * Admin arbitration of a contested report.
+ * Admin arbitration of a CONTESTED no-show report — reachable only from a booking the
+ * `respondToNoShow` contest branch moved to 'disputed'. Guarded on that precondition
+ * explicitly (rather than trusting the route comment alone) after an audit found this
+ * function would previously reset ANY booking, in ANY status, to 'confirmed' given
+ * {upheld:false} and no no-show context at all — see docs/AUDIT_2026_09_FULL_SYSTEM.md
+ * finding X4.
  */
 export const adminResolveNoShow = async (adminUser, bookingId, { upheld, notes = '' }) => {
   if (adminUser.role !== ROLES.ADMIN) {
@@ -334,10 +369,27 @@ export const adminResolveNoShow = async (adminUser, bookingId, { upheld, notes =
     throw new ApiError(404, 'Booking not found');
   }
 
+  const details = booking.noShowDetails;
+  if (!details?.reportedAt) {
+    throw new ApiError(400, 'No no-show has been reported for this booking');
+  }
+  if (details.confirmedAt) {
+    throw new ApiError(409, 'This no-show report has already been resolved');
+  }
+  if (!details.respondedAt || booking.status !== BOOKING_STATUS.DISPUTED) {
+    throw new ApiError(
+      400,
+      'Only a CONTESTED no-show (one the accused party has disputed) can be arbitrated here. ' +
+        'An uncontested report settles on its own via the response window.'
+    );
+  }
+
   if (!upheld) {
-    // Report dismissed — the booking returns to its normal course.
+    // Report dismissed — the booking returns to exactly the status it held the instant
+    // it was contested, never a hardcoded value, so this can never resurrect a booking
+    // from a state the contest itself did not put it in.
     const restored = await bookingRepository.updateById(bookingId, {
-      status: BOOKING_STATUS.CONFIRMED,
+      status: details.contestedFromStatus || BOOKING_STATUS.IN_PROGRESS,
       'noShowDetails.confirmedBy': adminUser._id || adminUser.id,
       'noShowDetails.confirmedAt': new Date(),
       'noShowDetails.response': notes,

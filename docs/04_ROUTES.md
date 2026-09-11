@@ -163,6 +163,9 @@
 | POST | `/subscriptions/cancel` | 🔐 | ✅ Built | Schedule cancellation of paid plan at period end |
 | GET | `/subscriptions/orders/:orderId` | 🔐 | ✅ Built | Query order payment status (pending, paid, failed) |
 
+> Manual admin plan grants are a separate, non-payment flow — see the Admin table's
+> `/admin/users/:userId/subscription` endpoints. They never create a `SubscriptionOrder`.
+
 ---
 
 ## Admin (`/admin`)
@@ -179,6 +182,9 @@
 | GET | `/admin/users` | 🛡️ | ✅ Built | List/search all platform users |
 | PATCH | `/admin/users/:id/suspend` | 🛡️ | ✅ Built | Suspend user account |
 | PATCH | `/admin/users/:id/reactivate` | 🛡️ | ✅ Built | Reactivate user account |
+| GET | `/admin/users/:userId/subscription` | 🛡️ | ✅ Built | Read a user's subscription, entitlements and usage |
+| POST | `/admin/users/:userId/subscription` | 🛡️ | ✅ Built | **Manual plan grant / downgrade / revoke — no Paymob, no Payment, no ledger entry.** Admin only, never Operator |
+| GET | `/admin/users/:userId/subscription/history` | 🛡️ | ✅ Built | Append-only plan-transition history for a user |
 | GET | `/admin/safety-reports` | 🛡️ | 🔲 Planned | List safety reports |
 | PATCH | `/admin/safety-reports/:id/resolve` | 🛡️ | 🔲 Planned | Resolve safety report |
 | GET | `/admin/dashboard/stats` | 🛡️ | ✅ Built | Platform dashboard statistics |

@@ -145,15 +145,18 @@ describe('Admin & Operations Controls (Unit)', () => {
 
   describe('Moderation Event Review Actions', () => {
     it('confirms a moderation event with reviewer notes', async () => {
+      // reviewStatus, not reviewOutcome — see docs/AUDIT_2026_09_FULL_SYSTEM.md finding
+      // X11: reviewOutcome does not exist on ModerationEvent, and writing it was
+      // silently dropped by Mongoose strict mode.
       const mockEvent = {
         _id: 'event123',
-        reviewOutcome: 'PENDING',
+        reviewStatus: 'PENDING',
       };
 
       jest.spyOn(moderationEventRepository, 'findById').mockResolvedValue(mockEvent);
       jest.spyOn(moderationEventRepository, 'updateById').mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'CONFIRMED',
+        reviewStatus: 'APPROVED',
         reviewedBy: 'operator789',
         reviewNotes: 'Phone number confirmed',
       });
@@ -163,24 +166,24 @@ describe('Admin & Operations Controls (Unit)', () => {
       expect(moderationEventRepository.updateById).toHaveBeenCalledWith(
         'event123',
         expect.objectContaining({
-          reviewOutcome: 'CONFIRMED',
+          reviewStatus: 'APPROVED',
           reviewedBy: 'operator789',
           reviewNotes: 'Phone number confirmed',
         })
       );
-      expect(res.reviewOutcome).toBe('CONFIRMED');
+      expect(res.reviewStatus).toBe('APPROVED');
     });
 
     it('overturns a false-positive moderation event', async () => {
       const mockEvent = {
         _id: 'event123',
-        reviewOutcome: 'PENDING',
+        reviewStatus: 'PENDING',
       };
 
       jest.spyOn(moderationEventRepository, 'findById').mockResolvedValue(mockEvent);
       jest.spyOn(moderationEventRepository, 'updateById').mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'OVERTURNED',
+        reviewStatus: 'DISMISSED',
         reviewedBy: 'operator789',
         reviewNotes: 'False positive',
       });
@@ -190,11 +193,11 @@ describe('Admin & Operations Controls (Unit)', () => {
       expect(moderationEventRepository.updateById).toHaveBeenCalledWith(
         'event123',
         expect.objectContaining({
-          reviewOutcome: 'OVERTURNED',
+          reviewStatus: 'DISMISSED',
           reviewedBy: 'operator789',
         })
       );
-      expect(res.reviewOutcome).toBe('OVERTURNED');
+      expect(res.reviewStatus).toBe('DISMISSED');
     });
   });
 });

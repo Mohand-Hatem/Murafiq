@@ -23,7 +23,18 @@ import { REQUEST_STATUS, OFFER_STATUS } from '../../common/constants/statuses.co
 export const getEntitlements = async (userId, role = 'client') => {
   const activeSub = await subscriptionRepository.findActiveByUserId(userId);
 
-  if (activeSub && activeSub.planCode) {
+  // Lazy expiry check, same pattern coupon.service.js already uses at redemption time:
+  // `currentPeriodEnd` is the load-bearing "never expires" signal for a free plan (it is
+  // `null`), so a NON-null value in the past means the paid period has genuinely lapsed.
+  // Without this, a lapsed plan kept granting full paid entitlements for up to 24h until
+  // the 02:00 renewal sweep ran next -- or indefinitely if that cron ever stopped. This
+  // is read-only: it never writes the downgrade itself, which stays the sweep's job (and
+  // the sweep is what records the SubscriptionHistory transition). See
+  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X16.
+  const isLapsed =
+    activeSub?.currentPeriodEnd && activeSub.currentPeriodEnd.getTime() <= Date.now();
+
+  if (activeSub && activeSub.planCode && !isLapsed) {
     const plan = await planRepository.findByCode(activeSub.planCode);
     if (plan && plan.entitlements) {
       const entitlementsMap =

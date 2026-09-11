@@ -24,10 +24,25 @@ export const updateById = async (id, updateData) => {
   );
 };
 
+/**
+ * Compare-and-swap transition guarded on the order's CURRENT status, so two concurrent
+ * webhook deliveries for the same order cannot both proceed to apply the plan grant.
+ * Returns null if `fromStatus` no longer matches -- the caller must treat that as
+ * "someone else is handling (or already handled) this order", never retry the write.
+ */
+export const transitionStatus = async (id, fromStatus, updateData) => {
+  return await SubscriptionOrder.findOneAndUpdate(
+    { _id: id, status: fromStatus },
+    { $set: updateData },
+    { returnDocument: 'after' }
+  );
+};
+
 export default {
   createOrder,
   findById,
   findBySpecialReference,
   findByTransactionId,
   updateById,
+  transitionStatus,
 };

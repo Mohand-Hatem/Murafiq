@@ -4,15 +4,15 @@ export const create = async (data, session = null) => {
   const options = session ? { session } : {};
   const [bookingDoc] = await Booking.create([data], options);
   return bookingDoc.populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
 export const findById = async (id, session = null) => {
   const query = Booking.findById(id).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
   if (session) query.session(session);
   return query;
@@ -32,8 +32,8 @@ export const findMine = async (clientId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Booking.countDocuments(query),
   ]);
@@ -55,8 +55,8 @@ export const findStylistBookings = async (stylistId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Booking.countDocuments(query),
   ]);
@@ -91,8 +91,8 @@ export const updateById = async (id, data, session = null) => {
   if (session) options.session = session;
 
   return Booking.findByIdAndUpdate(id, data, options).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -115,8 +115,8 @@ export const setCompletionConfirmation = async (bookingId, field, session = null
     { $set: { [field]: new Date() } },
     options
   ).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -132,8 +132,29 @@ export const promoteToCompleted = async (bookingId, session = null) => {
     { $set: { status: 'completed', completedAt: new Date() } },
     options
   ).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
+  ]);
+};
+
+// Settles a no-show only if the booking is still in one of the two REPORTABLE_STATUSES
+// (no-show.service.js). Without this CAS, the 15-minute no-show sweep and mutual
+// completion confirmation could race: both a no-show report and a genuine completion
+// can be pending on the same booking, and a plain updateById would let whichever call
+// lands second silently overwrite whichever landed first -- most dangerously, a
+// completed session (money already earned, reliability already recomputed) getting
+// stamped no-show-* afterwards. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X9.
+export const settleNoShow = async (bookingId, patch, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: { $in: ['confirmed', 'in-progress'] } },
+    { $set: patch },
+    options
+  ).populate([
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -241,6 +262,7 @@ export default {
   updateById,
   setCompletionConfirmation,
   promoteToCompleted,
+  settleNoShow,
   getBookingStats,
 };
 

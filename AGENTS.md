@@ -66,7 +66,7 @@ Check `docs/03_SKELETON_STATUS.md` before assuming — it's the live source of t
 Treat the notes below as reminders of what tends to be mixed-state, not a snapshot:
 - Payments: provider is env-switched (`PAYMENT_PROVIDER=mock|paymob`) — never assume
   which is active without checking.
-- Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal.
+- Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal. **Admin manual grants** (`POST /admin/users/:userId/subscription`) are a SEPARATE, non-payment path: they share the grant primitive `applyPlanGrant()` so entitlements are identical, but create no Payment, no SubscriptionOrder and no ledger entry. Never add a ledger write there. One active Subscription per user is enforced by a partial unique index — write plan changes through `replaceActivePlanCAS`, not `updateById`.
 - Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push), *not*
   Socket.io/MongoDB. Socket.io (from Phase 0) is used only for the separate Mongo-
   backed Notification system's realtime delivery — don't conflate the two.
@@ -111,7 +111,7 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   an explicit `.select()` projection on any populate, never rely on `select: false`
   alone to prevent a leak.
 - **Named constants, not magic numbers**, for anything with a business rule attached
-  (`CANCELLATION_FULL_REFUND_HOURS`, `CANCELLATION_PARTIAL_REFUND_PERCENTAGE`,
+  (`CANCELLATION_POLICY.EARLY_HOURS`, `CANCELLATION_POLICY.EARLY_CLIENT_REFUND_PERCENTAGE`,
   `REQUEST_EXPIRY_HOURS`, daily caps) — always in `common/constants/`, never
   hardcoded inline in a service.
 
@@ -178,15 +178,26 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   only inside `paymob.provider.js` at the API boundary.
 - Platform fee + stylist payout === amount, exactly, always (test with decimal
   values, not just round numbers).
-- Cancellation is **four branches**: client ≥24h (100% refund), client <24h (75%
-  refund, thresholds are named constants), client no-show via dispute+admin (0%
-  refund but stylist still paid), stylist any-time (100% refund). Never merge or
-  simplify these.
+- Cancellation is **four branches**, all in `CANCELLATION_POLICY`
+  (`statuses.constant.js`): client ≥24h (**97%** refund, platform keeps 3%), client
+  <24h (**80%** refund, platform keeps 20%), client no-show via dispute+admin (0%
+  refund but stylist still paid — a separate policy, `NO_SHOW_POLICY`, not this one),
+  stylist any-time (100% refund to client, stylist accrues a 3%/20% penalty instead of
+  a payout deduction). Never merge or simplify these. **Corrected 2026-09-11** — this
+  file previously stated a pre-revision 100%/75% split; see
+  `docs/AUDIT_2026_09_FULL_SYSTEM.md` finding X24.
 - Escrow holds once `Payment.status === 'paid'` (not at offer-acceptance). Session
   check-in and chat unlock both gate on this same flag.
 - Mutual confirmation → `SessionCompleted` marks the payout **eligible**, it does not
   auto-transfer. Actual payout is a manual admin action (`Payout` model), and a
-  booking with an open dispute or open safety report must never appear as payable.
+  booking with an open dispute must never appear as payable (enforced via `status`).
+  **`isFrozen` (the mechanism a safety report would use to freeze a payout) is defined
+  and checked by the payout query, but nothing can set it to `true`** — the safety
+  module (`src/modules/safety/`) is intentionally unbuilt (see
+  `docs/hardening/SAFETY_MODULE_DECISION.md`, HARDEN-014, and
+  `docs/AUDIT_2026_09_FULL_SYSTEM.md` finding X25). Do not claim this half of the
+  invariant is enforced until that module exists; building it is a product-scope
+  decision, not a bug fix.
 
 ### Chat & Notifications (Phase 7)
 - Chat is **Firestore**, not Mongo — `conversationId === bookingId`, created closed

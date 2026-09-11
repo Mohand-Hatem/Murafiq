@@ -240,6 +240,28 @@ export const register = () => {
     });
   });
 
+  // Separate action from 'subscription.activated' on purpose: an admin comp and a paid
+  // activation must stay distinguishable in the audit trail, and this one has a human actor
+  // who has to answer for it.
+  eventBus.on(EVENTS.SUBSCRIPTION_ADMIN_GRANTED, async (payload) => {
+    await auditLogService.recordAction({
+      actorId: payload.adminId,
+      actorRole: 'admin',
+      action: 'subscription.admin_granted',
+      targetType: 'Subscription',
+      targetId: payload.userId,
+      severity: 'warn',
+      metadata: {
+        planCode: payload.planCode,
+        previousPlanCode: payload.previousPlanCode,
+        billingCycle: payload.billingCycle,
+        durationDays: payload.durationDays,
+        expiresAt: payload.expiresAt,
+        reason: payload.reason,
+      },
+    });
+  });
+
   eventBus.on(EVENTS.SUBSCRIPTION_CANCELLED, async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.userId,

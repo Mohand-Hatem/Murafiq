@@ -31,18 +31,62 @@ export const sweepExpiredSubscriptions = async () => {
         const isFreeTarget = pendingPlan.tier === 'free';
         const days = sub.pendingBillingCycle === 'yearly' ? 365 : 30;
 
-        await subscriptionRepository.updateById(sub._id, {
-          planCode: pendingPlan.code,
-          billingCycle: sub.pendingBillingCycle || 'monthly',
-          currentPeriodStart: now,
-          currentPeriodEnd: isFreeTarget
-            ? null
-            : new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
-          pendingPlanCode: null,
-          pendingBillingCycle: null,
-          cancelAtPeriodEnd: false,
-          status: 'active',
-        });
+        // CAS, not a bare updateById: re-checks status:'active' AND currentPeriodEnd is
+        // still <= now at write time. A webhook granting a fresh paid period between our
+        // read (findExpiringSubscriptions) above and this write would otherwise be
+        // silently overwritten -- the user loses a plan they just paid for. A null
+        // result means exactly that race happened; skip this row, do not count it as
+        // swept, and do not emit an event that never actually took effect. See
+        // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X8.
+        const settled = await subscriptionRepository.expireSubscriptionCAS(
+          sub._id,
+          {
+            planCode: pendingPlan.code,
+            billingCycle: sub.pendingBillingCycle || 'monthly',
+            currentPeriodStart: now,
+            currentPeriodEnd: isFreeTarget
+              ? null
+              : new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
+            pendingPlanCode: null,
+            pendingBillingCycle: null,
+            cancelAtPeriodEnd: false,
+            status: 'active',
+          },
+          now
+        );
+        if (!settled) {
+          logger.warn(
+            `Subscription ${sub._id} was renewed concurrently; skipping the scheduled downgrade to '${pendingPlan.code}'.`
+          );
+          continue;
+        }
+
+        // The most common subscription transition (a scheduled downgrade taking effect)
+        // used to write no SubscriptionHistory row at all -- 'scheduled_downgrade' was a
+        // declared enum value with zero writers. See
+        // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
+        try {
+          await subscriptionRepository.createHistoryEntry({
+            userId: sub.userId,
+            subscriptionId: sub._id,
+            changeType: 'scheduled_downgrade',
+            previousPlanCode: sub.planCode,
+            previousBillingCycle: sub.billingCycle,
+            previousStatus: sub.status,
+            previousSource: sub.source || null,
+            previousPeriodStart: sub.currentPeriodStart,
+            previousPeriodEnd: sub.currentPeriodEnd,
+            newPlanCode: pendingPlan.code,
+            newBillingCycle: sub.pendingBillingCycle || 'monthly',
+            newSource: sub.source || null,
+            newPeriodStart: now,
+            newPeriodEnd: settled.currentPeriodEnd,
+            changedBy: null,
+            changeReason: 'Scheduled downgrade applied at period end (renewal sweep)',
+          });
+        } catch (historyErr) {
+          logger.error(`Failed to record subscription history for ${sub._id}: ${historyErr.message}`);
+        }
 
         sweptCount++;
         eventBus.emit(EVENTS.SUBSCRIPTION_EXPIRED, {
@@ -64,15 +108,52 @@ export const sweepExpiredSubscriptions = async () => {
     if (!sub.planCode.endsWith('.free')) {
       const freePlanCode = sub.role === 'stylist' ? 'stylist.free' : 'client.free';
 
-      await subscriptionRepository.updateById(sub._id, {
-        planCode: freePlanCode,
-        currentPeriodStart: now,
-        currentPeriodEnd: null, // Free plan never expires
-        pendingPlanCode: null,
-        pendingBillingCycle: null,
-        cancelAtPeriodEnd: false,
-        status: 'active',
-      });
+      // Same CAS reasoning as above.
+      const settled = await subscriptionRepository.expireSubscriptionCAS(
+        sub._id,
+        {
+          planCode: freePlanCode,
+          currentPeriodStart: now,
+          currentPeriodEnd: null, // Free plan never expires
+          pendingPlanCode: null,
+          pendingBillingCycle: null,
+          cancelAtPeriodEnd: false,
+          status: 'active',
+        },
+        now
+      );
+      if (!settled) {
+        logger.warn(
+          `Subscription ${sub._id} was renewed concurrently; skipping the expiry-to-Free downgrade.`
+        );
+        continue;
+      }
+
+      // Same gap as above: an ordinary expiry-to-Free is the SINGLE most common
+      // subscription transition, and it wrote no history at all. See
+      // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
+      try {
+        await subscriptionRepository.createHistoryEntry({
+          userId: sub.userId,
+          subscriptionId: sub._id,
+          changeType: 'expiry_sweep',
+          previousPlanCode: sub.planCode,
+          previousBillingCycle: sub.billingCycle,
+          previousStatus: sub.status,
+          previousSource: sub.source || null,
+          previousPeriodStart: sub.currentPeriodStart,
+          previousPeriodEnd: sub.currentPeriodEnd,
+          newPlanCode: freePlanCode,
+          newBillingCycle: null,
+          newSource: 'free_default',
+          newPeriodStart: now,
+          newPeriodEnd: null,
+          changedBy: null,
+          changeReason: 'Paid period expired with no scheduled downgrade (renewal sweep)',
+        });
+      } catch (historyErr) {
+        logger.error(`Failed to record subscription history for ${sub._id}: ${historyErr.message}`);
+      }
 
       sweptCount++;
 

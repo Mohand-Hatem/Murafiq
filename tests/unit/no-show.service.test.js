@@ -2,6 +2,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingSettleNoShow = jest.fn();
 const mockScheduleDelete = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
@@ -16,9 +17,11 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    settleNoShow: mockBookingSettleNoShow,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  settleNoShow: mockBookingSettleNoShow,
 }));
 
 jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', () => ({
@@ -109,6 +112,12 @@ describe('No-Show Settlement — Stylist Compensation (Unit)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The CAS "claim" step (X9): resolves truthy by default so every existing test's
+    // resolveNoShow() call proceeds exactly as it did before that guard was added.
+    mockBookingSettleNoShow.mockResolvedValue({
+      ...mockClientNoShowBooking,
+      status: 'no-show-client',
+    });
   });
 
   it('preserves the stylist 20% share when the client no-shows, computed from the amount actually paid', async () => {

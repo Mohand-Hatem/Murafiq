@@ -80,6 +80,11 @@ const bookingSchema = new Schema(
       confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
       confirmedAt: Date,
       evidence: [{ type: String, trim: true }],
+      // Snapshot of booking.status the instant a contest moves it to 'disputed'
+      // (no-show.service.js respondToNoShow). adminResolveNoShow's dismissal branch
+      // restores exactly this value rather than a hardcoded status, so a dismissed
+      // report always returns the booking to where it actually was.
+      contestedFromStatus: { type: String, enum: ['confirmed', 'in-progress'] },
     },
 
     disputeDetails: {

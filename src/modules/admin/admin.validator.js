@@ -84,6 +84,34 @@ export const unblockUserSchema = {
     .optional(),
 };
 
+// Manual admin plan grant. `durationDays` is an explicit override of the plan's own cycle
+// length -- capped at two years so a typo cannot comp a plan effectively forever. `reason` is
+// required, not optional: this endpoint moves entitlements with no payment behind them, so the
+// audit entry is worthless without a stated justification.
+export const grantSubscriptionSchema = {
+  params: z
+    .object({
+      userId: objectIdField,
+    })
+    .strict(),
+  body: z
+    .object({
+      planCode: z.string().trim().toLowerCase().min(1, 'planCode is required'),
+      billingCycle: z.enum(['monthly', 'yearly']).optional().default('monthly'),
+      durationDays: z.number().int().min(1).max(730).optional(),
+      reason: z.string().trim().min(3, 'A reason of at least 3 characters is required'),
+    })
+    .strict(),
+};
+
+export const userSubscriptionParamsSchema = {
+  params: z
+    .object({
+      userId: objectIdField,
+    })
+    .strict(),
+};
+
 export const resolveDisputeSchema = {
   params: z
     .object({
@@ -114,9 +142,16 @@ export default {
   suspendUserSchema,
   reactivateUserSchema,
   restrictUserSchema,
+  grantSubscriptionSchema,
+  userSubscriptionParamsSchema,
 };
 
 export const resolveNoShowSchema = {
+  params: z
+    .object({
+      id: objectIdField,
+    })
+    .strict(),
   body: z
     .object({
       upheld: z.boolean(),

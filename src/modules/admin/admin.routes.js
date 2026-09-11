@@ -13,6 +13,8 @@ import {
   restrictUserSchema,
   blockUserSchema,
   unblockUserSchema,
+  grantSubscriptionSchema,
+  userSubscriptionParamsSchema,
 } from './admin.validator.js';
 import adminController from './admin.controller.js';
 import { hideReviewSchema } from '../reviews/review.validator.js';
@@ -90,6 +92,30 @@ router.patch(
   '/users/:id/revoke-sessions',
   restrictTo(ROLES.ADMIN),
   adminController.revokeUserSessions
+);
+
+// Manual subscription entitlement (Admin only -- deliberately NOT ROLES.OPERATOR, which
+// shares only the identity-verification endpoints above). This grants paid-tier features with
+// no payment behind them, so it is the narrowest possible audience.
+router.get(
+  '/users/:userId/subscription',
+  restrictTo(ROLES.ADMIN),
+  validate(userSubscriptionParamsSchema),
+  adminController.getUserSubscription
+);
+
+router.post(
+  '/users/:userId/subscription',
+  restrictTo(ROLES.ADMIN),
+  validate(grantSubscriptionSchema),
+  adminController.grantSubscription
+);
+
+router.get(
+  '/users/:userId/subscription/history',
+  restrictTo(ROLES.ADMIN),
+  validate(userSubscriptionParamsSchema),
+  adminController.getUserSubscriptionHistory
 );
 
 // Dispute management (Admin only)

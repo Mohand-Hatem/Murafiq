@@ -313,6 +313,20 @@ export const fileDispute = async (user, bookingId, disputeData) => {
     throw new ApiError(409, 'Booking is already disputed');
   }
 
+  // A dispute this booking already went through arbitration for can never be re-opened.
+  // Without this, resolving a dispute back to 'completed' (payout_stylist/dismissed/
+  // split/partial_refund) let either party immediately re-file, and if the SECOND
+  // resolution also tried to refund, processRefund() rejected it outright (the Payment
+  // was already 'partially_refunded'/'refunded' from the first round) -- leaving the
+  // booking permanently stuck in 'disputed' with no admin path out. See
+  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
+  if (booking.disputeResolution?.resolvedAt) {
+    throw new ApiError(
+      409,
+      'This booking has already been through dispute arbitration and cannot be disputed again.'
+    );
+  }
+
   if (booking.status !== 'completed' && booking.status !== 'in-progress') {
     throw new ApiError(400, `Cannot dispute a booking in '${booking.status}' status`);
   }
@@ -486,7 +500,13 @@ export const resolveDispute = async (
 
   const updated = await bookingRepository.updateById(bookingId, {
     status: targetStatus,
-    ...(targetStatus === 'completed' ? { completedAt: new Date() } : {}),
+    // Only set completedAt if this booking has never completed before (it can reach
+    // 'completed' via dispute resolution having been filed from 'in-progress', i.e. it
+    // never went through mutual confirmation). If it already has one, preserve it --
+    // rewriting it to `new Date()` on every resolution used to restart the 48h
+    // dispute-filing window each time, which combined with no reopen guard is what made
+    // disputes re-openable indefinitely. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
+    ...(targetStatus === 'completed' && !booking.completedAt ? { completedAt: new Date() } : {}),
     disputeResolution: {
       outcome,
       refundPercentage: finalRefundPercentage,
@@ -687,6 +707,22 @@ export const cancelBooking = async (param1, param2, cancelData = {}) => {
     throw new ApiError(
       400,
       `Cannot cancel a booking in '${booking.status}' status. Disputed bookings must be resolved via admin arbitration.`
+    );
+  }
+
+  // A session already checked into ('in-progress') has money-relevant facts on the ground
+  // that plain cancellation pricing (hours-until-appointment) cannot see -- the work may
+  // already be happening or done. Without this guard a client could let the stylist
+  // complete the session, then cancel instead of confirming completion, collecting an 80%
+  // refund while the stylist is paid nothing for work actually performed -- and the
+  // stylist's only other recourse (fileDispute) requires 'in-progress' or 'completed',
+  // never 'cancelled', so once cancelled there was no way back. See
+  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X10. The correct paths from here are mutual
+  // completion, a dispute, or (after the grace window) a no-show report.
+  if (booking.status === 'in-progress') {
+    throw new ApiError(
+      400,
+      "Cannot cancel a session already in progress. Confirm completion, file a dispute, or (after the check-in grace period) report a no-show instead."
     );
   }
 

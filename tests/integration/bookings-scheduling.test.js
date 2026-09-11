@@ -4,7 +4,7 @@ import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 
 const mockClient = {
   _id: '60f719b8f1a2c81234567891',
-  nameEn: 'Booking Client',
+  name: 'Booking Client',
   email: 'client@test.com',
   role: 'client',
   isEmailVerified: true,
@@ -17,7 +17,7 @@ const mockClient = {
 
 const mockStylist = {
   _id: '60f719b8f1a2c81234567890',
-  nameEn: 'Booking Stylist',
+  name: 'Booking Stylist',
   email: 'stylist@test.com',
   role: 'stylist',
   isEmailVerified: true,

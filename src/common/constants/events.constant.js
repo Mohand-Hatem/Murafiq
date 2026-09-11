@@ -36,6 +36,10 @@ export const EVENTS = {
   SUBSCRIPTION_ACTIVATED: 'subscription.activated',
   SUBSCRIPTION_CANCELLED: 'subscription.cancelled',
   SUBSCRIPTION_EXPIRED: 'subscription.expired',
+  // Admin-granted entitlement. Deliberately NOT SUBSCRIPTION_ACTIVATED: that event means
+  // "a customer paid and the plan went live", and conflating the two would make an
+  // administrative comp indistinguishable from revenue in the audit trail.
+  SUBSCRIPTION_ADMIN_GRANTED: 'subscription.admin_granted',
   SESSION_REMINDER: 'session.reminder',
 };
 
