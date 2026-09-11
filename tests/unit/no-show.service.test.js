@@ -201,4 +201,26 @@ describe('respondToNoShow — contest CAS race', () => {
       })
     ).rejects.toThrow(/no longer contestable/i);
   });
+
+  it('refuses to accept if booking is no longer in valid status after read (CAS race)', async () => {
+    const booking = {
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'confirmed',
+      noShowDetails: {
+        reportedAt: new Date(),
+        reportedAgainst: 'stylist',
+      },
+    };
+    mockBookingFindById.mockResolvedValueOnce(booking);
+    mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+    await expect(
+      respondToNoShow({ _id: stylistId, role: 'stylist' }, bookingId, {
+        contest: false,
+        message: 'My mistake',
+      })
+    ).rejects.toThrow(/no longer in a valid status/i);
+  });
 });

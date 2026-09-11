@@ -171,10 +171,19 @@ export const respondToNoShow = async (user, bookingId, { contest, message = '' }
   }
 
   // Not contested — the accused accepts it, so settle immediately.
-  await bookingRepository.updateById(bookingId, {
-    'noShowDetails.respondedAt': new Date(),
-    'noShowDetails.response': message,
-  });
+  const updated = await bookingRepository.transitionStatus(
+    bookingId,
+    ['confirmed', 'in-progress'],
+    {
+      'noShowDetails.respondedAt': new Date(),
+      'noShowDetails.response': message,
+    }
+  );
+
+  if (!updated) {
+    throw new ApiError(409, 'Cannot accept no-show: booking is no longer in a valid status');
+  }
+
   return resolveNoShow(bookingId, { confirmedBy: userId, reason: 'Accepted by reported party' });
 };
 
