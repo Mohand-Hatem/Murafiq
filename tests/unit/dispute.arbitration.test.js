@@ -276,5 +276,17 @@ describe('Dispute & Arbitration Engine (Unit)', () => {
       );
       expect(mockReliabilityUpdate).toHaveBeenCalledWith(stylistId);
     });
+
+    it('refuses to resolve dispute if booking left disputed status after read (CAS race)', async () => {
+      mockBookingFindById.mockResolvedValueOnce(disputedBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      await expect(
+        resolveDispute(adminId, bookingId, {
+          outcome: 'payout_stylist',
+          resolutionNotes: 'Dismissed',
+        })
+      ).rejects.toThrow(/no longer in disputed status/i);
+    });
   });
 });

@@ -501,23 +501,31 @@ export const resolveDispute = async (
     });
   }
 
-  const updated = await bookingRepository.updateById(bookingId, {
-    status: targetStatus,
-    // Only set completedAt if this booking has never completed before (it can reach
-    // 'completed' via dispute resolution having been filed from 'in-progress', i.e. it
-    // never went through mutual confirmation). If it already has one, preserve it --
-    // rewriting it to `new Date()` on every resolution used to restart the 48h
-    // dispute-filing window each time, which combined with no reopen guard is what made
-    // disputes re-openable indefinitely. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
-    ...(targetStatus === 'completed' && !booking.completedAt ? { completedAt: new Date() } : {}),
-    disputeResolution: {
-      outcome,
-      refundPercentage: finalRefundPercentage,
-      resolutionNotes,
-      resolvedBy: adminUserId,
-      resolvedAt: new Date(),
-    },
-  });
+  const updated = await bookingRepository.transitionStatus(
+    bookingId,
+    ['disputed'],
+    {
+      status: targetStatus,
+      // Only set completedAt if this booking has never completed before (it can reach
+      // 'completed' via dispute resolution having been filed from 'in-progress', i.e. it
+      // never went through mutual confirmation). If it already has one, preserve it --
+      // rewriting it to `new Date()` on every resolution used to restart the 48h
+      // dispute-filing window each time, which combined with no reopen guard is what made
+      // disputes re-openable indefinitely. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
+      ...(targetStatus === 'completed' && !booking.completedAt ? { completedAt: new Date() } : {}),
+      disputeResolution: {
+        outcome,
+        refundPercentage: finalRefundPercentage,
+        resolutionNotes,
+        resolvedBy: adminUserId,
+        resolvedAt: new Date(),
+      },
+    }
+  );
+
+  if (!updated) {
+    throw new ApiError(409, 'Cannot resolve dispute: booking is no longer in disputed status');
+  }
 
   // Lock conversation after dispute resolution
   try {
