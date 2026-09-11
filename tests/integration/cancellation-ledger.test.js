@@ -29,10 +29,15 @@ const mockUpdateBookingById = jest.fn().mockImplementation((id, data) =>
   Promise.resolve({ ...mockBookingDoc, ...data })
 );
 
+const mockTransitionStatus = jest.fn().mockImplementation((id, from, data, session) =>
+  mockUpdateBookingById(id, data, session)
+);
+
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
     findById: mockFindBookingById,
     updateById: mockUpdateBookingById,
+    transitionStatus: mockTransitionStatus,
     findMine: jest.fn().mockResolvedValue({ items: [], meta: {} }),
   },
 }));

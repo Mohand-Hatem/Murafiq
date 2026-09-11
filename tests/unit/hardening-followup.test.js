@@ -127,7 +127,7 @@ describe('confirmCompletion() / resolveDispute() set completedAt', () => {
       stylistId: { _id: stylistId },
     });
     jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-    const updateSpy = jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    const updateSpy = jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       status: 'cancelled',
       clientId: { _id: clientId },
@@ -140,7 +140,7 @@ describe('confirmCompletion() / resolveDispute() set completedAt', () => {
       resolutionNotes: 'No-show confirmed',
     });
 
-    const [, updatePayload] = updateSpy.mock.calls[0];
+    const [, , updatePayload] = updateSpy.mock.calls[0];
     expect(updatePayload.completedAt).toBeUndefined();
   });
 });
@@ -181,7 +181,7 @@ describe('fileDispute() anchors the 48h window on completedAt, not updatedAt', (
       updatedAt: recentCompletion,
       createdAt: recentCompletion,
     });
-    jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       status: 'disputed',
       clientId: { _id: clientId },

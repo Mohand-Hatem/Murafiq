@@ -87,7 +87,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
       });
 
       jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'cancelled',
         clientId: { _id: clientId },
@@ -127,7 +127,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         platformFeePercentage: 15,
       });
       jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'completed',
         clientId: { _id: clientId },
@@ -162,7 +162,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         clientId: { _id: clientId },
         stylistId: { _id: stylistId },
       });
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      const transitionSpy = jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'completed',
         completedAt: originalCompletedAt,
@@ -173,7 +173,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         resolutionNotes: 'No violation found',
       });
 
-      const updateCall = bookingRepository.updateById.mock.calls[0][1];
+      const updateCall = transitionSpy.mock.calls[0][2];
       expect(updateCall.completedAt).toBeUndefined();
     });
   });
