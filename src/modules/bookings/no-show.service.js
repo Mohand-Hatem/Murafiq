@@ -8,6 +8,7 @@ import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
 import reliabilityService from '../stylists/reliability.service.js';
 import chatService from '../chat/chat.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
+import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
@@ -122,28 +123,36 @@ export const respondToNoShow = async (user, bookingId, { contest, message = '' }
     throw new ApiError(409, 'You have already responded to this report');
   }
 
-  const { userId, clientId, stylistId } = identifyParties(booking, user);
+  const { userId, clientId, stylistId } = assertBookingParticipant(user, booking, { allowAdmin: false });
   const accusedId = booking.noShowDetails.reportedAgainst === 'stylist' ? stylistId : clientId;
   if (userId !== accusedId) {
     throw new ApiError(403, 'Only the reported party can respond to this report');
   }
 
   if (contest) {
-    const updated = await bookingRepository.updateById(bookingId, {
-      status: BOOKING_STATUS.DISPUTED,
-      // Snapshot the pre-dispute status so adminResolveNoShow can restore it exactly on
-      // dismissal, instead of assuming every no-show report was filed from 'confirmed'.
-      'noShowDetails.contestedFromStatus': booking.status,
-      'noShowDetails.respondedAt': new Date(),
-      'noShowDetails.response': message,
-      disputeDetails: {
-        raisedBy: userId,
-        reason: message || 'Contested no-show report',
-        type: 'no_show',
-        raisedAt: new Date(),
-        evidence: [],
-      },
-    });
+    const updated = await bookingRepository.transitionStatus(
+      bookingId,
+      ['confirmed', 'in-progress'],
+      {
+        status: BOOKING_STATUS.DISPUTED,
+        // Snapshot the pre-dispute status so adminResolveNoShow can restore it exactly on
+        // dismissal, instead of assuming every no-show report was filed from 'confirmed'.
+        'noShowDetails.contestedFromStatus': booking.status,
+        'noShowDetails.respondedAt': new Date(),
+        'noShowDetails.response': message,
+        disputeDetails: {
+          raisedBy: userId,
+          reason: message || 'Contested no-show report',
+          type: 'no_show',
+          raisedAt: new Date(),
+          evidence: [],
+        },
+      }
+    );
+
+    if (!updated) {
+      throw new ApiError(409, 'Cannot contest: this booking is no longer contestable');
+    }
 
     try {
       await chatService.openConversation(bookingId);

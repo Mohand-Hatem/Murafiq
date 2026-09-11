@@ -1,7 +1,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import '../../src/common/globals.js';
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingTransitionStatus = jest.fn((id, from, patch, session) =>
+  session ? mockBookingUpdateById(id, patch, session) : mockBookingUpdateById(id, patch)
+);
 const mockBookingSettleNoShow = jest.fn();
 const mockScheduleDelete = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
@@ -17,10 +21,12 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    transitionStatus: mockBookingTransitionStatus,
     settleNoShow: mockBookingSettleNoShow,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  transitionStatus: mockBookingTransitionStatus,
   settleNoShow: mockBookingSettleNoShow,
 }));
 
@@ -87,7 +93,7 @@ jest.unstable_mockModule('../../src/modules/chat/chat.service.js', () => ({
   lockConversation: mockChatLock,
 }));
 
-const { resolveNoShow } = await import('../../src/modules/bookings/no-show.service.js');
+const { resolveNoShow, respondToNoShow } = await import('../../src/modules/bookings/no-show.service.js');
 
 // Regression suite for audit finding C-4: processRefund unconditionally zeroed
 // stylistPayoutAmount on every refund, so a client no-show -- where
@@ -166,5 +172,33 @@ describe('No-Show Settlement — Stylist Compensation (Unit)', () => {
       bookingId,
       expect.objectContaining({ payoutStatus: 'unpaid' })
     );
+  });
+});
+
+describe('respondToNoShow — contest CAS race', () => {
+  const clientId = '60f719b8f1a2c81234567891';
+  const stylistId = '60f719b8f1a2c81234567890';
+  const bookingId = '60f719b8f1a2c81234567888';
+
+  it('refuses to contest if booking is no longer contestable after the read (CAS race)', async () => {
+    const booking = {
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'confirmed',
+      noShowDetails: {
+        reportedAt: new Date(),
+        reportedAgainst: 'stylist',
+      },
+    };
+    mockBookingFindById.mockResolvedValueOnce(booking);
+    mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+    await expect(
+      respondToNoShow({ _id: stylistId, role: 'stylist' }, bookingId, {
+        contest: true,
+        message: 'I was there',
+      })
+    ).rejects.toThrow(/no longer contestable/i);
   });
 });
