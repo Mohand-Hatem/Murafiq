@@ -43,7 +43,7 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const { userId, clientId, stylistId } = assertBookingParticipant(user, booking, { allowAdmin: false });
+  const { userId, clientId } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (!REPORTABLE_STATUSES.includes(booking.status)) {
     throw new ApiError(400, `Cannot report a no-show on a booking in '${booking.status}' status`);

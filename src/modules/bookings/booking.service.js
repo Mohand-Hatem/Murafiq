@@ -16,7 +16,6 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
-import { ROLES } from '../../common/constants/roles.constant.js';
 import {
   PAYMENT_STATUS,
   CANCELLATION_POLICY,
