@@ -184,13 +184,7 @@ export const getById = async (user, bookingId) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const userIdStr = (user._id || user.id).toString();
-  const clientIdStr = (booking.clientId._id || booking.clientId).toString();
-  const stylistIdStr = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (user.role !== ROLES.ADMIN && userIdStr !== clientIdStr && userIdStr !== stylistIdStr) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  assertBookingParticipant(user, booking, { allowAdmin: true });
 
   return toPublicBookingDto(booking);
 };
@@ -246,13 +240,7 @@ export const confirmCompletion = async (user, bookingId) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const userIdStr = (user._id || user.id).toString();
-  const clientIdStr = (booking.clientId._id || booking.clientId).toString();
-  const stylistIdStr = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (userIdStr !== clientIdStr && userIdStr !== stylistIdStr) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  const { isClient } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (booking.status !== 'in-progress') {
     throw new ApiError(
@@ -265,7 +253,7 @@ export const confirmCompletion = async (user, bookingId) => {
   // booking.repository.js. The returned document is never the stale `booking` read
   // above -- it's the freshly-written state, which is what lets the very next check
   // see the OTHER party's confirmation even if they wrote it a moment ago.
-  const confirmationField = userIdStr === clientIdStr ? 'clientConfirmedAt' : 'stylistConfirmedAt';
+  const confirmationField = isClient ? 'clientConfirmedAt' : 'stylistConfirmedAt';
   let updated = await bookingRepository.setCompletionConfirmation(bookingId, confirmationField);
   if (!updated) {
     // The booking moved on (cancelled/disputed/already completed) between the read
@@ -423,13 +411,7 @@ export const getDisputeDetails = async (user, bookingId) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const userId = (user._id || user.id).toString();
-  const clientId = (booking.clientId._id || booking.clientId).toString();
-  const stylistId = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (userId !== clientId && userId !== stylistId && user.role !== ROLES.ADMIN) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  assertBookingParticipant(user, booking, { allowAdmin: true });
 
   return {
     bookingId: booking._id,
@@ -656,19 +638,17 @@ export const getCancellationQuote = async (user, bookingId) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const clientId = (booking.clientId?._id || booking.clientId).toString();
-  const stylistId = (booking.stylistId?._id || booking.stylistId).toString();
-  const userId = (user._id || user.id).toString();
+  const { isClient, isStylist, isAdmin } = assertBookingParticipant(user, booking, {
+    allowAdmin: true,
+  });
 
   let cancelledByRole;
-  if (userId === clientId) {
+  if (isClient) {
     cancelledByRole = 'client';
-  } else if (userId === stylistId) {
+  } else if (isStylist) {
     cancelledByRole = 'stylist';
-  } else if (user.role === 'admin') {
+  } else if (isAdmin) {
     cancelledByRole = 'client';
-  } else {
-    throw new ApiError(403, 'Forbidden');
   }
 
   const outcome = calculateCancellationOutcome(booking, cancelledByRole, new Date());
