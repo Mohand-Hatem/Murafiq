@@ -16,6 +16,7 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
+import { computeSettlement } from '../../common/settlement.js';
 import {
   PAYMENT_STATUS,
   CANCELLATION_POLICY,
@@ -468,9 +469,14 @@ export const resolveDispute = async (
     if (finalRefundPercentage < 100) {
       const payment = await paymentRepository.findByBookingId(bookingId);
       if (payment) {
-        const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
-        const retainedAmount = round2(payment.amount * (1 - finalRefundPercentage / 100));
-        stylistPayoutOverrideAmount = round2(retainedAmount * (1 - platformFeePercentage / 100));
+        const settlement = computeSettlement({
+          price: payment.amount,
+          event: 'DISPUTE',
+          actor: 'admin',
+          refundPercentage: finalRefundPercentage,
+          platformFeePercentage: payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15,
+        });
+        stylistPayoutOverrideAmount = settlement.stylistCompensationAmount;
       }
     }
 
@@ -555,80 +561,21 @@ export const getAppointmentDateTime = (booking) => {
   return new Date(startOfDay.getTime() + startMinute * 60 * 1000);
 };
 
+/**
+ * Cancellation pricing. The four-branch matrix now lives in ONE place
+ * (src/common/settlement.js) shared with the no-show and dispute paths -- see the plan
+ * §D.5 BK3. This wrapper survives because it owns the hours-until-session derivation from
+ * the booking document, which is booking-specific and not settlement arithmetic.
+ */
 export const calculateCancellationOutcome = (booking, cancelledByRole, now = new Date()) => {
-  const appointmentTime = getAppointmentDateTime(booking);
-  const diffHours = (appointmentTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-  const isEarly = diffHours >= CANCELLATION_POLICY.EARLY_HOURS; // 24 hours
-
-  const bookingPrice = booking.price || 0;
-
-  if (cancelledByRole === 'client') {
-    if (isEarly) {
-      const refundPercentage = CANCELLATION_POLICY.EARLY_CLIENT_REFUND_PERCENTAGE; // 97%
-      const refundAmount = round2(bookingPrice * (refundPercentage / 100));
-      const platformFeeAmount = round2(bookingPrice - refundAmount);
-      return {
-        hoursUntilSession: diffHours,
-        isEarly,
-        refundPercentage,
-        refundAmount,
-        platformFeeAmount,
-        stylistCompensationAmount: 0,
-        penaltyAmount: 0,
-        couponEligible: false,
-        tier: 'EARLY_CLIENT_CANCEL',
-      };
-    }
-    // Client cancels < 24h: platform retains 20%, client refunded 80%, stylist gets
-    // NOTHING. A stylist who has not yet travelled has not incurred the loss that the
-    // no-show policy exists to compensate — see §H.
-    const refundPercentage = CANCELLATION_POLICY.LATE_CLIENT_REFUND_PERCENTAGE; // 80%
-    const refundAmount = round2(bookingPrice * (refundPercentage / 100));
-    const platformFeeAmount = round2(bookingPrice - refundAmount); // 20%
-    return {
-      hoursUntilSession: diffHours,
-      isEarly,
-      refundPercentage,
-      refundAmount,
-      platformFeeAmount,
-      stylistCompensationAmount: 0,
-      penaltyAmount: 0,
-      couponEligible: false,
-      tier: 'LATE_CLIENT_CANCEL',
-    };
-  }
-
-  // Cancelled by Stylist — the client is always refunded in full and never bears the
-  // cost. The stylist accrues a penalty debt instead, settled against a future payout.
-  if (isEarly) {
-    return {
-      hoursUntilSession: diffHours,
-      isEarly,
-      refundPercentage: 100,
-      refundAmount: bookingPrice,
-      platformFeeAmount: 0,
-      stylistCompensationAmount: 0,
-      penaltyAmount: round2(
-        bookingPrice * (CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE / 100)
-      ), // 3%
-      couponEligible: false,
-      tier: 'EARLY_STYLIST_CANCEL',
-    };
-  }
-  const penaltyAmount = round2(
-    bookingPrice * (CANCELLATION_POLICY.LATE_STYLIST_PENALTY_PERCENTAGE / 100)
-  ); // 20%
-  return {
-    hoursUntilSession: diffHours,
-    isEarly,
-    refundPercentage: 100,
-    refundAmount: bookingPrice,
-    platformFeeAmount: 0,
-    stylistCompensationAmount: 0,
-    penaltyAmount,
-    couponEligible: true,
-    tier: 'LATE_STYLIST_CANCEL',
-  };
+  const appointment = getAppointmentDateTime(booking);
+  const hoursUntilSession = (appointment.getTime() - now.getTime()) / (1000 * 60 * 60);
+  return computeSettlement({
+    price: booking.price || 0,
+    event: 'CANCELLATION',
+    actor: cancelledByRole,
+    hoursUntilSession,
+  });
 };
 
 export const getCancellationQuote = async (user, bookingId) => {

@@ -1,7 +1,7 @@
 import bookingRepository from './booking.repository.js';
 import scheduleRepository from './schedule.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
-import paymentService, { round2 } from '../payments/payment.service.js';
+import paymentService from '../payments/payment.service.js';
 import penaltyRepository from '../penalties/penalty.repository.js';
 import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
@@ -9,6 +9,7 @@ import reliabilityService from '../stylists/reliability.service.js';
 import chatService from '../chat/chat.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
 import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
+import { computeSettlement } from '../../common/settlement.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
@@ -212,9 +213,11 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
   const targetStatus =
     against === 'stylist' ? BOOKING_STATUS.NO_SHOW_STYLIST : BOOKING_STATUS.NO_SHOW_CLIENT;
 
-  const price = booking.price || 0;
+  const payment = await paymentRepository.findByBookingId(bookingId);
+  const effectivePrice = payment?.amount ?? booking.price ?? 0;
   const clientId = (booking.clientId?._id || booking.clientId).toString();
   const stylistId = (booking.stylistId?._id || booking.stylistId).toString();
+  const settlement = computeSettlement({ price: effectivePrice, event: 'NO_SHOW', actor: against });
 
   // Free the stylist's calendar slot — the session is not happening.
   await scheduleRepository.deleteByBookingId(bookingId);
@@ -254,14 +257,13 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
   // the stylist"), and processRefund's guard then read that same 'paid' value as "already
   // disbursed, refuse" -- so a stylist no-show (STYLIST_PERCENTAGE: 0) permanently and
   // silently failed to refund the client. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X1.
-  const payment = await paymentRepository.findByBookingId(bookingId);
   if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
     try {
       await paymentService.processRefund({
         bookingId,
         refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
         reason: reason || `No-show by ${against}`,
-        stylistPayoutOverrideAmount: round2(payment.amount * (policy.STYLIST_PERCENTAGE / 100)),
+        stylistPayoutOverrideAmount: settlement.stylistCompensationAmount,
       });
     } catch (refundErr) {
       await paymentRepository.updateById(payment._id, {
@@ -279,7 +281,7 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
   // 2. Penalise the stylist, if they were the no-show. Recorded as debt against a
   //    future payout — never as a charge, since no stylist payment instrument is held.
   if (policy.STYLIST_PENALTY_PERCENTAGE > 0) {
-    const penaltyAmount = round2(price * (policy.STYLIST_PENALTY_PERCENTAGE / 100));
+    const penaltyAmount = settlement.penaltyAmount;
     try {
       await penaltyRepository.create({
         stylistId,

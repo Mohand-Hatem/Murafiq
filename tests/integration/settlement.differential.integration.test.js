@@ -310,4 +310,87 @@ describe('Settlement Differential Integration — Live DB comparison for NO_SHOW
     expect(expected.stylistCompensationAmount).toBe(0);
     expect(expected.platformFeeAmount).toBe(0);
   });
+
+  describe('Fractional price settlement differential integration', () => {
+    const FRACTIONAL_PRICES = [333.33, 777.77, 100.01];
+
+    it.each(FRACTIONAL_PRICES)(
+      'Client No-Show with price=%s: persisted records match computeSettlement byte-for-byte',
+      async (price) => {
+        const { booking, payment } = await createBookingAndPayment({
+          reportedAgainst: 'client',
+          price,
+        });
+
+        await noShowService.resolveNoShow(booking._id.toString(), {
+          confirmedBy: stylist._id.toString(),
+          reason: 'Client absent',
+        });
+
+        const expected = computeSettlement({ price, event: 'NO_SHOW', actor: 'client' });
+        const updatedPayment = await Payment.findById(payment._id);
+
+        expect(updatedPayment.status).toBe(PAYMENT_STATUS.PARTIALLY_REFUNDED);
+        expect(updatedPayment.refundAmount).toBe(expected.refundAmount);
+        expect(updatedPayment.stylistPayoutAmount).toBe(expected.stylistCompensationAmount);
+        expect(updatedPayment.platformFeeAmount).toBe(expected.platformFeeAmount);
+      }
+    );
+
+    it.each(FRACTIONAL_PRICES)(
+      'Stylist No-Show with price=%s: persisted records match computeSettlement byte-for-byte',
+      async (price) => {
+        const { booking, payment } = await createBookingAndPayment({
+          reportedAgainst: 'stylist',
+          price,
+        });
+
+        await noShowService.resolveNoShow(booking._id.toString(), {
+          confirmedBy: client._id.toString(),
+          reason: 'Stylist absent',
+        });
+
+        const expected = computeSettlement({ price, event: 'NO_SHOW', actor: 'stylist' });
+        const updatedPayment = await Payment.findById(payment._id);
+        const penalty = await Penalty.findOne({ bookingId: booking._id });
+
+        expect(updatedPayment.status).toBe(PAYMENT_STATUS.REFUNDED);
+        expect(updatedPayment.refundAmount).toBe(expected.refundAmount);
+        expect(penalty.assessedMinor).toBe(egpToPiastres(expected.penaltyAmount));
+      }
+    );
+
+    it.each(FRACTIONAL_PRICES)(
+      'Dispute partial refund with price=%s: persisted records match computeSettlement byte-for-byte',
+      async (price) => {
+        const refundPercentage = 35;
+        const platformFeePercentage = 15;
+        const { booking, payment } = await createBookingAndPayment({
+          status: 'disputed',
+          price,
+          platformFeePercentage,
+        });
+
+        await resolveDispute(admin._id.toString(), booking._id.toString(), {
+          outcome: 'completed',
+          refundPercentage,
+          resolutionNotes: 'Dispute partial settlement',
+        });
+
+        const expected = computeSettlement({
+          price,
+          event: 'DISPUTE',
+          actor: 'admin',
+          refundPercentage,
+          platformFeePercentage,
+        });
+
+        const updatedPayment = await Payment.findById(payment._id);
+        expect(updatedPayment.status).toBe(PAYMENT_STATUS.PARTIALLY_REFUNDED);
+        expect(updatedPayment.refundAmount).toBe(expected.refundAmount);
+        expect(updatedPayment.stylistPayoutAmount).toBe(expected.stylistCompensationAmount);
+        expect(updatedPayment.platformFeeAmount).toBe(expected.platformFeeAmount);
+      }
+    );
+  });
 });
