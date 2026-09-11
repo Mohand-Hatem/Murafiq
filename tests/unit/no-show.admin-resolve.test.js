@@ -1,9 +1,10 @@
 import '../../src/common/globals.js';
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import mongoose from 'mongoose';
 import { connectTestDB, closeTestDB, clearTestDB } from '../setup/db-handler.js';
 import User from '../../src/modules/users/user.model.js';
 import Booking from '../../src/modules/bookings/booking.model.js';
+import bookingRepository from '../../src/modules/bookings/booking.repository.js';
 import noShowService from '../../src/modules/bookings/no-show.service.js';
 import { ROLES } from '../../src/common/constants/roles.constant.js';
 
@@ -164,5 +165,32 @@ describe('adminResolveNoShow — arbitration guard (X4 regression)', () => {
     await expect(
       noShowService.adminResolveNoShow(stylist, booking._id.toString(), { upheld: false })
     ).rejects.toThrow(/Forbidden/);
+  });
+
+  it('refuses to dismiss if booking left disputed status after the read (CAS race)', async () => {
+    const booking = await baseBooking({
+      status: 'disputed',
+      noShowDetails: {
+        reportedBy: client._id,
+        reportedAt: new Date(),
+        reportedAgainst: 'stylist',
+        respondedAt: new Date(),
+        contestedFromStatus: 'in-progress',
+      },
+    });
+
+    const origFindById = bookingRepository.findById;
+    jest.spyOn(bookingRepository, 'findById').mockImplementationOnce(async (id) => {
+      const doc = await origFindById(id);
+      await Booking.updateOne({ _id: id }, { $set: { status: 'completed' } });
+      return doc;
+    });
+
+    await expect(
+      noShowService.adminResolveNoShow(admin, booking._id.toString(), { upheld: false })
+    ).rejects.toThrow(/already resolved/i);
+
+    const fresh = await Booking.findById(booking._id);
+    expect(fresh.status).toBe('completed');
   });
 });

@@ -397,12 +397,21 @@ export const adminResolveNoShow = async (adminUser, bookingId, { upheld, notes =
     // Report dismissed — the booking returns to exactly the status it held the instant
     // it was contested, never a hardcoded value, so this can never resurrect a booking
     // from a state the contest itself did not put it in.
-    const restored = await bookingRepository.updateById(bookingId, {
-      status: details.contestedFromStatus || BOOKING_STATUS.IN_PROGRESS,
-      'noShowDetails.confirmedBy': adminUser._id || adminUser.id,
-      'noShowDetails.confirmedAt': new Date(),
-      'noShowDetails.response': notes,
-    });
+    const restored = await bookingRepository.transitionStatus(
+      bookingId,
+      [BOOKING_STATUS.DISPUTED],
+      {
+        status: details.contestedFromStatus || BOOKING_STATUS.IN_PROGRESS,
+        'noShowDetails.confirmedBy': adminUser._id || adminUser.id,
+        'noShowDetails.confirmedAt': new Date(),
+        'noShowDetails.response': notes,
+      }
+    );
+
+    if (!restored) {
+      throw new ApiError(409, 'Cannot dismiss no-show: booking was already resolved');
+    }
+
     return toPublicBookingDto(restored);
   }
 
