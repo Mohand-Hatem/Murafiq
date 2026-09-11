@@ -179,3 +179,35 @@ describe('Cron jobs are safe under the documented deployment model', () => {
     expect(eco).toMatch(/exec_mode:\s*'fork'/);
   });
 });
+
+describe('Booking participant checks state admin policy explicitly', () => {
+  it('every participant check states its admin policy explicitly', () => {
+    const files = [
+      'src/modules/bookings/booking.service.js',
+      'src/modules/bookings/no-show.service.js',
+    ];
+    for (const f of files) {
+      const txt = fs.readFileSync(f, 'utf8');
+      const calls = txt.match(/assertBookingParticipant\s*\([\s\S]*?\)/g) || [];
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) {
+        expect(c).toMatch(/allowAdmin:\s*(true|false)/);
+      }
+    }
+  });
+});
+
+describe('Booking status writes go through repository state transitions', () => {
+  it('no booking status is written outside the repository', () => {
+    const files = [
+      'src/modules/bookings/booking.service.js',
+      'src/modules/bookings/no-show.service.js',
+    ];
+    for (const f of files) {
+      const txt = fs.readFileSync(f, 'utf8');
+      // bookingRepository.updateById may still be used for non-status patches; a `status:` inside one is the bug.
+      const statusInUpdateById = /bookingRepository\.updateById\([^)]*\{[^}]*\bstatus\s*:/s.test(txt);
+      expect(statusInUpdateById).toBe(false);
+    }
+  });
+});
