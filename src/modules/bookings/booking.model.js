@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { PAYOUT_STATUS } from '../../common/constants/statuses.constant.js';
 
 const { Schema } = mongoose;
 
@@ -64,8 +65,8 @@ const bookingSchema = new Schema(
     completedAt: Date,
     payoutStatus: {
       type: String,
-      enum: ['unpaid', 'processing', 'paid'],
-      default: 'unpaid',
+      enum: Object.values(PAYOUT_STATUS),
+      default: PAYOUT_STATUS.UNPAID,
     },
     payoutId: { type: Schema.Types.ObjectId, ref: 'Payout' },
 

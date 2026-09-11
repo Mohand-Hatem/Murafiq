@@ -127,7 +127,7 @@ describe('Settlement Differential Integration — Live DB comparison for NO_SHOW
 
     // Booking status & payoutStatus
     expect(updatedBooking.status).toBe('no-show-stylist');
-    expect(updatedBooking.payoutStatus).toBe('paid'); // nothing owed to stylist
+    expect(updatedBooking.payoutStatus).toBe('not_owed'); // S3.3: nothing owed to stylist
 
     // Penalty & coupon
     expect(penalty).not.toBeNull();

@@ -116,9 +116,8 @@ describe('resolveNoShow — real refund persistence (X1 regression)', () => {
     expect(updatedPayment.refundError).toBeUndefined();
 
     expect(updatedBooking.status).toBe('no-show-stylist');
-    // 'paid' here means "nothing further owed to the stylist" — correct once the refund
-    // has actually happened, which is the whole point of the reordering fix.
-    expect(updatedBooking.payoutStatus).toBe('paid');
+    // Task S3.3: 'not_owed' replaces the 'paid' overload for stylist no-shows where nothing is owed
+    expect(updatedBooking.payoutStatus).toBe('not_owed');
   });
 
   it('still partially refunds the client when the CLIENT is the no-show (no regression)', async () => {

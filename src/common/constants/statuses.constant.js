@@ -73,6 +73,20 @@ export const PAYMENT_STATUS = {
   REFUNDING: 'refunding',
 };
 
+/**
+ * Booking payout status.
+ * 'not_owed' exists because 'paid' was previously overloaded to mean both "disbursed"
+ * and "nothing owed to the stylist" (e.g. on stylist no-shows). That overload caused X1,
+ * where processRefund's guard read 'paid' as "already disbursed by a Payout batch" and
+ * refused to refund the client. Distinct 'not_owed' closes this class of bug completely.
+ */
+export const PAYOUT_STATUS = {
+  UNPAID: 'unpaid',
+  PROCESSING: 'processing',
+  PAID: 'paid',
+  NOT_OWED: 'not_owed',
+};
+
 // Cancellation policy — see docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md §H.
 // Boundary: exactly 24h00m falls in the CLIENT-FAVOURABLE tier (`diffHours >= EARLY_HOURS`).
 export const CANCELLATION_POLICY = {

@@ -394,6 +394,7 @@ export const processRefund = async ({
   // 'paid'), the stylist's share has already left the ledger (or is about to) based on the
   // pre-refund amount — a plain status flip here can't claw that back. Block it and force manual
   // reconciliation of the existing payout batch before the refund proceeds.
+  // Note (Task S3.3): !== 'unpaid' refuses 'processing', 'paid', and 'not_owed'.
   const booking = await bookingRepository.findById(bookingId);
   if (booking && booking.payoutStatus && booking.payoutStatus !== 'unpaid') {
     throw new ApiError(

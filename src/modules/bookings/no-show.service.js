@@ -17,6 +17,7 @@ import { ROLES } from '../../common/constants/roles.constant.js';
 import {
   BOOKING_STATUS,
   PAYMENT_STATUS,
+  PAYOUT_STATUS,
   NO_SHOW_POLICY,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
@@ -290,7 +291,10 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
       await bookingRepository.updateById(
         bookingId,
         {
-          payoutStatus: policy.STYLIST_PERCENTAGE > 0 ? 'unpaid' : 'paid',
+          payoutStatus:
+            settlement.stylistCompensationAmount > 0
+              ? PAYOUT_STATUS.UNPAID
+              : PAYOUT_STATUS.NOT_OWED,
         },
         session
       );
