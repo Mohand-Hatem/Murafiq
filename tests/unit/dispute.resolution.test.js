@@ -45,7 +45,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         createdAt: recentDate,
       });
 
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'disputed',
         clientId: { _id: clientId },

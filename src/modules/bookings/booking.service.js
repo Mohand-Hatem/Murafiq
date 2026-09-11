@@ -304,13 +304,7 @@ export const fileDispute = async (user, bookingId, disputeData) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const userIdStr = (user._id || user.id).toString();
-  const clientIdStr = (booking.clientId._id || booking.clientId).toString();
-  const stylistIdStr = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (userIdStr !== clientIdStr && userIdStr !== stylistIdStr && user.role !== ROLES.ADMIN) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  assertBookingParticipant(user, booking, { allowAdmin: true });
 
   if (booking.status === 'disputed') {
     throw new ApiError(409, 'Booking is already disputed');
@@ -347,16 +341,24 @@ export const fileDispute = async (user, bookingId, disputeData) => {
     }
   }
 
-  const updated = await bookingRepository.updateById(bookingId, {
-    status: 'disputed',
-    disputeDetails: {
-      raisedBy: user._id || user.id,
-      reason: disputeData.reason,
-      type: disputeData.type || 'general',
-      raisedAt: new Date(),
-      evidence: disputeData.evidence || [],
-    },
-  });
+  const updated = await bookingRepository.transitionStatus(
+    bookingId,
+    ['completed', 'in-progress'],
+    {
+      status: 'disputed',
+      disputeDetails: {
+        raisedBy: user._id || user.id,
+        reason: disputeData.reason,
+        type: disputeData.type || 'general',
+        raisedAt: new Date(),
+        evidence: disputeData.evidence || [],
+      },
+    }
+  );
+
+  if (!updated) {
+    throw new ApiError(409, 'Cannot file dispute: booking is no longer disputable');
+  }
 
   // Re-open chat so parties can communicate during dispute
   try {
