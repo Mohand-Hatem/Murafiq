@@ -28,13 +28,6 @@ const resolveScheduledStart = (booking) => {
   return new Date(startOfDay.getTime() + startMinute * 60 * 1000);
 };
 
-const identifyParties = (booking, user) => {
-  const userId = (user._id || user.id).toString();
-  const clientId = (booking.clientId?._id || booking.clientId).toString();
-  const stylistId = (booking.stylistId?._id || booking.stylistId).toString();
-  return { userId, clientId, stylistId };
-};
-
 /**
  * File a no-show against the counterparty.
  *
