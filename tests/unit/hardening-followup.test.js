@@ -46,7 +46,7 @@ describe('checkIn() emits CHECK_IN_COMPLETED', () => {
       status: 'confirmed',
     });
     jest.spyOn(paymentRepository, 'findByBookingId').mockResolvedValue({ status: 'paid' });
-    jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       clientId: { _id: clientId },
       stylistId: { _id: stylistId },

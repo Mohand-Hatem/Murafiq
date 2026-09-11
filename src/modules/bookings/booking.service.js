@@ -201,13 +201,7 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const userIdStr = (user._id || user.id).toString();
-  const clientIdStr = (booking.clientId._id || booking.clientId).toString();
-  const stylistIdStr = (booking.stylistId._id || booking.stylistId).toString();
-
-  if (userIdStr !== clientIdStr && userIdStr !== stylistIdStr) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  const { clientId } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (booking.status !== 'confirmed' && booking.status !== 'in-progress') {
     throw new ApiError(400, `Cannot check-in to a booking in '${booking.status}' status`);
@@ -228,11 +222,19 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     updateData.checkInLocation = { lat: locationData.lat, lng: locationData.lng };
   }
 
-  const updated = await bookingRepository.updateById(bookingId, updateData);
+  const updated = await bookingRepository.transitionStatus(
+    bookingId,
+    ['confirmed', 'in-progress'],
+    updateData
+  );
+
+  if (!updated) {
+    throw new ApiError(400, 'Cannot check-in: this booking is no longer in a check-in-able status');
+  }
 
   eventBus.emit(EVENTS.CHECK_IN_COMPLETED, {
     bookingId: updated._id.toString(),
-    clientId: clientIdStr,
+    clientId,
   });
 
   return toPublicBookingDto(updated);

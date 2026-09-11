@@ -124,6 +124,11 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
       mockBookingDoc = { ...mockBookingDoc, status: 'completed', completedAt: new Date() };
       return Promise.resolve(mockBookingDoc);
     }),
+    transitionStatus: jest.fn().mockImplementation((id, fromStates, patch) => {
+      if (!fromStates.includes(mockBookingDoc.status)) return Promise.resolve(null);
+      mockBookingDoc = { ...mockBookingDoc, ...patch };
+      return Promise.resolve(mockBookingDoc);
+    }),
   },
 }));
 
@@ -215,6 +220,19 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('in-progress');
+    });
+
+    it('refuses to check in if booking was cancelled after the read (CAS race)', async () => {
+      const repo = (await import('../../src/modules/bookings/booking.repository.js')).default;
+      repo.transitionStatus.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .patch(`/api/v1/bookings/${mockBookingDoc._id}/check-in`)
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ lat: 30.0444, lng: 31.2357 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/no longer in a check-in-able status/i);
     });
   });
 

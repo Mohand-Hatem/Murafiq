@@ -183,7 +183,7 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
   const targetStatus = patch?.status ?? patch?.$set?.status;
   if (targetStatus) {
     for (const from of fromStates) {
-      if (!isLegalTransition(from, targetStatus)) {
+      if (from !== targetStatus && !isLegalTransition(from, targetStatus)) {
         throw new Error(
           `Illegal booking transition declared: '${from}' -> '${targetStatus}'. ` +
             'Update BOOKING_TRANSITIONS deliberately if this is a real new edge.'
