@@ -23,6 +23,10 @@ import {
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import logger from '../../config/logger.config.js';
 
+export const CHECKIN_SPLIT_AT = process.env.CHECKIN_SPLIT_AT
+  ? new Date(process.env.CHECKIN_SPLIT_AT)
+  : new Date('2026-09-11T00:00:00.000Z');
+
 const REPORTABLE_STATUSES = [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS];
 
 const resolveScheduledStart = (booking) => {
@@ -66,10 +70,18 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
     );
   }
 
-  // The reporter must themselves have turned up. checkInAt is the only evidence the
-  // platform holds that the accuser was present, so without it there is nothing to
-  // distinguish a genuine report from a party who also failed to attend.
-  if (!booking.checkInAt) {
+  // Task S3.4 (S-2 / BK8) & §H.2: Gate on the reporter's own check-in timestamp.
+  // The reporter must themselves have turned up.
+  const reporterCheckIn = userId === clientId ? booking.clientCheckInAt : booking.stylistCheckInAt;
+
+  // Legacy fallback, deliberately time-boxed. Bookings created before the per-party split have
+  // only the shared `checkInAt`, which cannot say WHO attended -- so for those, and only those,
+  // the old (weaker) rule still applies.
+  // TODO: Delete this branch (and CHECKIN_SPLIT_AT) one release later once historical bookings expire.
+  const legacyCheckIn =
+    booking.createdAt && booking.createdAt < CHECKIN_SPLIT_AT ? booking.checkInAt : null;
+
+  if (!reporterCheckIn && !legacyCheckIn) {
     throw new ApiError(
       400,
       'You must check in at the meeting location before reporting the other party as a no-show.'

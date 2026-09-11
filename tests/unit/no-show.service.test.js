@@ -275,6 +275,7 @@ describe('fileNoShow — CAS race', () => {
       stylistId: { _id: stylistId },
       status: 'in-progress',
       checkInAt: new Date(Date.now() - 90 * 60 * 1000),
+      clientCheckInAt: new Date(Date.now() - 90 * 60 * 1000),
       scheduledDate,
       scheduledStartMinute: 0,
       noShowDetails: {},

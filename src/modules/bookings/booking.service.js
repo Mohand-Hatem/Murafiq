@@ -195,7 +195,7 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const { clientId } = assertBookingParticipant(user, booking, { allowAdmin: false });
+  const { clientId, isClient } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (booking.status !== 'confirmed' && booking.status !== 'in-progress') {
     throw new ApiError(400, `Cannot check-in to a booking in '${booking.status}' status`);
@@ -208,7 +208,8 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
   }
 
   const updateData = {
-    checkInAt: new Date(),
+    checkInAt: new Date(), // legacy: still read by reliability + the DTO
+    [isClient ? 'clientCheckInAt' : 'stylistCheckInAt']: new Date(),
     status: 'in-progress',
   };
 

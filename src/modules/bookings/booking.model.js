@@ -44,6 +44,8 @@ const bookingSchema = new Schema(
     frozenReason: String,
     frozenAt: Date,
     checkInAt: Date,
+    clientCheckInAt: Date,
+    stylistCheckInAt: Date,
     checkInLocation: {
       lat: Number,
       lng: Number,
