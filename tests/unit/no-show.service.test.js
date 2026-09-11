@@ -93,7 +93,7 @@ jest.unstable_mockModule('../../src/modules/chat/chat.service.js', () => ({
   lockConversation: mockChatLock,
 }));
 
-const { resolveNoShow, respondToNoShow } = await import('../../src/modules/bookings/no-show.service.js');
+const { resolveNoShow, respondToNoShow, fileNoShow } = await import('../../src/modules/bookings/no-show.service.js');
 
 // Regression suite for audit finding C-4: processRefund unconditionally zeroed
 // stylistPayoutAmount on every refund, so a client no-show -- where
@@ -222,5 +222,31 @@ describe('respondToNoShow — contest CAS race', () => {
         message: 'My mistake',
       })
     ).rejects.toThrow(/no longer in a valid status/i);
+  });
+});
+
+describe('fileNoShow — CAS race', () => {
+  const clientId = '60f719b8f1a2c81234567891';
+  const stylistId = '60f719b8f1a2c81234567890';
+  const bookingId = '60f719b8f1a2c81234567888';
+
+  it('refuses to file no-show if booking left reportable status after read (CAS race)', async () => {
+    const scheduledDate = new Date(Date.now() - 2 * 3600 * 1000);
+    const booking = {
+      _id: bookingId,
+      clientId: { _id: clientId },
+      stylistId: { _id: stylistId },
+      status: 'in-progress',
+      checkInAt: new Date(Date.now() - 90 * 60 * 1000),
+      scheduledDate,
+      scheduledStartMinute: 0,
+      noShowDetails: {},
+    };
+    mockBookingFindById.mockResolvedValueOnce(booking);
+    mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+    await expect(
+      fileNoShow({ _id: clientId, role: 'client' }, bookingId, {})
+    ).rejects.toThrow(/no longer in a reportable status/i);
   });
 });

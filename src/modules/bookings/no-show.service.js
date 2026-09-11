@@ -50,10 +50,7 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const { userId, clientId, stylistId } = identifyParties(booking, user);
-  if (userId !== clientId && userId !== stylistId) {
-    throw new ApiError(403, 'Forbidden');
-  }
+  const { userId, clientId, stylistId } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (!REPORTABLE_STATUSES.includes(booking.status)) {
     throw new ApiError(400, `Cannot report a no-show on a booking in '${booking.status}' status`);
@@ -85,14 +82,22 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
 
   const reportedAgainst = userId === clientId ? 'stylist' : 'client';
 
-  const updated = await bookingRepository.updateById(bookingId, {
-    noShowDetails: {
-      reportedBy: userId,
-      reportedAt: new Date(),
-      reportedAgainst,
-      evidence,
-    },
-  });
+  const updated = await bookingRepository.transitionStatus(
+    bookingId,
+    ['confirmed', 'in-progress'],
+    {
+      noShowDetails: {
+        reportedBy: userId,
+        reportedAt: new Date(),
+        reportedAgainst,
+        evidence,
+      },
+    }
+  );
+
+  if (!updated) {
+    throw new ApiError(400, 'Cannot file no-show: booking is no longer in a reportable status');
+  }
 
   eventBus.emit(EVENTS.NO_SHOW_REPORTED, {
     bookingId: bookingId.toString(),
