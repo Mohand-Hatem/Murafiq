@@ -55,6 +55,15 @@ jest.unstable_mockModule('../../src/modules/penalties/penalty.repository.js', ()
   create: mockPenaltyCreate,
 }));
 
+const mockCouponIssue = jest.fn().mockResolvedValue({});
+
+jest.unstable_mockModule('../../src/modules/coupons/coupon.service.js', () => ({
+  default: {
+    issueCoupon: mockCouponIssue,
+  },
+  issueCoupon: mockCouponIssue,
+}));
+
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockLedgerPostEntry,
@@ -230,6 +239,14 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         })
       );
 
+      expect(mockCouponIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: clientId,
+          sourceBookingId: bookingId,
+          issuedReason: 'LATE_STYLIST_CANCELLATION',
+        })
+      );
+
       expect(result).toBeDefined();
     });
 
@@ -264,6 +281,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
       expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
         expect.objectContaining({ refundPercentage: 80 })
       );
+      expect(mockCouponIssue).not.toHaveBeenCalled();
     });
 
     it('quote and actual cancellation agree for an admin on the same booking', async () => {

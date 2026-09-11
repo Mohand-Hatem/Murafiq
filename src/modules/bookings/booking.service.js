@@ -6,6 +6,7 @@ import offerRepository from '../offers/offer.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
 import paymentService, { round2 } from '../payments/payment.service.js';
 import penaltyRepository from '../penalties/penalty.repository.js';
+import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
 import chatService from '../chat/chat.service.js';
 import moderationService from '../moderation/moderation.service.js';
@@ -779,6 +780,22 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
       );
     } catch (ledgerErr) {
       logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
+    }
+  }
+
+  // Late stylist cancellation compensation coupon (Task S3.5, S-3 / BK5)
+  if (outcome.couponEligible) {
+    const clientId = (booking.clientId?._id || booking.clientId).toString();
+    try {
+      await couponService.issueCoupon({
+        recipientId: clientId,
+        sourceBookingId: bookingId.toString(),
+        issuedReason: 'LATE_STYLIST_CANCELLATION',
+      });
+    } catch (couponErr) {
+      logger.error(
+        `[Cancellation] Coupon issuance failed for booking ${bookingId}: ${couponErr.message}`
+      );
     }
   }
 
