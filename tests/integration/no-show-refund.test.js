@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import '../../src/common/globals.js';
+import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import mongoose from 'mongoose';
 import { connectTestDB, closeTestDB, clearTestDB } from '../setup/db-handler.js';
 import User from '../../src/modules/users/user.model.js';
 import StylistProfile from '../../src/modules/stylists/stylist-profile.model.js';
 import Booking from '../../src/modules/bookings/booking.model.js';
 import Payment from '../../src/modules/payments/payment.model.js';
+import Penalty from '../../src/modules/penalties/penalty.model.js';
+import Coupon from '../../src/modules/coupons/coupon.model.js';
+import bookingRepository from '../../src/modules/bookings/booking.repository.js';
+import ledgerService from '../../src/modules/ledger/ledger.service.js';
 import noShowService from '../../src/modules/bookings/no-show.service.js';
 import { PAYMENT_STATUS } from '../../src/common/constants/statuses.constant.js';
 
@@ -163,5 +168,69 @@ describe('resolveNoShow — real refund persistence (X1 regression)', () => {
     expect(untouchedPayment.status).toBe(PAYMENT_STATUS.PAID);
     expect(untouchedPayment.refundedAt).toBeFalsy();
     expect(untouchedBooking.status).toBe('completed');
+  });
+
+  // Regression test for finding NS3: Steps C runs inside withTransaction so a ledger failure
+  // rolls back payoutStatus and Penalty atomically
+  it('NS3: rolls back payoutStatus and penalty if ledger write fails in transaction', async () => {
+    const { booking } = await createBookingAndPayment({ reportedAgainst: 'stylist', price: 1000 });
+
+    const spy = jest.spyOn(ledgerService, 'postDoubleEntry').mockRejectedValueOnce(new Error('ledger error'));
+
+    await expect(
+      noShowService.resolveNoShow(booking._id.toString(), { reason: 'test rollback' })
+    ).rejects.toThrow('ledger error');
+
+    spy.mockRestore();
+
+    const rollbackedBooking = await Booking.findById(booking._id);
+    expect(rollbackedBooking.payoutStatus).toBe('unpaid');
+    expect(await Penalty.countDocuments({ bookingId: booking._id })).toBe(0);
+  });
+
+  // Integration test for Task S3.2a (NS5): resumes a settlement that crashed after refund
+  it('NS5: resumes a settlement that crashed after the refund', async () => {
+    const { booking, payment } = await createBookingAndPayment({ reportedAgainst: 'stylist', price: 1000 });
+
+    // Crash between the provider refund (Step B) and the settlement transaction (Step C)
+    const spy = jest.spyOn(ledgerService, 'postDoubleEntry').mockRejectedValueOnce(new Error('crash'));
+    await expect(
+      noShowService.resolveNoShow(booking._id.toString(), { reason: 'test crash' })
+    ).rejects.toThrow('crash');
+
+    const mid = await Booking.findById(booking._id);
+    expect(mid.status).toBe('no-show-stylist'); // Step A committed
+    expect(mid.noShowDetails.settlementCompletedAt).toBeFalsy(); // Step C/D/E did not
+    expect(await Penalty.countDocuments({ bookingId: booking._id })).toBe(0);
+
+    // The sweep finds it (findPendingNoShowReports cannot)
+    expect(await bookingRepository.findPendingNoShowReports(new Date())).toHaveLength(0);
+    const stuck = await bookingRepository.findUnfinishedNoShowSettlements(5, 50);
+    expect(stuck.map((b) => b._id.toString())).toContain(booking._id.toString());
+
+    spy.mockRestore();
+
+    // Resuming completes the settlement without double-refunding
+    await noShowService.resolveNoShow(booking._id.toString(), { reason: 'resume' });
+
+    const done = await Booking.findById(booking._id);
+    expect(done.noShowDetails.settlementCompletedAt).toBeTruthy();
+    expect(await Penalty.countDocuments({ bookingId: booking._id })).toBe(1); // not 2
+    expect(await Coupon.countDocuments({ sourceBookingId: booking._id })).toBe(1);
+    const p = await Payment.findById(payment._id);
+    expect(p.refundAmount).toBe(1000); // not double-refunded
+  });
+
+  it('halts instead of guessing when the payment is stuck in REFUNDING', async () => {
+    const { booking, payment } = await createBookingAndPayment({ reportedAgainst: 'stylist', price: 1000 });
+    await Payment.updateOne({ _id: payment._id }, { $set: { status: PAYMENT_STATUS.REFUNDING } });
+
+    await expect(
+      noShowService.resolveNoShow(booking._id.toString(), { reason: 'test ambiguous' })
+    ).rejects.toThrow(/Refund state is ambiguous/i);
+
+    const updatedBooking = await Booking.findById(booking._id);
+    expect(updatedBooking.noShowDetails.postSettlementErrors).toHaveLength(1);
+    expect(updatedBooking.noShowDetails.postSettlementErrors[0].step).toBe('refund');
   });
 });

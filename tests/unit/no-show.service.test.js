@@ -7,6 +7,15 @@ const mockBookingTransitionStatus = jest.fn((id, from, patch, session) =>
   session ? mockBookingUpdateById(id, patch, session) : mockBookingUpdateById(id, patch)
 );
 const mockBookingSettleNoShow = jest.fn();
+const mockReleaseSettlementResumeClaim = jest.fn();
+const mockRecordPostSettlementError = jest.fn();
+const mockStampSettlementCompleted = jest.fn();
+const mockClaimSettlementResume = jest.fn();
+const mockMarkSettlementExhausted = jest.fn();
+const mockResetSettlementExhaustion = jest.fn();
+const mockFindUnfinishedNoShowSettlements = jest.fn();
+const mockFindExhaustedNoShowSettlements = jest.fn();
+
 const mockScheduleDelete = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
@@ -17,17 +26,38 @@ const mockLedgerPostDoubleEntry = jest.fn().mockResolvedValue([{}, {}]);
 const mockReliabilityUpdate = jest.fn();
 const mockChatLock = jest.fn();
 
+jest.unstable_mockModule('../../src/common/transaction.util.js', () => ({
+  default: async (fn) => fn({}),
+  withTransaction: async (fn) => fn({}),
+}));
+
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
     transitionStatus: mockBookingTransitionStatus,
     settleNoShow: mockBookingSettleNoShow,
+    releaseSettlementResumeClaim: mockReleaseSettlementResumeClaim,
+    recordPostSettlementError: mockRecordPostSettlementError,
+    stampSettlementCompleted: mockStampSettlementCompleted,
+    claimSettlementResume: mockClaimSettlementResume,
+    markSettlementExhausted: mockMarkSettlementExhausted,
+    resetSettlementExhaustion: mockResetSettlementExhaustion,
+    findUnfinishedNoShowSettlements: mockFindUnfinishedNoShowSettlements,
+    findExhaustedNoShowSettlements: mockFindExhaustedNoShowSettlements,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
   transitionStatus: mockBookingTransitionStatus,
   settleNoShow: mockBookingSettleNoShow,
+  releaseSettlementResumeClaim: mockReleaseSettlementResumeClaim,
+  recordPostSettlementError: mockRecordPostSettlementError,
+  stampSettlementCompleted: mockStampSettlementCompleted,
+  claimSettlementResume: mockClaimSettlementResume,
+  markSettlementExhausted: mockMarkSettlementExhausted,
+  resetSettlementExhaustion: mockResetSettlementExhaustion,
+  findUnfinishedNoShowSettlements: mockFindUnfinishedNoShowSettlements,
+  findExhaustedNoShowSettlements: mockFindExhaustedNoShowSettlements,
 }));
 
 jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', () => ({
@@ -93,7 +123,13 @@ jest.unstable_mockModule('../../src/modules/chat/chat.service.js', () => ({
   lockConversation: mockChatLock,
 }));
 
-const { resolveNoShow, respondToNoShow, fileNoShow } = await import('../../src/modules/bookings/no-show.service.js');
+const {
+  resolveNoShow,
+  respondToNoShow,
+  fileNoShow,
+  resumeUnfinishedNoShowSettlements,
+  retryExhaustedNoShowSettlement,
+} = await import('../../src/modules/bookings/no-show.service.js');
 
 // Regression suite for audit finding C-4: processRefund unconditionally zeroed
 // stylistPayoutAmount on every refund, so a client no-show -- where
@@ -170,7 +206,8 @@ describe('No-Show Settlement — Stylist Compensation (Unit)', () => {
 
     expect(mockBookingUpdateById).toHaveBeenCalledWith(
       bookingId,
-      expect.objectContaining({ payoutStatus: 'unpaid' })
+      expect.objectContaining({ payoutStatus: 'unpaid' }),
+      expect.anything()
     );
   });
 });
@@ -250,3 +287,157 @@ describe('fileNoShow — CAS race', () => {
     ).rejects.toThrow(/no longer in a reportable status/i);
   });
 });
+
+describe('resolveNoShow — S3.2 & S3.2a Ordering, Atomicity & Resumption', () => {
+  const clientId = '60f719b8f1a2c81234567891';
+  const stylistId = '60f719b8f1a2c81234567890';
+  const bookingId = '60f719b8f1a2c81234567888';
+
+  const baseBooking = {
+    _id: bookingId,
+    clientId: { _id: clientId, toString: () => clientId },
+    stylistId: { _id: stylistId, toString: () => stylistId },
+    price: 1000,
+    status: 'confirmed',
+    noShowDetails: {
+      reportedAt: new Date(),
+      reportedAgainst: 'stylist',
+      confirmedBy: clientId,
+    },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('NS1: does NOT delete schedule block if CAS claim fails', async () => {
+    mockBookingFindById.mockResolvedValueOnce(baseBooking);
+    mockBookingSettleNoShow.mockResolvedValueOnce(null); // CAS loses
+    mockBookingFindById.mockResolvedValueOnce({ ...baseBooking, status: 'completed' });
+
+    const result = await resolveNoShow(bookingId, { confirmedBy: clientId });
+
+    expect(mockScheduleDelete).not.toHaveBeenCalled();
+    expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    expect(mockStampSettlementCompleted).not.toHaveBeenCalled();
+    expect(result.status).toBe('completed');
+  });
+
+  it('NS2: refund failure aborts settlement and does NOT write payoutStatus', async () => {
+    mockBookingFindById.mockResolvedValue(baseBooking);
+    mockBookingSettleNoShow.mockResolvedValueOnce({ ...baseBooking, status: 'no-show-stylist' });
+    mockPaymentFindByBookingId.mockResolvedValueOnce({ _id: 'pay-1', status: 'paid', amount: 1000 });
+    mockPaymentProcessRefund.mockRejectedValueOnce(new Error('Gateway timeout'));
+
+    await expect(
+      resolveNoShow(bookingId, { confirmedBy: clientId })
+    ).rejects.toThrow('Gateway timeout');
+
+    expect(mockBookingUpdateById).not.toHaveBeenCalledWith(
+      bookingId,
+      expect.objectContaining({ payoutStatus: expect.anything() }),
+      expect.anything()
+    );
+    expect(mockStampSettlementCompleted).not.toHaveBeenCalled();
+    expect(mockReleaseSettlementResumeClaim).toHaveBeenCalledWith(bookingId);
+  });
+
+  it('Halts with 409 when payment is stuck in REFUNDING', async () => {
+    mockBookingFindById.mockResolvedValue(baseBooking);
+    mockBookingSettleNoShow.mockResolvedValueOnce({ ...baseBooking, status: 'no-show-stylist' });
+    mockPaymentFindByBookingId.mockResolvedValueOnce({ _id: 'pay-1', status: 'refunding', amount: 1000 });
+
+    await expect(
+      resolveNoShow(bookingId, { confirmedBy: clientId })
+    ).rejects.toThrow(/Refund state is ambiguous/i);
+
+    expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    expect(mockRecordPostSettlementError).toHaveBeenCalledWith(
+      bookingId,
+      'refund',
+      expect.stringContaining('Payment stuck in REFUNDING')
+    );
+    expect(mockReleaseSettlementResumeClaim).toHaveBeenCalledWith(bookingId);
+  });
+
+  it('Resumes already refunded payment by skipping provider refund and completing remaining steps', async () => {
+    const resumedBooking = {
+      ...baseBooking,
+      status: 'no-show-stylist',
+      noShowDetails: {
+        ...baseBooking.noShowDetails,
+        settlementCompletedAt: null, // crash window after refund!
+      },
+    };
+    mockBookingFindById.mockResolvedValue(resumedBooking);
+    mockPaymentFindByBookingId.mockResolvedValueOnce({
+      _id: 'pay-1',
+      status: 'refunded',
+      amount: 1000,
+    });
+    mockBookingUpdateById.mockResolvedValueOnce({ ...resumedBooking, payoutStatus: 'paid' });
+
+    await resolveNoShow(bookingId, { confirmedBy: clientId });
+
+    // Skipped provider refund
+    expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    // Step C executed
+    expect(mockPenaltyCreate).toHaveBeenCalled();
+    expect(mockLedgerPostDoubleEntry).toHaveBeenCalled();
+    // Step D executed
+    expect(mockScheduleDelete).toHaveBeenCalled();
+    expect(mockCouponIssue).toHaveBeenCalled();
+    // Step E stamped
+    expect(mockStampSettlementCompleted).toHaveBeenCalledWith(bookingId);
+  });
+
+  it('retryExhaustedNoShowSettlement: rejects non-admin and retries exhausted settlement for admin', async () => {
+    const exhaustedBooking = {
+      ...baseBooking,
+      status: 'no-show-stylist',
+      noShowDetails: {
+        ...baseBooking.noShowDetails,
+        settlementExhausted: true,
+      },
+    };
+
+    // Non-admin rejected
+    await expect(
+      retryExhaustedNoShowSettlement({ _id: clientId, role: 'client' }, bookingId)
+    ).rejects.toThrow(/Only admins can retry/i);
+
+    // Admin succeeds
+    mockBookingFindById.mockResolvedValue(exhaustedBooking);
+    mockBookingSettleNoShow.mockResolvedValueOnce({ ...exhaustedBooking, status: 'no-show-stylist' });
+    mockPaymentFindByBookingId.mockResolvedValue({ _id: 'pay-1', status: 'refunded', amount: 1000 });
+
+    await retryExhaustedNoShowSettlement({ _id: 'admin-1', role: 'admin' }, bookingId);
+
+    expect(mockResetSettlementExhaustion).toHaveBeenCalledWith(bookingId);
+  });
+
+  it('resumeUnfinishedNoShowSettlements: sweeps and claims unfinished bookings, marking exhausted on max attempts', async () => {
+    const unfinishedBooking = {
+      ...baseBooking,
+      status: 'no-show-stylist',
+      noShowDetails: {
+        ...baseBooking.noShowDetails,
+        settlementAttempts: 4,
+      },
+    };
+    mockFindUnfinishedNoShowSettlements.mockResolvedValueOnce([unfinishedBooking]);
+    mockClaimSettlementResume.mockResolvedValueOnce(unfinishedBooking);
+    mockBookingFindById.mockResolvedValue(unfinishedBooking);
+    mockPaymentFindByBookingId.mockResolvedValue({ _id: 'pay-1', status: 'refunded', amount: 1000 });
+    // Crash during resolution
+    mockBookingUpdateById.mockRejectedValueOnce(new Error('Persistent failure'));
+
+    const result = await resumeUnfinishedNoShowSettlements(5, 50);
+
+    expect(result.scanned).toBe(1);
+    expect(result.resolved).toBe(0);
+    expect(mockReleaseSettlementResumeClaim).toHaveBeenCalledWith(bookingId);
+    expect(mockMarkSettlementExhausted).toHaveBeenCalledWith(bookingId, 'Persistent failure');
+  });
+});
+

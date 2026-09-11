@@ -24,12 +24,13 @@ export default class MockProvider extends PaymentProviderInterface {
     };
   }
 
-  async refund(transactionId, amount) {
+  async refund(transactionId, amount, { idempotencyKey = null } = {}) {
     return {
       status: 'refunded',
       transactionId,
       amount,
       refundId: `mock_ref_${crypto.randomUUID()}`,
+      idempotencyKey,
     };
   }
 

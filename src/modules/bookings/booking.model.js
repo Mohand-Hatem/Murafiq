@@ -85,6 +85,20 @@ const bookingSchema = new Schema(
       // restores exactly this value rather than a hardcoded status, so a dismissed
       // report always returns the booking to where it actually was.
       contestedFromStatus: { type: String, enum: ['confirmed', 'in-progress'] },
+      settlementCompletedAt: Date,
+      settlementAttempts: { type: Number, default: 0 },
+      isResuming: { type: Boolean, default: false },
+      resumedAt: Date,
+      settlementExhausted: { type: Boolean, default: false },
+      settlementExhaustedAt: Date,
+      settlementExhaustedReason: String,
+      postSettlementErrors: [
+        {
+          step: String,
+          message: String,
+          at: { type: Date, default: Date.now },
+        },
+      ],
     },
 
     disputeDetails: {
@@ -111,6 +125,13 @@ bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, s
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ isFrozen: 1, payoutStatus: 1 });
+bookingSchema.index({
+  status: 1,
+  'noShowDetails.settlementCompletedAt': 1,
+  'noShowDetails.settlementAttempts': 1,
+  'noShowDetails.isResuming': 1,
+});
+bookingSchema.index({ 'noShowDetails.settlementExhausted': 1 }, { sparse: true });
 
 const Booking = mongoose.model('Booking', bookingSchema);
 

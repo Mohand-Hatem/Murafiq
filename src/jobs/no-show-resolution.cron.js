@@ -33,6 +33,16 @@ export const startNoShowResolutionCron = () => {
       logger.error(`No-show auto-resolution sweep failed: ${err.message}`);
     }
 
+    // Second pass: resume any unfinished no-show settlements (S3.2a)
+    try {
+      const { resolved, scanned } = await noShowService.resumeUnfinishedNoShowSettlements();
+      if (resolved > 0) {
+        logger.info(`No-show resume sweep: resumed ${resolved} of ${scanned} unfinished settlement(s).`);
+      }
+    } catch (err) {
+      logger.error(`No-show resume sweep failed: ${err.message}`);
+    }
+
     // Coupon expiry rides along on the same tick rather than getting its own schedule.
     // Expiry is enforced lazily at redemption anyway; this only keeps listings honest.
     try {

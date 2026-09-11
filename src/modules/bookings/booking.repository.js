@@ -298,8 +298,135 @@ export const findPendingNoShowReports = async (cutoff) => {
   });
 };
 
+/**
+ * Atomic claim for cluster-mode concurrency safety.
+ * Guarantees that multiple PM2/cluster workers cannot both sweep and process Step B concurrently.
+ */
+export const claimSettlementResume = async (bookingId) =>
+  Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      status: { $in: ['no-show-stylist', 'no-show-client'] },
+      'noShowDetails.settlementCompletedAt': null,
+      'noShowDetails.isResuming': { $ne: true },
+      'noShowDetails.settlementExhausted': { $ne: true },
+    },
+    {
+      $set: { 'noShowDetails.isResuming': true, 'noShowDetails.resumedAt': new Date() },
+      $inc: { 'noShowDetails.settlementAttempts': 1 },
+    },
+    { returnDocument: 'after' }
+  );
+
+/**
+ * Releases the resume claim lock on error so subsequent cron passes can retry (up to maxAttempts).
+ */
+export const releaseSettlementResumeClaim = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    { $unset: { 'noShowDetails.isResuming': 1 } }
+  );
+
+/**
+ * Permanently flags exhausted bookings for admin dashboard / manual intervention.
+ */
+export const markSettlementExhausted = async (bookingId, errorReason) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: {
+        'noShowDetails.settlementExhausted': true,
+        'noShowDetails.settlementExhaustedAt': new Date(),
+        'noShowDetails.settlementExhaustedReason': errorReason,
+      },
+      $unset: { 'noShowDetails.isResuming': 1 },
+    }
+  );
+
+/**
+ * Admin action recovery: resets exhaustion flags so settlement can be retried.
+ */
+export const resetSettlementExhaustion = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: {
+        'noShowDetails.settlementExhausted': false,
+        'noShowDetails.settlementAttempts': 0,
+      },
+      $unset: {
+        'noShowDetails.settlementExhaustedAt': 1,
+        'noShowDetails.settlementExhaustedReason': 1,
+        'noShowDetails.isResuming': 1,
+      },
+    }
+  );
+
+/**
+ * Records an error occurring during post-settlement steps (Step D).
+ */
+export const recordPostSettlementError = async (bookingId, step, message) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $push: {
+        'noShowDetails.postSettlementErrors': {
+          step,
+          message,
+          at: new Date(),
+        },
+      },
+    }
+  );
+
+/**
+ * Stamps the final settlement completion marker (Step E) and clears resuming lock.
+ */
+export const stampSettlementCompleted = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: { 'noShowDetails.settlementCompletedAt': new Date() },
+      $unset: { 'noShowDetails.isResuming': 1 },
+    }
+  );
+
+/**
+ * Sibling of findPendingNoShowReports.
+ * Finds bookings claimed into no-show status whose settlement never completed.
+ * Strictly state-driven query (settlementCompletedAt: null) without a temporal cutoff.
+ */
+export const findUnfinishedNoShowSettlements = async (maxAttempts = 5, batchSize = 50) =>
+  Booking.find({
+    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    'noShowDetails.settlementCompletedAt': null,
+    'noShowDetails.settlementAttempts': { $lt: maxAttempts },
+    'noShowDetails.isResuming': { $ne: true },
+    'noShowDetails.settlementExhausted': { $ne: true },
+  })
+    .sort({ 'noShowDetails.confirmedAt': 1 })
+    .limit(batchSize);
+
+/**
+ * Admin-visible query for manual review queue of exhausted settlements.
+ */
+export const findExhaustedNoShowSettlements = async () =>
+  Booking.find({
+    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    'noShowDetails.settlementCompletedAt': null,
+    'noShowDetails.settlementExhausted': true,
+  }).populate(['clientId', 'stylistId']);
+
 export default {
   findPendingNoShowReports,
+  claimSettlementResume,
+  releaseSettlementResumeClaim,
+  markSettlementExhausted,
+  resetSettlementExhaustion,
+  recordPostSettlementError,
+  stampSettlementCompleted,
+  findUnfinishedNoShowSettlements,
+  findExhaustedNoShowSettlements,
   create,
   findById,
   findEligibleForPayout,

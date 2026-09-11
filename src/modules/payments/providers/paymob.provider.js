@@ -220,7 +220,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
   /**
    * Refund API (classic/legacy endpoint — Paymob has not moved refunds onto the Intention API).
    */
-  async refund(transactionId, amount) {
+  async refund(transactionId, amount, { idempotencyKey = null } = {}) {
     const amountInCents = Math.round(amount * 100);
 
     try {
@@ -230,6 +230,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         },
         body: JSON.stringify({
           auth_token: authToken,

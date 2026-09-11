@@ -378,6 +378,7 @@ export const processRefund = async ({
   // pure pre-session cancellations, where the documented policy awards the stylist
   // nothing since the session never took place.
   stylistPayoutOverrideAmount = 0,
+  idempotencyKey = null,
 } = {}) => {
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (!payment) {
@@ -444,7 +445,7 @@ export const processRefund = async ({
   let updated;
   try {
     if (payment.providerTransactionId && provider.refund) {
-      await provider.refund(payment.providerTransactionId, refundAmount);
+      await provider.refund(payment.providerTransactionId, refundAmount, { idempotencyKey });
     }
 
     updated = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
