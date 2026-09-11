@@ -1,4 +1,5 @@
 import fs from 'fs';
+import * as babelParser from '@babel/parser';
 import LedgerEntry from '../../src/modules/ledger/ledger-entry.model.js';
 import Booking from '../../src/modules/bookings/booking.model.js';
 import { NOTIFICATION_TYPES } from '../../src/modules/notifications/notification.model.js';
@@ -197,7 +198,59 @@ describe('Booking participant checks state admin policy explicitly', () => {
   });
 });
 
+function hasBookingUpdateByIdWithStatus(sourceCode) {
+  const ast = babelParser.parse(sourceCode, { sourceType: 'module' });
+  let found = false;
+  function walk(node) {
+    if (!node || typeof node !== 'object' || found) return;
+    if (node.type === 'CallExpression') {
+      const callee = node.callee;
+      const isBookingRepoUpdate =
+        callee.type === 'MemberExpression' &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'bookingRepository' &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'updateById';
+
+      if (isBookingRepoUpdate) {
+        for (const arg of node.arguments) {
+          if (arg.type === 'ObjectExpression') {
+            for (const prop of arg.properties) {
+              if (prop.type === 'ObjectProperty') {
+                const keyName = prop.key.type === 'Identifier' ? prop.key.name : prop.key.value;
+                if (keyName === 'status') {
+                  found = true;
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'comments') continue;
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) walk(c);
+      } else if (child && typeof child === 'object') {
+        walk(child);
+      }
+    }
+  }
+  walk(ast);
+  return found;
+}
+
 describe('Booking status writes go through repository state transitions', () => {
+  it('flags bookingRepository.updateById with nested call and status property in AST', () => {
+    const fixture = "bookingRepository.updateById(bookingId.toString(), { status: 'completed' });";
+    expect(hasBookingUpdateByIdWithStatus(fixture)).toBe(true);
+
+    const safeFixture = "bookingRepository.updateById(bookingId.toString(), { payoutStatus: 'paid' });";
+    expect(hasBookingUpdateByIdWithStatus(safeFixture)).toBe(false);
+  });
+
   it('no booking status is written outside the repository', () => {
     const files = [
       'src/modules/bookings/booking.service.js',
@@ -205,9 +258,7 @@ describe('Booking status writes go through repository state transitions', () => 
     ];
     for (const f of files) {
       const txt = fs.readFileSync(f, 'utf8');
-      // bookingRepository.updateById may still be used for non-status patches; a `status:` inside one is the bug.
-      const statusInUpdateById = /bookingRepository\.updateById\([^)]*\{[^}]*\bstatus\s*:/s.test(txt);
-      expect(statusInUpdateById).toBe(false);
+      expect(hasBookingUpdateByIdWithStatus(txt)).toBe(false);
     }
   });
 });
