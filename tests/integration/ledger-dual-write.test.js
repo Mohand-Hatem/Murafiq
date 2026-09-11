@@ -42,6 +42,14 @@ const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentByTxId = jest.fn().mockResolvedValue(mockPayment);
 const mockUpdatePaymentById = jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockPayment, ...data }));
+// CAS mock for payment.repository.transitionStatus — see docs/AUDIT_2026_09_FULL_SYSTEM.md
+// findings X17/X18/X19. Accumulates across calls since processRefund() now calls this
+// twice per invocation (claim into REFUNDING, then resolve to the terminal status).
+let lastTransitionResult = null;
+const mockTransitionStatus = jest.fn().mockImplementation((id, _fromStatus, data) => {
+  lastTransitionResult = { ...(lastTransitionResult || mockPayment), ...data };
+  return Promise.resolve(lastTransitionResult);
+});
 
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
@@ -84,6 +92,7 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
     findByTransactionId: mockFindPaymentByTxId,
     findByIntentionId: jest.fn().mockResolvedValue(mockPayment),
     updateById: mockUpdatePaymentById,
+    transitionStatus: mockTransitionStatus,
     create: jest.fn().mockResolvedValue(mockPayment),
   },
 }));
@@ -94,6 +103,7 @@ const paymentService = (await import('../../src/modules/payments/payment.service
 describe('Stage R2 Integration — Ledger Dual-Write Journaling', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lastTransitionResult = null;
   });
 
   it('should post balanced Client DEBIT and Escrow CREDIT ledger entries on successful payment webhook', async () => {
@@ -167,6 +177,69 @@ describe('Stage R2 Integration — Ledger Dual-Write Journaling', () => {
         direction: 'CREDIT',
         amountMinor: 100000,
       })
+    );
+  });
+
+  // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X20: a cancelled
+  // booking's retained platform fee (3%/20% depending on timing) used to sit in ESCROW
+  // forever with no ledger entry ever recognising it as PLATFORM revenue -- cancelled
+  // bookings never reach PAYOUT_ELIGIBILITY, which was the only other place that
+  // recognition happened, so this money was correctly accounted for (debits still equal
+  // credits) but never shows up as revenue anywhere.
+  it('recognises the retained amount as PLATFORM revenue on a partial refund', async () => {
+    const paidPayment = {
+      ...mockPayment,
+      status: 'paid',
+      amount: 1000.0,
+      providerTransactionId: 'mock_tx_ledger_456',
+    };
+    mockFindPaymentByBookingId.mockResolvedValueOnce(paidPayment);
+
+    // 80% refund (late client cancellation) — 20% (200 EGP) is retained by the platform,
+    // with no stylistPayoutOverrideAmount, so all of it is platformFeeAmount.
+    await paymentService.processRefund({
+      bookingId,
+      refundPercentage: 80,
+      reason: 'Late client cancellation',
+    });
+
+    expect(mockPostEntry).toHaveBeenCalledTimes(4);
+
+    expect(mockPostEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryType: 'PLATFORM_FEE',
+        accountType: 'ESCROW',
+        direction: 'DEBIT',
+        amountMinor: 20000, // 200 EGP retained
+      })
+    );
+
+    expect(mockPostEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryType: 'PLATFORM_FEE',
+        accountType: 'PLATFORM',
+        direction: 'CREDIT',
+        amountMinor: 20000,
+      })
+    );
+  });
+
+  it('does NOT post a platform-fee entry when nothing is retained (a full refund)', async () => {
+    const paidPayment = {
+      ...mockPayment,
+      status: 'paid',
+      amount: 1000.0,
+      providerTransactionId: 'mock_tx_ledger_789',
+    };
+    mockFindPaymentByBookingId.mockResolvedValueOnce(paidPayment);
+
+    await paymentService.processRefund({ bookingId, refundPercentage: 100, reason: 'Stylist cancelled' });
+
+    // Only the two ESCROW_RELEASE / REFUND entries — no PLATFORM_FEE pair, since
+    // platformFeeAmount is 0 when 100% is refunded and nothing is retained.
+    expect(mockPostEntry).toHaveBeenCalledTimes(2);
+    expect(mockPostEntry).not.toHaveBeenCalledWith(
+      expect.objectContaining({ entryType: 'PLATFORM_FEE' })
     );
   });
 });

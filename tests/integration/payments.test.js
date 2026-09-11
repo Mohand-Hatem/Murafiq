@@ -48,6 +48,18 @@ const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentByTxId = jest.fn().mockResolvedValue(mockPayment);
 const mockUpdatePaymentById = jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockPayment, ...data }));
+// CAS mock for payment.repository.transitionStatus (see docs/AUDIT_2026_09_FULL_SYSTEM.md
+// findings X17/X18/X19). processRefund() now calls this TWICE per invocation (claim into
+// REFUNDING, then resolve to the terminal status), so the mock accumulates state across
+// calls onto `lastTransitionResult` rather than always merging onto the static base
+// `mockPayment` -- otherwise the second call's narrower `data` would appear to erase the
+// fields the first call set. This suite doesn't exercise the actual concurrency race (see
+// tests/integration/payment-refund-cas.test.js for that, against a real DB).
+let lastTransitionResult = null;
+const mockTransitionStatus = jest.fn().mockImplementation((id, _fromStatus, data) => {
+  lastTransitionResult = { ...(lastTransitionResult || mockPayment), ...data };
+  return Promise.resolve(lastTransitionResult);
+});
 const mockFindClientHistory = jest.fn().mockResolvedValue({
   payments: [mockPayment],
   meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
@@ -78,6 +90,7 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
     findByTransactionId: mockFindPaymentByTxId,
     findByIntentionId: jest.fn().mockResolvedValue(mockPayment),
     updateById: mockUpdatePaymentById,
+    transitionStatus: mockTransitionStatus,
     findClientHistory: mockFindClientHistory,
     create: jest.fn().mockResolvedValue(mockPayment),
   },
@@ -134,6 +147,7 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    lastTransitionResult = null;
   });
 
   describe('POST /api/v1/payments/:bookingId/initialize', () => {

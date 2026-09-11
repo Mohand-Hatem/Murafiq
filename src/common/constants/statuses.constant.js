@@ -61,6 +61,16 @@ export const PAYMENT_STATUS = {
   CANCELLED: 'cancelled',
   REFUNDED: 'refunded',
   PARTIALLY_REFUNDED: 'partially_refunded',
+  // Transient CAS-claimed state (payment.service.js processRefund): set the instant a
+  // refund is claimed, BEFORE the payment provider is called, and resolved to
+  // REFUNDED/PARTIALLY_REFUNDED on success or reverted to PAID on failure. Two things
+  // this closes: (1) a persisted, queryable record that a refund was attempted survives
+  // a crash between the provider call and the terminal write -- previously nothing was
+  // written until after the provider succeeded, so a crash there left the client
+  // refunded by the provider with no trace in our own system; (2) a second concurrent
+  // processRefund call cannot also pass the `status === PAID` guard and call the
+  // provider a second time. See docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17 and X18.
+  REFUNDING: 'refunding',
 };
 
 // Cancellation policy — see docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md §H.

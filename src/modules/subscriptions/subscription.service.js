@@ -348,7 +348,7 @@ export const subscribe = async (
   // here is a free-tier switch the user made themselves via POST /subscribe.
   const isPaidTransition = paid && plan.priceEgp > 0;
 
-  const updatedSubscription = await applyPlanGrant({
+  const grantArgs = {
     userId,
     role: userRole,
     plan,
@@ -360,7 +360,28 @@ export const subscribe = async (
       ? `Paid subscription${orderId ? ` (order ${orderId.toString()})` : ''}`
       : 'Self-service plan change',
     paymobSubscriptionId,
-  });
+  };
+
+  // The SubscriptionHistory snapshot and the plan replacement must land together, exactly
+  // like adminGrantSubscription() below already does -- a snapshot without the replacement
+  // invents a transition that never happened, and a replacement without the snapshot
+  // destroys the plan it overwrote. This path (the one a real customer payment goes
+  // through) previously called applyPlanGrant with no session at all, so the two writes
+  // were never atomic here even though the identical admin path was already wrapped. See
+  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X14.
+  let updatedSubscription;
+  if (mongoose.connection?.readyState === 1) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        updatedSubscription = await applyPlanGrant(grantArgs, session);
+      });
+    } finally {
+      session.endSession();
+    }
+  } else {
+    updatedSubscription = await applyPlanGrant(grantArgs, null);
+  }
 
   // Dual-write to the ledger ONLY for a payment that actually happened. This block used to
   // run for any paid plan regardless of whether money was collected, so the free-grant path

@@ -11,6 +11,7 @@ import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
+import logger from '../../config/logger.config.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
@@ -242,11 +243,39 @@ export const handleWebhook = async (payload, query = {}) => {
   }
 
   if (result.success || result.status === 'paid') {
-    const updated = await paymentRepository.updateById(payment._id, {
+    // Verify the amount the provider actually captured against what this Payment
+    // record expects, when the provider reports one. The HMAC makes the callback
+    // unforgeable but says nothing about whether the CORRECT amount was captured -- a
+    // partial capture, or an intention created before a coupon discounted the price,
+    // would otherwise mark the booking fully paid for less than it collected. See
+    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
+    if (result.amountCents !== undefined && result.amountCents !== null) {
+      const expectedMinor = ledgerService.egpToPiastres(payment.amount);
+      if (Number(result.amountCents) !== expectedMinor) {
+        logger.error(
+          `[Payment Webhook] Amount mismatch for payment ${payment._id}: expected ${expectedMinor} piastres, provider reported ${result.amountCents}.`
+        );
+        throw new ApiError(
+          400,
+          `Webhook amount mismatch: expected ${expectedMinor} piastres, received ${result.amountCents}.`
+        );
+      }
+    }
+
+    // CAS on the exact status just read, not a bare updateById: two concurrent
+    // deliveries of the same success callback could otherwise both pass the PAID/FAILED
+    // guards above (both reading e.g. 'pending') and both proceed to write and emit
+    // PAYMENT_SUCCEEDED. A lost CAS means someone else already resolved this delivery;
+    // re-read and return that result rather than redoing the work. See
+    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
+    const updated = await paymentRepository.transitionStatus(payment._id, payment.status, {
       status: PAYMENT_STATUS.PAID,
       paidAt: new Date(),
       providerTransactionId: result.transactionId || payment.providerTransactionId,
     });
+    if (!updated) {
+      return paymentRepository.findById(payment._id);
+    }
 
     const amountMinor = ledgerService.egpToPiastres(updated.amount);
     const paymentIdStr = updated._id.toString();
@@ -293,10 +322,13 @@ export const handleWebhook = async (payload, query = {}) => {
 
     return updated;
   } else {
-    const updated = await paymentRepository.updateById(payment._id, {
+    const updated = await paymentRepository.transitionStatus(payment._id, payment.status, {
       status: PAYMENT_STATUS.FAILED,
       providerTransactionId: result.transactionId || payment.providerTransactionId,
     });
+    if (!updated) {
+      return paymentRepository.findById(payment._id);
+    }
 
     eventBus.emit(EVENTS.PAYMENT_FAILED, {
       paymentId: updated._id.toString(),
@@ -372,11 +404,6 @@ export const processRefund = async ({
 
   const refundAmount = round2((payment.amount * refundPercentage) / 100);
 
-  const provider = getProvider();
-  if (payment.providerTransactionId && provider.refund) {
-    await provider.refund(payment.providerTransactionId, refundAmount);
-  }
-
   const isPartial = refundPercentage < 100;
   const status = isPartial ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
 
@@ -388,16 +415,55 @@ export const processRefund = async ({
   const stylistPayoutAmount = Math.min(round2(Math.max(0, stylistPayoutOverrideAmount)), retainedAmount);
   const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
 
-  const updateFields = {
-    status,
+  // CAS-claim the payment into REFUNDING *before* calling the provider, not after.
+  // Two things this closes (docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
+  // (1) durability -- a crash between the provider call succeeding and the terminal
+  //     write used to leave NOTHING persisted: the client was refunded by the provider
+  //     but our own record still said 'paid', so the booking still looked payout-eligible
+  //     and the stylist could be paid for a refunded session. The claim below is written
+  //     and committed BEFORE the provider is touched, so that failure mode now leaves a
+  //     durable 'refunding' record instead of silence.
+  // (2) concurrency -- the CAS is keyed on {_id, status: 'paid'}, so a second concurrent
+  //     processRefund() call for the same payment cannot also pass and call the provider
+  //     a second time; it gets null and must not proceed.
+  const claimed = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.PAID, {
+    status: PAYMENT_STATUS.REFUNDING,
     refundAmount,
     refundReason: reason,
-    refundedAt: new Date(),
     platformFeeAmount,
     stylistPayoutAmount,
-  };
+  });
+  if (!claimed) {
+    throw new ApiError(
+      409,
+      'This payment is already being refunded or is no longer in a refundable state.'
+    );
+  }
 
-  const updated = await paymentRepository.updateById(payment._id, updateFields);
+  const provider = getProvider();
+  let updated;
+  try {
+    if (payment.providerTransactionId && provider.refund) {
+      await provider.refund(payment.providerTransactionId, refundAmount);
+    }
+
+    updated = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+      status,
+      refundedAt: new Date(),
+    });
+  } catch (providerErr) {
+    // The provider call itself failed (network error, provider-side rejection, etc.) --
+    // revert to 'paid' so a retry (the caller re-invoking processRefund, or an admin
+    // retry action) can actually attempt it again, rather than leaving the payment
+    // stuck in the transient 'refunding' state forever.
+    await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+      status: PAYMENT_STATUS.PAID,
+      refundError: providerErr.message,
+      refundFailedAt: new Date(),
+    });
+    logger.error(`Refund provider call failed for payment ${payment._id}: ${providerErr.message}`);
+    throw providerErr;
+  }
 
   const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
   const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
@@ -432,6 +498,44 @@ export const processRefund = async ({
       correlationId: `refund_${paymentIdStr}`,
       notes: reason || 'Client refund credit',
     });
+
+    // Recognise whatever the platform actually keeps as revenue THE MOMENT it is
+    // retained, not only if/when the booking later happens to reach a payout batch.
+    // Cancelled bookings never do -- PAYOUT_ELIGIBILITY only matches 'completed' and
+    // 'no-show-client' -- so before this, a cancellation's retained 3%/20% platform fee
+    // sat in ESCROW forever with no ledger entry ever recognising it as revenue. Debits
+    // still equalled credits (the money was never lost), so the nightly reconciliation
+    // never alerted, but PLATFORM revenue was permanently understated. This is a general
+    // fix for every processRefund() caller (cancellation, dispute, no-show), not only
+    // cancellation: `platformFeeAmount` here is by construction the platform's retained
+    // share after any stylist override, in every case. See
+    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X20.
+    if (platformFeeAmount > 0) {
+      const platformFeeMinor = ledgerService.egpToPiastres(platformFeeAmount);
+      await ledgerService.postEntry({
+        idempotencyKey: `refund:platform_fee:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'PLATFORM_FEE',
+        accountType: 'ESCROW',
+        direction: 'DEBIT',
+        amountMinor: platformFeeMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Platform fee retained on refund/cancellation',
+      });
+
+      await ledgerService.postEntry({
+        idempotencyKey: `refund:platform_fee_credit:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'PLATFORM_FEE',
+        accountType: 'PLATFORM',
+        direction: 'CREDIT',
+        amountMinor: platformFeeMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Platform fee revenue recognised on refund/cancellation',
+      });
+    }
   } catch (ledgerErr) {
     console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
   }
