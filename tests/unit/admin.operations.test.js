@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+// user.service.js throws the project-wide global ApiError (src/common/globals.js),
+// installed here exactly as the other 49 suites do. Without it a thrown ApiError
+// surfaces as 'ApiError is not defined' and masks the assertion under test.
+import '../../src/common/globals.js';
 import userService from '../../src/modules/users/user.service.js';
 import userRepository from '../../src/modules/users/user.repository.js';
 import moderationService from '../../src/modules/moderation/moderation.service.js';
@@ -65,6 +69,55 @@ describe('Admin & Operations Controls (Unit)', () => {
         })
       );
       expect(res.accountStatus).toBe('active');
+    });
+
+    // M2 regression guards. Before these, restrictUser/unrestrictUser wrote accountStatus
+    // unconditionally while their siblings (reactivateUser/unblockUser) guarded on the
+    // current state. Unrestricting a suspended account therefore wrote 'active' and lifted
+    // a sanction this endpoint never meant to touch -- auth.middleware only rejects
+    // 'suspended' and 'blocked', so the account silently regained access.
+    it.each(['suspended', 'blocked'])(
+      'refuses to unrestrict a %s account instead of silently reactivating it',
+      async (status) => {
+        jest
+          .spyOn(userRepository, 'findById')
+          .mockResolvedValue({ _id: 'user123', accountStatus: status });
+        const updateSpy = jest.spyOn(userRepository, 'updateById').mockResolvedValue({});
+
+        await expect(userService.unrestrictUser('user123', 'admin456')).rejects.toThrow(
+          /only 'restricted' can be unrestricted/
+        );
+        expect(updateSpy).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['suspended', 'blocked'])(
+      'refuses to restrict a %s account, which would downgrade the stronger sanction',
+      async (status) => {
+        jest
+          .spyOn(userRepository, 'findById')
+          .mockResolvedValue({ _id: 'user123', accountStatus: status });
+        const updateSpy = jest.spyOn(userRepository, 'updateById').mockResolvedValue({});
+
+        await expect(userService.restrictUser('user123', 'admin456', {})).rejects.toThrow(
+          /only 'active' or 'restricted' can be restricted/
+        );
+        expect(updateSpy).not.toHaveBeenCalled();
+      }
+    );
+
+    it('allows re-restricting an already restricted account (extending the mute)', async () => {
+      jest
+        .spyOn(userRepository, 'findById')
+        .mockResolvedValue({ _id: 'user123', accountStatus: 'restricted' });
+      jest
+        .spyOn(userRepository, 'updateById')
+        .mockResolvedValue({ _id: 'user123', accountStatus: 'restricted' });
+
+      await expect(
+        userService.restrictUser('user123', 'admin456', { durationDays: 14 })
+      ).resolves.toBeDefined();
+      expect(userRepository.updateById).toHaveBeenCalled();
     });
 
     it('revokes user sessions by bumping tokenVersion and clearing sessions[]', async () => {
@@ -145,15 +198,18 @@ describe('Admin & Operations Controls (Unit)', () => {
 
   describe('Moderation Event Review Actions', () => {
     it('confirms a moderation event with reviewer notes', async () => {
+      // reviewStatus, not reviewOutcome — see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding
+      // X11: reviewOutcome does not exist on ModerationEvent, and writing it was
+      // silently dropped by Mongoose strict mode.
       const mockEvent = {
         _id: 'event123',
-        reviewOutcome: 'PENDING',
+        reviewStatus: 'PENDING',
       };
 
       jest.spyOn(moderationEventRepository, 'findById').mockResolvedValue(mockEvent);
       jest.spyOn(moderationEventRepository, 'updateById').mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'CONFIRMED',
+        reviewStatus: 'APPROVED',
         reviewedBy: 'operator789',
         reviewNotes: 'Phone number confirmed',
       });
@@ -163,24 +219,24 @@ describe('Admin & Operations Controls (Unit)', () => {
       expect(moderationEventRepository.updateById).toHaveBeenCalledWith(
         'event123',
         expect.objectContaining({
-          reviewOutcome: 'CONFIRMED',
+          reviewStatus: 'APPROVED',
           reviewedBy: 'operator789',
           reviewNotes: 'Phone number confirmed',
         })
       );
-      expect(res.reviewOutcome).toBe('CONFIRMED');
+      expect(res.reviewStatus).toBe('APPROVED');
     });
 
     it('overturns a false-positive moderation event', async () => {
       const mockEvent = {
         _id: 'event123',
-        reviewOutcome: 'PENDING',
+        reviewStatus: 'PENDING',
       };
 
       jest.spyOn(moderationEventRepository, 'findById').mockResolvedValue(mockEvent);
       jest.spyOn(moderationEventRepository, 'updateById').mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'OVERTURNED',
+        reviewStatus: 'DISMISSED',
         reviewedBy: 'operator789',
         reviewNotes: 'False positive',
       });
@@ -190,11 +246,11 @@ describe('Admin & Operations Controls (Unit)', () => {
       expect(moderationEventRepository.updateById).toHaveBeenCalledWith(
         'event123',
         expect.objectContaining({
-          reviewOutcome: 'OVERTURNED',
+          reviewStatus: 'DISMISSED',
           reviewedBy: 'operator789',
         })
       );
-      expect(res.reviewOutcome).toBe('OVERTURNED');
+      expect(res.reviewStatus).toBe('DISMISSED');
     });
   });
 });

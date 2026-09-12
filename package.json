@@ -8,14 +8,16 @@
     "doc": "docs"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "cross-env NODE_ENV=production node src/server.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/server.js",
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules NODE_ENV=test jest --runInBand --testTimeout=30000 --detectOpenHandles --forceExit",
     "lint": "eslint src tests",
     "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
-    "seed:admin": "node scripts/seed-admin.js",
+    "seed:admin": "cross-env NODE_ENV=development node scripts/seed-admin.js",
+    "prestart:prod": "node scripts/check-duplicate-active-subscriptions.js",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",
-    "validate:openapi": "node scripts/validate-openapi.js",
+    "validate:openapi": "cross-env NODE_ENV=development node scripts/validate-openapi.js",
+    "predeploy": "node scripts/check-duplicate-active-subscriptions.js",
     "verify": "npm run lint && npm run validate:openapi && npm test"
   },
   "keywords": [],
@@ -44,6 +46,7 @@
     "morgan": "^1.11.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
+    "rate-limit-redis": "^4.3.1",
     "resend": "^6.18.1",
     "sharp": "^0.35.3",
     "streamifier": "^0.1.1",

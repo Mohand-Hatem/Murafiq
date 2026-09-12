@@ -114,6 +114,25 @@ export const findPausedByClientId = async (clientId) => {
   });
 };
 
+export const casAutoPause = async (requestId, now = new Date()) => {
+  return Request.findOneAndUpdate(
+    { _id: requestId, status: REQUEST_STATUS.OPEN },
+    {
+      $set: { status: REQUEST_STATUS.PAUSED, pausedAt: now, autoPauseAt: null },
+      $inc: { pauseCount: 1 },
+    },
+    { returnDocument: 'after' }
+  );
+};
+
+export const casAutoClose = async (requestId) => {
+  return Request.findOneAndUpdate(
+    { _id: requestId, status: REQUEST_STATUS.OPEN },
+    { $set: { status: REQUEST_STATUS.CLOSED, autoPauseAt: null } },
+    { returnDocument: 'after' }
+  );
+};
+
 export default {
   create,
   findById,
@@ -125,4 +144,6 @@ export default {
   lockAndAccept,
   findAutoPausableRequests,
   findPausedByClientId,
+  casAutoPause,
+  casAutoClose,
 };

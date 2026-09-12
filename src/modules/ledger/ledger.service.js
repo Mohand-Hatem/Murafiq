@@ -91,7 +91,8 @@ export const postEntry = async (entryData, session = null) => {
 };
 
 /**
- * Posts a balanced pair of debit and credit ledger entries atomically within a session.
+ * Posts a balanced pair of debit and credit ledger entries atomically when a session is supplied
+ * and the caller holds a transaction; without one these are two independent writes.
  *
  * @param {Object} debitData
  * @param {Object} creditData

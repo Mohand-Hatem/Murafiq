@@ -1,7 +1,9 @@
 import cron from 'node-cron';
 import LedgerEntry from '../modules/ledger/ledger-entry.model.js';
 import Payment from '../modules/payments/payment.model.js';
+import SubscriptionOrder from '../modules/subscriptions/subscription-order.model.js';
 import { PAYMENT_STATUS } from '../common/constants/statuses.constant.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -44,7 +46,33 @@ const findPaymentsMissingLedgerEntries = async (since) => {
 };
 
 /**
- * Checks all bookings touched in the last 24h to assert zero delta between debits and credits.
+ * Finds paid subscription orders that have NO ledger entries at all.
+ *
+ * Subscription payments move through SubscriptionOrder rather than Payment.
+ * If the dual-write fails during webhook processing, money moved without an audit record.
+ */
+const findSubscriptionOrdersMissingLedgerEntries = async (since) => {
+  const settledOrders = await SubscriptionOrder.find({
+    status: 'paid',
+    updatedAt: { $gte: since },
+  })
+    .select('_id specialReference amountEgp')
+    .lean();
+
+  const orphans = [];
+  for (const order of settledOrders) {
+    const count = await LedgerEntry.countDocuments({
+      idempotencyKey: `subscription:charge:${order._id}`,
+    });
+    if (count === 0) {
+      orphans.push(order);
+    }
+  }
+  return orphans;
+};
+
+/**
+ * Checks all bookings and subscriptions touched in the last 24h to assert zero delta between debits and credits.
  * sum(debits) === sum(credits)
  * @returns {Promise<{ checkedBookings: number, unbalancedCount: number, missingLedgerCount: number }>}
  */
@@ -73,19 +101,50 @@ export const reconcileLedger = async () => {
     }
   }
 
+  // Subscription balance check: subscriptions have bookingId: null, but share a correlationId (`sub_<subId>`).
+  const recentSubCorrelations = await LedgerEntry.distinct('correlationId', {
+    correlationId: { $regex: /^sub_/ },
+    createdAt: { $gte: since },
+  });
+
+  for (const corrId of recentSubCorrelations) {
+    const entries = await LedgerEntry.find({ correlationId: corrId });
+    const totalDebits = entries
+      .filter((e) => e.direction === 'DEBIT')
+      .reduce((acc, e) => acc + e.amountMinor, 0);
+    const totalCredits = entries
+      .filter((e) => e.direction === 'CREDIT')
+      .reduce((acc, e) => acc + e.amountMinor, 0);
+
+    if (totalDebits !== totalCredits) {
+      unbalancedCount++;
+      logger.error(
+        `[Ledger Reconciliation Alert] Unbalanced subscription ${corrId}: Total Debits=${totalDebits} piastres, Total Credits=${totalCredits} piastres, Delta=${totalDebits - totalCredits}`
+      );
+    }
+  }
+
   // Second pass: settled payments with no ledger record at all. Invisible to the balance
   // check above, because a booking with zero entries never appears in `recentBookings`.
-  const orphans = await findPaymentsMissingLedgerEntries(since);
-  for (const payment of orphans) {
+  const paymentOrphans = await findPaymentsMissingLedgerEntries(since);
+  for (const payment of paymentOrphans) {
     logger.error(
       `[Ledger Reconciliation Alert] Payment ${payment._id} (booking ${payment.bookingId}) is '${payment.status}' for ${payment.amount} EGP but has NO ledger entries. The dual-write failed and money moved without an audit record.`
+    );
+  }
+
+  // Third pass: settled subscription orders with no ledger record at all.
+  const subscriptionOrphans = await findSubscriptionOrdersMissingLedgerEntries(since);
+  for (const order of subscriptionOrphans) {
+    logger.error(
+      `[Ledger Reconciliation Alert] SubscriptionOrder ${order._id} (${order.specialReference}) is 'paid' for ${order.amountEgp} EGP but has NO ledger entries. The dual-write failed and money moved without an audit record.`
     );
   }
 
   return {
     checkedBookings: recentBookings.length,
     unbalancedCount,
-    missingLedgerCount: orphans.length,
+    missingLedgerCount: paymentOrphans.length + subscriptionOrphans.length,
   };
 };
 
@@ -95,16 +154,20 @@ export const startLedgerReconciliationCron = () => {
 
   registered = true;
 
-  cron.schedule(RECONCILIATION_SCHEDULE, async () => {
-    try {
-      const summary = await reconcileLedger();
-      logger.info(
-        `Ledger reconciliation complete: Checked ${summary.checkedBookings} booking(s), ${summary.unbalancedCount} unbalanced, ${summary.missingLedgerCount} settled payment(s) with no ledger entry.`
-      );
-    } catch (err) {
-      logger.error(`Ledger reconciliation cron failed: ${err.message}`);
-    }
-  });
+  cron.schedule(
+    RECONCILIATION_SCHEDULE,
+    async () => {
+      try {
+        const summary = await reconcileLedger();
+        logger.info(
+          `Ledger reconciliation complete: Checked ${summary.checkedBookings} booking(s), ${summary.unbalancedCount} unbalanced, ${summary.missingLedgerCount} settled payment(s) with no ledger entry.`
+        );
+      } catch (err) {
+        logger.error(`Ledger reconciliation cron failed: ${err.message}`);
+      }
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Ledger reconciliation cron scheduled (${RECONCILIATION_SCHEDULE}).`);
 };

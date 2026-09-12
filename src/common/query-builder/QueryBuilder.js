@@ -1,5 +1,30 @@
 const MONGO_OPERATORS = new Set(['gte', 'gt', 'lte', 'lt', 'ne', 'in']);
 
+// Every field marked `select: false` anywhere in the project's schemas (hashed
+// credentials and OTP secrets). QueryBuilder is a generic, shared utility with no
+// per-caller allowlist for `?fields=`/`?sort=`, so `.select()` and `.sort()` strip these
+// names project-wide rather than trusting each of the ~15 call sites to remember to.
+// Mongoose's `select: false` is a DEFAULT projection only -- naming a field explicitly
+// (`.select('passwordHash')`) or sorting by it OVERRIDES that default, so a caller-
+// controlled `?fields=passwordHash` or `?sort=passwordHash` previously bypassed it
+// outright. Currently latent everywhere it matters (every reader maps through an
+// allowlist DTO before the client sees it), but it is one `return doc` away from a live
+// leak. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X23.
+const SENSITIVE_FIELD_DENYLIST = new Set([
+  'passwordHash',
+  'otpCode',
+  'otpExpiresAt',
+  'otpAttempts',
+  'sessions',
+]);
+
+const stripSensitiveFieldTokens = (fieldString) =>
+  fieldString
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .filter((token) => !SENSITIVE_FIELD_DENYLIST.has(token.replace(/^[+-]/, '')))
+    .join(' ');
+
 export function escapeRegex(string) {
   if (typeof string !== 'string') return '';
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -65,8 +90,10 @@ QueryBuilder.prototype.search = function (fields = []) {
 
 QueryBuilder.prototype.sort = function () {
   if (this.queryString.sort) {
-    const sortBy = this.queryString.sort.split(',').join(' ');
-    this.mongooseQuery = this.mongooseQuery.sort(sortBy);
+    const sortBy = stripSensitiveFieldTokens(this.queryString.sort.split(',').join(' '));
+    this.mongooseQuery = sortBy
+      ? this.mongooseQuery.sort(sortBy)
+      : this.mongooseQuery.sort('-createdAt');
   } else {
     this.mongooseQuery = this.mongooseQuery.sort('-createdAt');
   }
@@ -75,8 +102,13 @@ QueryBuilder.prototype.sort = function () {
 
 QueryBuilder.prototype.select = function () {
   if (this.queryString.fields) {
-    const fields = this.queryString.fields.replace(/\+/g, '').split(',').join(' ');
-    this.mongooseQuery = this.mongooseQuery.select(fields);
+    // The `+` prefix (Mongoose's own "include this select:false field" syntax) is
+    // stripped BEFORE the denylist check, not after -- `?fields=+passwordHash` must be
+    // caught exactly like `?fields=passwordHash`.
+    const fields = stripSensitiveFieldTokens(this.queryString.fields.replace(/\+/g, '').split(',').join(' '));
+    this.mongooseQuery = fields
+      ? this.mongooseQuery.select(fields)
+      : this.mongooseQuery.select('-__v');
   } else {
     this.mongooseQuery = this.mongooseQuery.select('-__v');
   }

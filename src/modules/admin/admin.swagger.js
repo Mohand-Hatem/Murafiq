@@ -543,3 +543,123 @@
 
 
 
+
+/**
+ * @swagger
+ * /admin/users/{userId}/subscription:
+ *   get:
+ *     summary: Read a user's current subscription, entitlements and usage (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Target user's ObjectId
+ *     responses:
+ *       200:
+ *         description: Subscription, resolved plan, entitlements, daily usage and capacity
+ *       403:
+ *         description: Forbidden — Admin role required
+ *       404:
+ *         description: Target user not found
+ *   post:
+ *     summary: Manually grant, upgrade, downgrade or revoke a user's plan (Admin only)
+ *     description: >
+ *       Administrative entitlement operation — NOT a customer payment. Creates no Payment,
+ *       no SubscriptionOrder and no ledger entry, and never contacts Paymob. The granted
+ *       plan produces exactly the same entitlements as the same plan bought through checkout.
+ *       The grant REPLACES the current billing period outright; the replaced state is kept in
+ *       the subscription history. Targeting a `*.free` plan revokes a paid tier immediately.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Target user's ObjectId (must be a client or stylist)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [planCode, reason]
+ *             properties:
+ *               planCode:
+ *                 type: string
+ *                 example: "client.pro"
+ *                 description: Must belong to the target user's role
+ *               billingCycle:
+ *                 type: string
+ *                 enum: [monthly, yearly]
+ *                 default: monthly
+ *               durationDays:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 730
+ *                 description: Overrides the plan's own cycle length. Ignored for free tiers.
+ *                 example: 90
+ *               reason:
+ *                 type: string
+ *                 minLength: 3
+ *                 example: "Compensation for the March outage — ticket #4821"
+ *     responses:
+ *       200:
+ *         description: Subscription granted successfully
+ *       400:
+ *         description: Plan/role mismatch, non-subscribable target role, or invalid billing cycle
+ *       403:
+ *         description: Forbidden — Admin role required
+ *       404:
+ *         description: Target user or plan not found
+ *       409:
+ *         description: Subscription was modified concurrently — retry
+ */
+
+/**
+ * @swagger
+ * /admin/users/{userId}/subscription/history:
+ *   get:
+ *     summary: Read a user's plan-transition history (Admin only)
+ *     description: >
+ *       Append-only record of every plan change — paid activations, admin grants, self-service
+ *       switches, scheduled downgrades and expiry sweeps — including the state each one replaced.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: changeType
+ *         schema:
+ *           type: string
+ *           enum: [paid, admin_grant, self_service, expiry_sweep, scheduled_downgrade, cancellation]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *     responses:
+ *       200:
+ *         description: Subscription history retrieved successfully
+ *       403:
+ *         description: Forbidden — Admin role required
+ *       404:
+ *         description: Target user not found
+ */

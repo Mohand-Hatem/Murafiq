@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import paymentRepository from './payment.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import userRepository from '../users/user.repository.js';
@@ -11,6 +10,8 @@ import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
+import { withTransaction } from '../../common/transaction.util.js';
+import logger from '../../config/logger.config.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
@@ -159,18 +160,9 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
     // succeed or all roll back together -- previously three independent, un-sessioned
     // writes, so a failure after redemption (e.g. the fee-validation crash this comment
     // used to sit next to) burned the coupon with no discount ever applied.
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await applyCoupon(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await applyCoupon(null);
-    }
+    await withTransaction(async (session) => {
+      await applyCoupon(session);
+    });
   }
 
   const provider = getProvider();
@@ -242,47 +234,85 @@ export const handleWebhook = async (payload, query = {}) => {
   }
 
   if (result.success || result.status === 'paid') {
-    const updated = await paymentRepository.updateById(payment._id, {
-      status: PAYMENT_STATUS.PAID,
-      paidAt: new Date(),
-      providerTransactionId: result.transactionId || payment.providerTransactionId,
+    // Verify the amount the provider actually captured against what this Payment
+    // record expects, when the provider reports one. The HMAC makes the callback
+    // unforgeable but says nothing about whether the CORRECT amount was captured -- a
+    // partial capture, or an intention created before a coupon discounted the price,
+    // would otherwise mark the booking fully paid for less than it collected. See
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
+    if (result.amountCents !== undefined && result.amountCents !== null) {
+      const expectedMinor = ledgerService.egpToPiastres(payment.amount);
+      if (Number(result.amountCents) !== expectedMinor) {
+        logger.error(
+          `[Payment Webhook] Amount mismatch for payment ${payment._id}: expected ${expectedMinor} piastres, provider reported ${result.amountCents}.`
+        );
+        throw new ApiError(
+          400,
+          `Webhook amount mismatch: expected ${expectedMinor} piastres, received ${result.amountCents}.`
+        );
+      }
+    }
+
+    // CAS on the exact status just read, not a bare updateById: two concurrent
+    // deliveries of the same success callback could otherwise both pass the PAID/FAILED
+    // guards above (both reading e.g. 'pending') and both proceed to write and emit
+    // PAYMENT_SUCCEEDED. A lost CAS means someone else already resolved this delivery;
+    // re-read and return that result rather than redoing the work. See
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
+    let updated;
+    await withTransaction(async (session) => {
+      updated = await paymentRepository.transitionStatus(
+        payment._id,
+        payment.status,
+        {
+          status: PAYMENT_STATUS.PAID,
+          paidAt: new Date(),
+          providerTransactionId: result.transactionId || payment.providerTransactionId,
+        },
+        session
+      );
+      if (!updated) {
+        return;
+      }
+
+      const amountMinor = ledgerService.egpToPiastres(updated.amount);
+      const paymentIdStr = updated._id.toString();
+      const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
+      const clientIdStr = (updated.clientId?._id || updated.clientId || '').toString();
+
+      // Dual-write to ledger: Client DEBIT, Escrow CREDIT (Task S4.1, B6)
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `payment:paid:client:${paymentIdStr}`,
+          entryType: 'PAYMENT',
+          accountType: 'CLIENT',
+          amountMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          accountId: clientIdStr || null,
+          correlationId: `payment_${paymentIdStr}`,
+          notes: 'Client payment received into escrow hold',
+        },
+        {
+          idempotencyKey: `payment:paid:escrow:${paymentIdStr}`,
+          entryType: 'ESCROW_HOLD',
+          accountType: 'ESCROW',
+          amountMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `payment_${paymentIdStr}`,
+          notes: 'Escrow hold for booking',
+        },
+        session
+      );
     });
 
-    const amountMinor = ledgerService.egpToPiastres(updated.amount);
-    const paymentIdStr = updated._id.toString();
+    if (!updated) {
+      return paymentRepository.findById(payment._id);
+    }
+
     const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
     const clientIdStr = (updated.clientId?._id || updated.clientId || '').toString();
-
-    // Dual-write to ledger: Client DEBIT, Escrow CREDIT
-    try {
-      await ledgerService.postEntry({
-        idempotencyKey: `payment:paid:client:${paymentIdStr}`,
-        entryType: 'PAYMENT',
-        accountType: 'CLIENT',
-        direction: 'DEBIT',
-        amountMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        accountId: clientIdStr || null,
-        correlationId: `payment_${paymentIdStr}`,
-        notes: 'Client payment received into escrow hold',
-      });
-
-      await ledgerService.postEntry({
-        idempotencyKey: `payment:paid:escrow:${paymentIdStr}`,
-        entryType: 'ESCROW_HOLD',
-        accountType: 'ESCROW',
-        direction: 'CREDIT',
-        amountMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        correlationId: `payment_${paymentIdStr}`,
-        notes: 'Escrow hold for booking',
-      });
-    } catch (ledgerErr) {
-      // Ledger dual-write logging without failing the webhook response
-      console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
-    }
 
     eventBus.emit(EVENTS.PAYMENT_SUCCEEDED, {
       paymentId: updated._id.toString(),
@@ -293,10 +323,13 @@ export const handleWebhook = async (payload, query = {}) => {
 
     return updated;
   } else {
-    const updated = await paymentRepository.updateById(payment._id, {
+    const updated = await paymentRepository.transitionStatus(payment._id, payment.status, {
       status: PAYMENT_STATUS.FAILED,
       providerTransactionId: result.transactionId || payment.providerTransactionId,
     });
+    if (!updated) {
+      return paymentRepository.findById(payment._id);
+    }
 
     eventBus.emit(EVENTS.PAYMENT_FAILED, {
       paymentId: updated._id.toString(),
@@ -346,6 +379,7 @@ export const processRefund = async ({
   // pure pre-session cancellations, where the documented policy awards the stylist
   // nothing since the session never took place.
   stylistPayoutOverrideAmount = 0,
+  idempotencyKey = null,
 } = {}) => {
   const payment = await paymentRepository.findByBookingId(bookingId);
   if (!payment) {
@@ -361,6 +395,7 @@ export const processRefund = async ({
   // 'paid'), the stylist's share has already left the ledger (or is about to) based on the
   // pre-refund amount — a plain status flip here can't claw that back. Block it and force manual
   // reconciliation of the existing payout batch before the refund proceeds.
+  // Note (Task S3.3): !== 'unpaid' refuses 'processing', 'paid', and 'not_owed'.
   const booking = await bookingRepository.findById(bookingId);
   if (booking && booking.payoutStatus && booking.payoutStatus !== 'unpaid') {
     throw new ApiError(
@@ -371,11 +406,6 @@ export const processRefund = async ({
   }
 
   const refundAmount = round2((payment.amount * refundPercentage) / 100);
-
-  const provider = getProvider();
-  if (payment.providerTransactionId && provider.refund) {
-    await provider.refund(payment.providerTransactionId, refundAmount);
-  }
 
   const isPartial = refundPercentage < 100;
   const status = isPartial ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
@@ -388,53 +418,137 @@ export const processRefund = async ({
   const stylistPayoutAmount = Math.min(round2(Math.max(0, stylistPayoutOverrideAmount)), retainedAmount);
   const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
 
-  const updateFields = {
-    status,
+  // CAS-claim the payment into REFUNDING *before* calling the provider, not after.
+  // Two things this closes (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
+  // (1) durability -- a crash between the provider call succeeding and the terminal
+  //     write used to leave NOTHING persisted: the client was refunded by the provider
+  //     but our own record still said 'paid', so the booking still looked payout-eligible
+  //     and the stylist could be paid for a refunded session. The claim below is written
+  //     and committed BEFORE the provider is touched, so that failure mode now leaves a
+  //     durable 'refunding' record instead of silence.
+  // (2) concurrency -- the CAS is keyed on {_id, status: 'paid'}, so a second concurrent
+  //     processRefund() call for the same payment cannot also pass and call the provider
+  //     a second time; it gets null and must not proceed.
+  const claimed = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.PAID, {
+    status: PAYMENT_STATUS.REFUNDING,
     refundAmount,
     refundReason: reason,
-    refundedAt: new Date(),
     platformFeeAmount,
     stylistPayoutAmount,
-  };
+  });
+  if (!claimed) {
+    throw new ApiError(
+      409,
+      'This payment is already being refunded or is no longer in a refundable state.'
+    );
+  }
 
-  const updated = await paymentRepository.updateById(payment._id, updateFields);
-
-  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
-  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
-  const paymentIdStr = (updated._id || updated.id || payment._id).toString();
-
-  // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund)
+  const provider = getProvider();
   try {
+    if (payment.providerTransactionId && provider.refund) {
+      await provider.refund(payment.providerTransactionId, refundAmount, { idempotencyKey });
+    }
+  } catch (providerErr) {
+    // The provider call itself failed (network error, provider-side rejection, etc.) --
+    // revert to 'paid' so a retry (the caller re-invoking processRefund, or an admin
+    // retry action) can actually attempt it again, rather than leaving the payment
+    // stuck in the transient 'refunding' state forever.
+    await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+      status: PAYMENT_STATUS.PAID,
+      refundError: providerErr.message,
+      refundFailedAt: new Date(),
+    });
+    logger.error(`Refund provider call failed for payment ${payment._id}: ${providerErr.message}`);
+    throw providerErr;
+  }
+
+  let updated;
+  await withTransaction(async (session) => {
+    updated = await paymentRepository.transitionStatus(
+      payment._id,
+      PAYMENT_STATUS.REFUNDING,
+      {
+        status,
+        refundedAt: new Date(),
+      },
+      session
+    );
+
+    const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+    const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
+    const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
+
+    // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund) (Task S4.1, B6)
     const refundMinor = ledgerService.egpToPiastres(refundAmount);
     const sanitizedReason = (reason || 'standard').replace(/\s+/g, '_');
 
-    await ledgerService.postEntry({
-      idempotencyKey: `refund:escrow:${paymentIdStr}:${sanitizedReason}`,
-      entryType: 'ESCROW_RELEASE',
-      accountType: 'ESCROW',
-      direction: 'DEBIT',
-      amountMinor: refundMinor,
-      bookingId: bookingIdStr || null,
-      paymentId: paymentIdStr,
-      correlationId: `refund_${paymentIdStr}`,
-      notes: reason || 'Booking refund release from escrow',
-    });
+    await ledgerService.postDoubleEntry(
+      {
+        idempotencyKey: `refund:escrow:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'ESCROW_RELEASE',
+        accountType: 'ESCROW',
+        amountMinor: refundMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Booking refund release from escrow',
+      },
+      {
+        idempotencyKey: `refund:client:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'REFUND',
+        accountType: 'CLIENT',
+        amountMinor: refundMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        accountId: clientIdStr || null,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Client refund credit',
+      },
+      session
+    );
 
-    await ledgerService.postEntry({
-      idempotencyKey: `refund:client:${paymentIdStr}:${sanitizedReason}`,
-      entryType: 'REFUND',
-      accountType: 'CLIENT',
-      direction: 'CREDIT',
-      amountMinor: refundMinor,
-      bookingId: bookingIdStr || null,
-      paymentId: paymentIdStr,
-      accountId: clientIdStr || null,
-      correlationId: `refund_${paymentIdStr}`,
-      notes: reason || 'Client refund credit',
-    });
-  } catch (ledgerErr) {
-    console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
-  }
+    // Recognise whatever the platform actually keeps as revenue THE MOMENT it is
+    // retained, not only if/when the booking later happens to reach a payout batch.
+    // Cancelled bookings never do -- PAYOUT_ELIGIBILITY only matches 'completed' and
+    // 'no-show-client' -- so before this, a cancellation's retained 3%/20% platform fee
+    // sat in ESCROW forever with no ledger entry ever recognising it as revenue. Debits
+    // still equalled credits (the money was never lost), so the nightly reconciliation
+    // never alerted, but PLATFORM revenue was permanently understated. This is a general
+    // fix for every processRefund() caller (cancellation, dispute, no-show), not only
+    // cancellation: `platformFeeAmount` here is by construction the platform's retained
+    // share after any stylist override, in every case. See
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X20.
+    if (platformFeeAmount > 0) {
+      const platformFeeMinor = ledgerService.egpToPiastres(platformFeeAmount);
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `refund:platform_fee:${paymentIdStr}:${sanitizedReason}`,
+          entryType: 'PLATFORM_FEE',
+          accountType: 'ESCROW',
+          amountMinor: platformFeeMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `refund_${paymentIdStr}`,
+          notes: reason || 'Platform fee retained on refund/cancellation',
+        },
+        {
+          idempotencyKey: `refund:platform_fee_credit:${paymentIdStr}:${sanitizedReason}`,
+          entryType: 'PLATFORM_FEE',
+          accountType: 'PLATFORM',
+          amountMinor: platformFeeMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `refund_${paymentIdStr}`,
+          notes: reason || 'Platform fee revenue recognised on refund/cancellation',
+        },
+        session
+      );
+    }
+  });
+
+  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
+  const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
 
   eventBus.emit(EVENTS.PAYMENT_REFUNDED, {
     paymentId: paymentIdStr,

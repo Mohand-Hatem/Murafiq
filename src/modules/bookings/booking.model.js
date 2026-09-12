@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { PAYOUT_STATUS } from '../../common/constants/statuses.constant.js';
 
 const { Schema } = mongoose;
 
@@ -39,10 +40,9 @@ const bookingSchema = new Schema(
       ],
       default: 'confirmed',
     },
-    isFrozen: { type: Boolean, default: false },
-    frozenReason: String,
-    frozenAt: Date,
     checkInAt: Date,
+    clientCheckInAt: Date,
+    stylistCheckInAt: Date,
     checkInLocation: {
       lat: Number,
       lng: Number,
@@ -64,8 +64,8 @@ const bookingSchema = new Schema(
     completedAt: Date,
     payoutStatus: {
       type: String,
-      enum: ['unpaid', 'processing', 'paid'],
-      default: 'unpaid',
+      enum: Object.values(PAYOUT_STATUS),
+      default: PAYOUT_STATUS.UNPAID,
     },
     payoutId: { type: Schema.Types.ObjectId, ref: 'Payout' },
 
@@ -80,6 +80,25 @@ const bookingSchema = new Schema(
       confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
       confirmedAt: Date,
       evidence: [{ type: String, trim: true }],
+      // Snapshot of booking.status the instant a contest moves it to 'disputed'
+      // (no-show.service.js respondToNoShow). adminResolveNoShow's dismissal branch
+      // restores exactly this value rather than a hardcoded status, so a dismissed
+      // report always returns the booking to where it actually was.
+      contestedFromStatus: { type: String, enum: ['confirmed', 'in-progress'] },
+      settlementCompletedAt: Date,
+      settlementAttempts: { type: Number, default: 0 },
+      isResuming: { type: Boolean, default: false },
+      resumedAt: Date,
+      settlementExhausted: { type: Boolean, default: false },
+      settlementExhaustedAt: Date,
+      settlementExhaustedReason: String,
+      postSettlementErrors: [
+        {
+          step: String,
+          message: String,
+          at: { type: Date, default: Date.now },
+        },
+      ],
     },
 
     disputeDetails: {
@@ -105,7 +124,17 @@ bookingSchema.index({ requestId: 1 }, { unique: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
-bookingSchema.index({ isFrozen: 1, payoutStatus: 1 });
+bookingSchema.index({
+  status: 1,
+  'noShowDetails.settlementCompletedAt': 1,
+  'noShowDetails.settlementAttempts': 1,
+  'noShowDetails.isResuming': 1,
+});
+bookingSchema.index({ 'noShowDetails.settlementExhausted': 1 }, { sparse: true });
+bookingSchema.index(
+  { 'noShowDetails.reportedAt': 1, 'noShowDetails.respondedAt': 1, status: 1 },
+  { background: true }
+);
 
 const Booking = mongoose.model('Booking', bookingSchema);
 

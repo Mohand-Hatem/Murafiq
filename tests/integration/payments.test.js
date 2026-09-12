@@ -48,10 +48,27 @@ const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentByTxId = jest.fn().mockResolvedValue(mockPayment);
 const mockUpdatePaymentById = jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockPayment, ...data }));
+// CAS mock for payment.repository.transitionStatus (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
+// findings X17/X18/X19). processRefund() now calls this TWICE per invocation (claim into
+// REFUNDING, then resolve to the terminal status), so the mock accumulates state across
+// calls onto `lastTransitionResult` rather than always merging onto the static base
+// `mockPayment` -- otherwise the second call's narrower `data` would appear to erase the
+// fields the first call set. This suite doesn't exercise the actual concurrency race (see
+// tests/integration/payment-refund-cas.test.js for that, against a real DB).
+let lastTransitionResult = null;
+const mockTransitionStatus = jest.fn().mockImplementation((id, _fromStatus, data) => {
+  lastTransitionResult = { ...(lastTransitionResult || mockPayment), ...data };
+  return Promise.resolve(lastTransitionResult);
+});
 const mockFindClientHistory = jest.fn().mockResolvedValue({
   payments: [mockPayment],
   meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
 });
+
+jest.unstable_mockModule('../../src/common/transaction.util.js', () => ({
+  default: async (fn) => fn(null),
+  withTransaction: async (fn) => fn(null),
+}));
 
 jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
   default: {
@@ -78,6 +95,7 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
     findByTransactionId: mockFindPaymentByTxId,
     findByIntentionId: jest.fn().mockResolvedValue(mockPayment),
     updateById: mockUpdatePaymentById,
+    transitionStatus: mockTransitionStatus,
     findClientHistory: mockFindClientHistory,
     create: jest.fn().mockResolvedValue(mockPayment),
   },
@@ -134,6 +152,7 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    lastTransitionResult = null;
   });
 
   describe('POST /api/v1/payments/:bookingId/initialize', () => {
@@ -280,6 +299,34 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('partially_refunded');
       expect(res.body.data.refundAmount).toBe(750.0);
+    });
+
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X21: the schema was
+    // `.strict()` with no field for the stylist's share of a partial refund, so this
+    // request body was silently rejected (or, before that, always forwarded as 0
+    // regardless of what the admin wanted) -- an admin had no way to let the stylist
+    // keep any of a partial goodwill refund even when that was the deliberate intent.
+    it('honours an explicit stylistPayoutOverrideAmount instead of always zeroing it', async () => {
+      mockFindPaymentByBookingId.mockResolvedValueOnce({
+        ...mockPayment,
+        status: 'paid',
+        providerTransactionId: 'mock_tx_paid',
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/payments/${bookingId}/refund`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          refundPercentage: 50,
+          reason: 'Goodwill 50/50 split with the stylist',
+          stylistPayoutOverrideAmount: 500,
+        });
+
+      expect(res.status).toBe(200);
+      // Retained = 1000 - 500 (50% refund) = 500. The whole retained amount goes to the
+      // stylist per the override, leaving nothing for the platform.
+      expect(res.body.data.stylistPayoutAmount).toBe(500);
+      expect(res.body.data.platformFeeAmount).toBe(0);
     });
   });
 });

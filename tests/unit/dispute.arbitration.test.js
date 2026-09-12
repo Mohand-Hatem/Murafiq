@@ -1,7 +1,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import '../../src/common/globals.js';
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingTransitionStatus = jest.fn((id, from, patch, session) =>
+  session ? mockBookingUpdateById(id, patch, session) : mockBookingUpdateById(id, patch)
+);
 const mockPaymentProcessRefund = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
 const mockReliabilityUpdate = jest.fn();
@@ -13,9 +17,11 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    transitionStatus: mockBookingTransitionStatus,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  transitionStatus: mockBookingTransitionStatus,
 }));
 
 jest.unstable_mockModule('../../src/modules/payments/payment.service.js', () => ({
@@ -114,6 +120,22 @@ describe('Dispute & Arbitration Engine (Unit)', () => {
         bookingId,
         expect.objectContaining({ status: 'disputed' })
       );
+    });
+
+    it('refuses to file dispute if booking is no longer disputable after the read (CAS race)', async () => {
+      const activeBooking = {
+        _id: bookingId,
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+        status: 'completed',
+        completedAt: new Date(Date.now() - 10 * 3600 * 1000),
+      };
+      mockBookingFindById.mockResolvedValueOnce(activeBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      await expect(
+        fileDispute(clientUser, bookingId, { reason: 'Cut was uneven' })
+      ).rejects.toThrow(/no longer disputable/i);
     });
   });
 
@@ -253,6 +275,18 @@ describe('Dispute & Arbitration Engine (Unit)', () => {
         })
       );
       expect(mockReliabilityUpdate).toHaveBeenCalledWith(stylistId);
+    });
+
+    it('refuses to resolve dispute if booking left disputed status after read (CAS race)', async () => {
+      mockBookingFindById.mockResolvedValueOnce(disputedBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      await expect(
+        resolveDispute(adminId, bookingId, {
+          outcome: 'payout_stylist',
+          resolutionNotes: 'Dismissed',
+        })
+      ).rejects.toThrow(/no longer in disputed status/i);
     });
   });
 });

@@ -43,6 +43,7 @@ offerSchema.index(
     partialFilterExpression: { status: { $in: [OFFER_STATUS.PENDING, OFFER_STATUS.ACCEPTED] } },
   }
 );
+offerSchema.index({ status: 1, expiresAt: 1 }, { background: true });
 
 const Offer = mongoose.model('Offer', offerSchema);
 

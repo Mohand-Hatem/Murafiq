@@ -36,7 +36,7 @@ const couponSchema = new Schema(
     },
     issuedReason: {
       type: String,
-      enum: ['NO_SHOW_COMPENSATION', 'LATE_CANCEL_COMPENSATION', 'MARKETING'],
+      enum: ['NO_SHOW_COMPENSATION', 'LATE_CANCEL_COMPENSATION', 'LATE_STYLIST_CANCELLATION', 'MARKETING'],
       default: 'NO_SHOW_COMPENSATION',
     },
     expiresAt: {

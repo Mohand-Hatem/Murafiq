@@ -9,6 +9,7 @@ import env from '../../config/env.config.js';
 import ApiError from '../../common/utils/ApiError.js';
 import logger from '../../config/logger.config.js';
 import { invalidate as invalidateTokenVersion } from '../../common/utils/tokenVersionCache.js';
+import bookingRepository from '../bookings/booking.repository.js';
 
 let cachedBlockedWords = null;
 let wordsCacheExpiresAt = 0;
@@ -32,6 +33,64 @@ export const getActiveBlockedWords = async () => {
 export const invalidateBlockedWordsCache = () => {
   cachedBlockedWords = null;
   wordsCacheExpiresAt = 0;
+};
+
+/**
+ * The shared 3-strike escalation ladder: records a PolicyViolation and, at strike 2/3,
+ * actually restricts or suspends the account (bumping tokenVersion so it takes effect on
+ * the very next request, not the next token refresh). Used by both the automated scanner
+ * (`scanAndEnforce`, ENFORCE mode) and admin-confirmed user reports (`confirmEvent`) --
+ * previously `confirmEvent` recorded nothing and applied no enforcement action at all,
+ * so a human confirming a report as a real violation had no more effect than dismissing
+ * it. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+ *
+ * @returns {Promise<{ strikeNumber: number, action: 'WARN'|'RESTRICT'|'SUSPEND' }|null>}
+ *   null if recording the strike itself failed (logged, never thrown -- a moderation
+ *   bookkeeping failure must not be the reason the original request/report fails).
+ */
+const applyStrikeEscalation = async (userId, { violationType, moderationEventId }) => {
+  try {
+    const activeStrikes = await policyViolationRepository.countActiveByUserId(userId);
+    const strikeNumber = activeStrikes + 1;
+    const action = strikeNumber >= 3 ? 'SUSPEND' : strikeNumber === 2 ? 'RESTRICT' : 'WARN';
+
+    await policyViolationRepository.create({
+      userId,
+      violationType,
+      severity: strikeNumber >= 3 ? 'CRITICAL' : strikeNumber === 2 ? 'HIGH' : 'MEDIUM',
+      enforcementAction: action,
+      moderationEventId: moderationEventId || undefined,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day strike window
+    });
+
+    if (action === 'SUSPEND') {
+      // Bump tokenVersion and clear the refresh token, then drop the cache entry:
+      // a suspension that leaves the offender's access token working for another
+      // 15 minutes is not an enforcement action. See §I.4 step 4.
+      await userRepository.updateById(userId, {
+        accountStatus: 'suspended',
+        sessions: [], // revoke every device's refresh session
+        $inc: { tokenVersion: 1 },
+      });
+      invalidateTokenVersion(userId);
+      logger.warn(`User ${userId} suspended automatically after 3 moderation strikes.`);
+    } else if (action === 'RESTRICT') {
+      // Chat-restricted, existing bookings honoured. Sessions still die so the
+      // restriction takes effect immediately rather than on next token refresh.
+      await userRepository.updateById(userId, {
+        accountStatus: 'restricted',
+        chatRestrictedUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        $inc: { tokenVersion: 1 },
+      });
+      invalidateTokenVersion(userId);
+      logger.warn(`User ${userId} chat-restricted after ${strikeNumber} moderation strikes.`);
+    }
+
+    return { strikeNumber, action };
+  } catch (strikeErr) {
+    logger.error(`Failed to record policy violation strike: ${strikeErr.message}`);
+    return null;
+  }
 };
 
 /**
@@ -89,47 +148,10 @@ export const scanAndEnforce = async (userId, contentType, text, context = {}) =>
   }
 
   if (mode === 'ENFORCE') {
-    let strikeNumber = 1;
-    try {
-      const activeStrikes = await policyViolationRepository.countActiveByUserId(userId);
-      strikeNumber = activeStrikes + 1;
-
-      const action = strikeNumber >= 3 ? 'SUSPEND' : strikeNumber === 2 ? 'RESTRICT' : 'WARN';
-
-      await policyViolationRepository.create({
-        userId,
-        violationType: 'CONTACT_EXCHANGE',
-        severity: strikeNumber >= 3 ? 'CRITICAL' : strikeNumber === 2 ? 'HIGH' : 'MEDIUM',
-        enforcementAction: action,
-        moderationEventId: eventDoc?._id || undefined,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day strike window
-      });
-
-      if (action === 'SUSPEND') {
-        // Bump tokenVersion and clear the refresh token, then drop the cache entry:
-        // a suspension that leaves the offender's access token working for another
-        // 15 minutes is not an enforcement action. See §I.4 step 4.
-        await userRepository.updateById(userId, {
-          accountStatus: 'suspended',
-          sessions: [], // revoke every device's refresh session
-          $inc: { tokenVersion: 1 },
-        });
-        invalidateTokenVersion(userId);
-        logger.warn(`User ${userId} suspended automatically after 3 moderation strikes.`);
-      } else if (action === 'RESTRICT') {
-        // Chat-restricted, existing bookings honoured. Sessions still die so the
-        // restriction takes effect immediately rather than on next token refresh.
-        await userRepository.updateById(userId, {
-          accountStatus: 'restricted',
-          chatRestrictedUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          $inc: { tokenVersion: 1 },
-        });
-        invalidateTokenVersion(userId);
-        logger.warn(`User ${userId} chat-restricted after ${strikeNumber} moderation strikes.`);
-      }
-    } catch (strikeErr) {
-      logger.error(`Failed to record policy violation strike: ${strikeErr.message}`);
-    }
+    await applyStrikeEscalation(userId, {
+      violationType: 'CONTACT_EXCHANGE',
+      moderationEventId: eventDoc?._id,
+    });
 
     throw new ApiError(
       422,
@@ -171,6 +193,33 @@ export const reportContent = async (reporterId, { conversationId, messageId, rep
   }
   if (String(reportedUserId) === String(reporterId)) {
     throw new ApiError(400, 'You cannot report yourself');
+  }
+
+  // Both parties must actually be participants of this conversation. Without this,
+  // any authenticated user could file a USER_REPORT against an arbitrary stranger on an
+  // arbitrary conversation id -- a false-accusation and admin-queue-flooding vector
+  // (varying messageId defeats the duplicate-report guard below). conversationId is
+  // always a bookingId (chat.service.js: "conversationId === bookingId"), so the
+  // booking's own client/stylist pair IS the conversation's participant list -- reading
+  // it via the repository avoids pulling the Firestore-backed chat service (and its
+  // Firebase Admin init) into a module that otherwise has no chat dependency.
+  // See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X13.
+  const conversationBooking = await bookingRepository.findById(conversationId);
+  if (!conversationBooking) {
+    throw new ApiError(404, 'Conversation not found');
+  }
+  const participantIds = [
+    (conversationBooking.clientId?._id || conversationBooking.clientId).toString(),
+    (conversationBooking.stylistId?._id || conversationBooking.stylistId).toString(),
+  ];
+  if (
+    !participantIds.includes(String(reporterId)) ||
+    !participantIds.includes(String(reportedUserId))
+  ) {
+    throw new ApiError(
+      403,
+      'You can only report another participant of a conversation you are part of'
+    );
   }
 
   // One open report per reporter per message — stops a single user from flooding the
@@ -221,18 +270,44 @@ export const forgiveStrike = async (violationId, adminUserId) => {
   return updated;
 };
 
+/**
+ * Admin confirms a flagged/reported event was a genuine violation. Two things this used
+ * to fail to do: (1) it wrote `reviewOutcome`, a field that does not exist on
+ * `ModerationEvent` (the real field is `reviewStatus`), so Mongoose's strict mode
+ * silently dropped the write and the event stayed 'PENDING' forever -- the admin queue
+ * never cleared, and a dismissed-then-resolved report could never be re-filed by the
+ * same reporter, since the anti-flood dedup also keys on `reviewStatus: 'PENDING'`.
+ * (2) confirming had no effect on the reported user at all. Both are fixed here. See
+ * docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+ */
 export const confirmEvent = async (eventId, reviewerId, notes = '') => {
   const event = await moderationEventRepository.findById(eventId);
   if (!event) {
     throw new ApiError(404, 'Moderation event not found');
   }
+  if (event.reviewStatus !== 'PENDING') {
+    throw new ApiError(409, `This event has already been reviewed (${event.reviewStatus})`);
+  }
 
   const updated = await moderationEventRepository.updateById(eventId, {
-    reviewOutcome: 'CONFIRMED',
+    reviewStatus: 'APPROVED',
     reviewedBy: reviewerId,
     reviewedAt: new Date(),
     reviewNotes: notes,
   });
+
+  // A confirmed report is now a real, human-verified violation -- apply the same
+  // escalation ladder the automated scanner uses. Reports are subjective (harassment,
+  // threats) rather than the pattern-matched contact/payment evasion the scanner
+  // catches, hence the different violationType.
+  // senderId holds the accused user for BOTH shapes of event: the content author for an
+  // automated scan, and reportContent's `reportedUserId` for a user report (see :210).
+  if (event.senderId) {
+    await applyStrikeEscalation(event.senderId.toString(), {
+      violationType: event.matchedLayer === 'USER_REPORT' ? 'HARASSMENT' : 'CONTACT_EXCHANGE',
+      moderationEventId: event._id,
+    });
+  }
 
   return updated;
 };
@@ -242,9 +317,12 @@ export const overturnEvent = async (eventId, reviewerId, notes = '') => {
   if (!event) {
     throw new ApiError(404, 'Moderation event not found');
   }
+  if (event.reviewStatus !== 'PENDING') {
+    throw new ApiError(409, `This event has already been reviewed (${event.reviewStatus})`);
+  }
 
   const updated = await moderationEventRepository.updateById(eventId, {
-    reviewOutcome: 'OVERTURNED',
+    reviewStatus: 'DISMISSED',
     reviewedBy: reviewerId,
     reviewedAt: new Date(),
     reviewNotes: notes,

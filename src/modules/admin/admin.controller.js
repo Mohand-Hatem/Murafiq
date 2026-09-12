@@ -128,6 +128,49 @@ export const revokeUserSessions = asyncHandler(async (req, res) => {
   });
 });
 
+export const getUserSubscription = asyncHandler(async (req, res) => {
+  const data = await adminService.getUserSubscription(req.params.userId);
+  return ApiResponse.success(res, {
+    message: 'User subscription retrieved successfully',
+    data,
+  });
+});
+
+export const grantSubscription = asyncHandler(async (req, res) => {
+  const { subscription, plan, previousPlanCode } = await adminService.grantSubscription(
+    req.params.userId,
+    req.user.id,
+    req.body
+  );
+
+  return ApiResponse.success(res, {
+    message: 'Subscription granted successfully',
+    data: {
+      subscription,
+      plan: {
+        code: plan.code,
+        name: plan.name,
+        tier: plan.tier,
+        role: plan.role,
+      },
+      previousPlanCode,
+    },
+  });
+});
+
+export const getUserSubscriptionHistory = asyncHandler(async (req, res) => {
+  const { items, meta } = await adminService.getUserSubscriptionHistory(
+    req.params.userId,
+    req.query
+  );
+
+  return ApiResponse.success(res, {
+    message: 'Subscription history retrieved successfully',
+    data: items,
+    meta,
+  });
+});
+
 export const getLedgerStatements = asyncHandler(async (req, res) => {
   const { page, limit, entryType, accountType, direction, correlationId, bookingId, subjectId } = req.query;
   const filter = {};
@@ -196,5 +239,8 @@ export default {
   getLedgerStatements,
   runLedgerReconciliation,
   getDashboardStats,
+  getUserSubscription,
+  grantSubscription,
+  getUserSubscriptionHistory,
 };
 

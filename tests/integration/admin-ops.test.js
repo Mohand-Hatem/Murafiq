@@ -14,10 +14,14 @@ const clientToken = generateAccessToken({ sub: clientUserId, role: 'client' });
 const mockEvent = {
   _id: eventId,
   senderId: clientUserId,
+  matchedLayer: 'REGEX_CONTACT',
   contentType: 'chat_message',
   severity: 'RESTRICT',
   actionTaken: 'BLOCKED',
-  reviewOutcome: 'PENDING',
+  // The real ModerationEvent field is reviewStatus (PENDING|APPROVED|DISMISSED) —
+  // this fixture previously used reviewOutcome, a field that does not exist on the
+  // model, which is exactly docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+  reviewStatus: 'PENDING',
 };
 
 const mockUser = {
@@ -48,6 +52,19 @@ jest.unstable_mockModule('../../src/modules/moderation/moderation-event.reposito
 
 const mockUserFindById = jest.fn();
 const mockUserUpdateById = jest.fn();
+
+jest.unstable_mockModule('../../src/modules/moderation/policy-violation.repository.js', () => ({
+  default: {
+    countActiveByUserId: jest.fn().mockResolvedValue(0),
+    create: jest.fn().mockResolvedValue({ _id: 'violation-1' }),
+    findById: jest.fn(),
+    updateById: jest.fn(),
+  },
+  countActiveByUserId: jest.fn().mockResolvedValue(0),
+  create: jest.fn().mockResolvedValue({ _id: 'violation-1' }),
+  findById: jest.fn(),
+  updateById: jest.fn(),
+}));
 
 jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
   default: {
@@ -110,7 +127,7 @@ describe('Stage R11 Integration — Admin & Operations Controls', () => {
     it('allows Operator to confirm a moderation event', async () => {
       mockEventUpdateById.mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'CONFIRMED',
+        reviewStatus: 'APPROVED',
         reviewedBy: operatorId,
       });
 
@@ -120,13 +137,13 @@ describe('Stage R11 Integration — Admin & Operations Controls', () => {
         .send({ notes: 'Verified off-platform phone number' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.reviewOutcome).toBe('CONFIRMED');
+      expect(res.body.data.reviewStatus).toBe('APPROVED');
     });
 
     it('allows Operator to overturn a moderation event', async () => {
       mockEventUpdateById.mockResolvedValue({
         ...mockEvent,
-        reviewOutcome: 'OVERTURNED',
+        reviewStatus: 'DISMISSED',
         reviewedBy: operatorId,
       });
 
@@ -136,7 +153,7 @@ describe('Stage R11 Integration — Admin & Operations Controls', () => {
         .send({ notes: 'False positive context' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.reviewOutcome).toBe('OVERTURNED');
+      expect(res.body.data.reviewStatus).toBe('DISMISSED');
     });
 
     it('forbids Clients from accessing the moderation events queue', async () => {
@@ -167,6 +184,10 @@ describe('Stage R11 Integration — Admin & Operations Controls', () => {
     });
 
     it('allows Admin to unrestrict user and restore active status', async () => {
+      // unrestrictUser guards on the CURRENT status, mirroring reactivateUser ('suspended'
+      // only) and unblockUser ('blocked' only). The account therefore has to actually be
+      // restricted before it can be unrestricted -- the shared mockUser fixture is 'active'.
+      mockUserFindById.mockResolvedValue({ ...mockUser, accountStatus: 'restricted' });
       mockUserUpdateById.mockResolvedValue({
         ...mockUser,
         accountStatus: 'active',

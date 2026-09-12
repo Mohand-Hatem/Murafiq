@@ -78,7 +78,7 @@ if (env.NODE_ENV !== 'test') {
 }
 
 // API Docs — mounted from Phase 0 so every phase from here on documents its own routes as it builds them
-// (see docs/00_PHASES_INDEX.md), rather than one large retrofit at the end.
+// (see docs/PHASES_INDEX.md), rather than one large retrofit at the end.
 const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis });
 if (env.NODE_ENV === 'production') {
   app.use('/api/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(swaggerSpec));

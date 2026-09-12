@@ -84,11 +84,15 @@ export const uploadVerificationDocs = async (userId, role, documents) => {
     );
   }
 
-  const formattedDocs = documents.map((doc) => ({
-    type: doc.type,
-    url: doc.documentRef || doc.url,
-    uploadedAt: new Date(),
-  }));
+  const formattedDocs = documents.map((doc) => {
+    const ref = doc.documentRef || doc.url;
+    return {
+      type: doc.type,
+      url: ref,
+      documentRef: ref,
+      uploadedAt: new Date(),
+    };
+  });
 
   const updatedUser = await userRepository.updateById(userId, {
     'verification.documents': formattedDocs,
@@ -125,7 +129,7 @@ export const deleteAccount = async (userId) => {
 export const getVerifications = async (queryString) => {
   const { users, meta } = await userRepository.findVerifications(queryString);
   return {
-    items: users.map(toUserProfileDto),
+    items: users.map((u) => toUserProfileDto(u, { isReviewer: true })),
     meta,
   };
 };
@@ -160,7 +164,7 @@ export const approveVerification = async (userId, reviewerId) => {
     reviewedAt: new Date(),
   });
 
-  return toUserProfileDto(updatedUser);
+  return toUserProfileDto(updatedUser, { isReviewer: true });
 };
 
 export const rejectVerification = async (userId, reviewerId, rejectionReason) => {
@@ -190,7 +194,7 @@ export const rejectVerification = async (userId, reviewerId, rejectionReason) =>
     reviewedAt: new Date(),
   });
 
-  return toUserProfileDto(updatedUser);
+  return toUserProfileDto(updatedUser, { isReviewer: true });
 };
 
 
@@ -327,6 +331,21 @@ export const restrictUser = async (userId, _adminId, { durationDays = 7, reason:
     throw new ApiError(404, 'User not found');
   }
 
+  // Restriction is the WEAKEST enforcement rung (a chat mute). Applying it to an account
+  // already suspended or blocked would overwrite accountStatus with 'restricted' and
+  // silently DOWNGRADE the stronger sanction -- the account would start authenticating
+  // again, since auth.middleware only rejects 'suspended' and 'blocked'. Extending an
+  // existing restriction is legitimate, so 'restricted' is accepted alongside 'active'.
+  if (
+    user.accountStatus !== ACCOUNT_STATUS.ACTIVE &&
+    user.accountStatus !== ACCOUNT_STATUS.RESTRICTED
+  ) {
+    throw new ApiError(
+      400,
+      `Cannot restrict: current status is '${user.accountStatus}' (only 'active' or 'restricted' can be restricted)`
+    );
+  }
+
   const chatRestrictedUntil = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
   const updatedUser = await userRepository.updateById(userId, {
     accountStatus: 'restricted',
@@ -342,6 +361,16 @@ export const unrestrictUser = async (userId, _adminId) => {
   const user = await userRepository.findById(userId);
   if (!user) {
     throw new ApiError(404, 'User not found');
+  }
+
+  // Mirrors reactivateUser ('suspended' only) and unblockUser ('blocked' only). Without
+  // this guard, unrestricting a SUSPENDED or BLOCKED account wrote accountStatus:'active'
+  // unconditionally, lifting a sanction this endpoint was never meant to touch.
+  if (user.accountStatus !== ACCOUNT_STATUS.RESTRICTED) {
+    throw new ApiError(
+      400,
+      `Cannot unrestrict: current status is '${user.accountStatus}' (only 'restricted' can be unrestricted)`
+    );
   }
 
   const updatedUser = await userRepository.updateById(userId, {
@@ -390,7 +419,7 @@ export const getPublicProfile = async (targetUserId) => {
 export const getAllUsers = async (queryString) => {
   const { users, meta } = await userRepository.findAllUsers(queryString);
   return {
-    items: users.map(toUserProfileDto),
+    items: users.map((u) => toUserProfileDto(u, { isReviewer: true })),
     meta,
   };
 };

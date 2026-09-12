@@ -1,0 +1,34 @@
+﻿e894088a7ccf7413d7231584f0098327ca466250
+> murafiq@1.0.0 verify
+> npm run lint && npm run validate:openapi && npm test
+
+> murafiq@1.0.0 lint
+> eslint src tests
+
+> murafiq@1.0.0 validate:openapi
+> cross-env NODE_ENV=development node scripts/validate-openapi.js
+
+OpenAPI          : 3.0.0
+Documented ops   : 137
+Actual routes    : 137
+Security schemes : bearerAuth, cookieAuth
+
+UNDOCUMENTED (0):
+  (none)
+
+GHOSTS — documented but absent (0):
+  (none)
+
+BROKEN  (0):
+  (none)
+
+STRUCTURAL PROBLEMS (0):
+  (none)
+
+> murafiq@1.0.0 test
+> cross-env NODE_OPTIONS=--experimental-vm-modules NODE_ENV=test jest --runInBand --testTimeout=30000 --detectOpenHandles --forceExit
+
+Test Suites: 113 passed, 113 total
+Tests:       696 passed, 696 total
+Snapshots:   0 total
+Ran all test suites.

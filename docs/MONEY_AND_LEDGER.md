@@ -7,7 +7,7 @@ This document defines the financial lifecycle of funds in Murafiq: escrow collec
 ## 1. Core Financial Rules & Invariants
 
 1. **The `Payment` Record is the Single Source of Truth for Ledger Math.** Payout amounts are **never** calculated on the fly as `Booking.price * 0.85`. They are strictly read from `Payment.stylistPayoutAmount` after any refund adjustments.
-2. **2-Decimal Rounding Invariance:** All monetary calculations use `round2(num)` (`Math.round(num * 100) / 100`) to prevent floating-point drift in EGP currency.
+2. **2-Decimal Rounding Invariance:** All monetary calculations use `round2(num)` (`Math.round((Number(num) + Number.EPSILON) * 100) / 100`) to prevent floating-point drift in EGP currency.
 3. **Escrow Invariant:** When a client pays for a booking, the funds are held by the platform. The stylist's earnings become eligible for disbursement only after **Session Completion** AND the expiration of the **48-Hour Dispute Window** (`DISPUTE_WINDOW_HOURS = 48`).
 
 ---
@@ -29,27 +29,42 @@ $$\text{Stylist Payout Amount} = \text{round2}(\text{Gross Amount} - \text{Platf
 
 ## 3. Cancellation Policy & Refund Tiers
 
-Refunds upon cancellation depend strictly on the **cancelling party** and the **time remaining before scheduled start**. The boundary constant is `CANCELLATION_POLICY.FULL_REFUND_HOURS = 24` in `statuses.constant.js`.
+Refunds upon cancellation depend strictly on the **cancelling party** and the **time remaining before scheduled start**. The boundary constant is `CANCELLATION_POLICY.EARLY_HOURS = 24` in `statuses.constant.js`.
 
-> **Note:** These percentages describe the policy **currently implemented** in `booking.service.js:500-511`. A future revision (R6) will update them — see `docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md` §C.7 and §H for the planned policy.
+> **Corrected 2026-09-11.** This section previously described a pre-revision 100%/75%
+> policy that no longer matches the code (`booking.service.js` `calculateCancellationOutcome`,
+> `statuses.constant.js` `CANCELLATION_POLICY`). The Business Rules Revision's Stage R6
+> (Cancellation, Refunds & Penalties) changed the client tiers and added a stylist penalty;
+> that landed in the code but this doc was never updated to match, which is exactly the kind
+> of drift `docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md` finding X24 flags as its highest-consequence
+> documentation defect — a future "fix the code to match the doc" edit would have reverted
+> live refund percentages. The numbers below are read directly from the current constants.
 
 ### Client Cancellations:
-- **≥ 24 hours before start** (`hoursUntilSession >= FULL_REFUND_HOURS`): **100% refund** to client.
-  - `Payment.status = 'refunded'`
-  - `Payment.refundAmount = 1000.00`
-  - `Payment.platformFeeAmount = 0.00`
-  - `Payment.stylistPayoutAmount = 0.00`
-- **< 24 hours before start** (`hoursUntilSession < FULL_REFUND_HOURS`): **75% refund** to client (`CANCELLATION_POLICY.PARTIAL_REFUND_PERCENTAGE = 75`).
+- **≥ 24 hours before start** (`hoursUntilSession >= CANCELLATION_POLICY.EARLY_HOURS`):
+  **97% refund** to client, platform keeps **3%** (`CANCELLATION_POLICY.EARLY_CLIENT_REFUND_PERCENTAGE` / `EARLY_PLATFORM_FEE_PERCENTAGE`).
+  - `Payment.status = 'refunded'` (refund percentage < 100 is what makes a refund "partial"; 97% still fully closes the payment)
+  - `Payment.refundAmount = 970.00`
+  - `Payment.platformFeeAmount = 30.00`
+  - `Payment.stylistPayoutAmount = 0.00` — the stylist has not yet travelled and receives nothing from this booking's payment.
+- **< 24 hours before start**: **80% refund** to client, platform keeps **20%**
+  (`CANCELLATION_POLICY.LATE_CLIENT_REFUND_PERCENTAGE` / `LATE_PLATFORM_FEE_PERCENTAGE`).
   - `Payment.status = 'partially_refunded'`
-  - `Payment.refundAmount = 750.00`
-  - `Payment.platformFeeAmount = 37.50` (15% of retained 250 EGP)
-  - `Payment.stylistPayoutAmount = 212.50` (85% of retained 250 EGP)
-
-### Stylist or Admin Cancellations:
-- **Any time:** **100% refund** to client.
-  - `Payment.status = 'refunded'`
-  - `Payment.refundAmount = 1000.00`
+  - `Payment.refundAmount = 800.00`
+  - `Payment.platformFeeAmount = 200.00`
   - `Payment.stylistPayoutAmount = 0.00`
+
+### Stylist Cancellations:
+The client is always refunded **100%**, regardless of timing — the stylist never lets the
+client bear the cost of their own cancellation. The stylist instead accrues a **penalty**
+(a `Penalty` document plus a paired ledger debit, settled against a future payout — this is
+separate money from the refund above, not a split of it):
+- **≥ 24 hours before start:** penalty = **3%** of the session price
+  (`CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE`).
+- **< 24 hours before start:** penalty = **20%** of the session price
+  (`CANCELLATION_POLICY.LATE_STYLIST_PENALTY_PERCENTAGE`), and the client becomes eligible
+  for a goodwill coupon.
+  - `Payment.status = 'refunded'`, `Payment.refundAmount = 1000.00`, `Payment.stylistPayoutAmount = 0.00` either way.
   - Stylist's `cancelledSessions` counter increments on their `StylistProfile`.
 
 ---
@@ -91,6 +106,6 @@ When an admin arbitrates an active dispute via `PATCH /api/v1/admin/bookings/:id
 ```
 
 - **Idempotency & Double-Disbursement Guards:**
-  - Transitioning a payout from `pending` $\rightarrow$ `processing` $\rightarrow$ `paid` is state-guarded in Mongoose transactions.
+  - Transitioning a payout from `pending` $\rightarrow$ `processing` is state-guarded at the service layer; transitioning to `paid` is atomically committed across collections (`Payout`, `Booking`, `LedgerEntry`) in a Mongoose transaction.
   - Bookings are marked with `payoutStatus: 'processing'` and `payoutId: payout._id` upon batch creation, locking them from being included in concurrent batches.
   - If a payout is marked `failed`, bookings are automatically released back to `payoutStatus: 'unpaid'` for re-batching.

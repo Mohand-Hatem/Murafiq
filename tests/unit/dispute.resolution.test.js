@@ -45,7 +45,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         createdAt: recentDate,
       });
 
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'disputed',
         clientId: { _id: clientId },
@@ -87,7 +87,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
       });
 
       jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'cancelled',
         clientId: { _id: clientId },
@@ -127,7 +127,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         platformFeePercentage: 15,
       });
       jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-      jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+      jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
         _id: bookingId,
         status: 'completed',
         clientId: { _id: clientId },
@@ -147,6 +147,57 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
         reason: 'Session shortened by 30 mins',
         stylistPayoutOverrideAmount: 637.5,
       });
+    });
+
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X7: resolving a
+    // dispute back to 'completed' used to rewrite completedAt to `new Date()` on every
+    // resolution, restarting the 48h dispute-filing window and allowing an already-
+    // resolved dispute to be re-filed indefinitely.
+    it('does not overwrite an existing completedAt when resolving a dispute', async () => {
+      const originalCompletedAt = new Date(Date.now() - 10 * 3600 * 1000);
+      jest.spyOn(bookingRepository, 'findById').mockResolvedValue({
+        _id: bookingId,
+        status: 'disputed',
+        completedAt: originalCompletedAt,
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+      });
+      const transitionSpy = jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
+        _id: bookingId,
+        status: 'completed',
+        completedAt: originalCompletedAt,
+      });
+
+      await bookingService.resolveDispute(adminId, bookingId, {
+        outcome: 'dismissed',
+        resolutionNotes: 'No violation found',
+      });
+
+      const updateCall = transitionSpy.mock.calls[0][2];
+      expect(updateCall.completedAt).toBeUndefined();
+    });
+  });
+
+  describe('fileDispute — reopen guard (X7)', () => {
+    it('refuses to dispute a booking that has already been through arbitration', async () => {
+      jest.spyOn(bookingRepository, 'findById').mockResolvedValue({
+        _id: bookingId,
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+        status: 'completed',
+        completedAt: new Date(),
+        disputeResolution: {
+          outcome: 'dismissed',
+          resolvedBy: adminId,
+          resolvedAt: new Date(Date.now() - 3600 * 1000),
+        },
+      });
+
+      await expect(
+        bookingService.fileDispute({ _id: clientId, role: 'client' }, bookingId, {
+          reason: 'Trying again',
+        })
+      ).rejects.toThrow(/already been through dispute arbitration/i);
     });
   });
 });

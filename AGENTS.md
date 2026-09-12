@@ -1,16 +1,16 @@
 # Murafiq — Agent Behavior Contract
 
-> Always-loaded context. Does not replace `docs/01_PROJECT_STRUCTURE.md`,
-> `docs/02_PROJECT_RULES.md`, `docs/03_SKELETON_STATUS.md`, or the `PHASE_XX_*.md`
+> Always-loaded context. Does not replace `docs/ARCHITECTURE.md`,
+> `docs/PROJECT_RULES.md`, `docs/STATUS.md`, or the `PHASE_XX_*.md`
 > files — it summarizes the invariants most likely to be silently violated across
 > the whole project, so they survive even when those docs aren't re-opened mid-task.
 
 ## Required reading before touching any phase
-- `docs/02_PROJECT_RULES.md` — the process contract (approval-gated, step-by-step,
+- `docs/PROJECT_RULES.md` — the process contract (approval-gated, step-by-step,
   Definition of Done verification). This governs *how* you work, full stop.
-- `docs/03_SKELETON_STATUS.md` — what's real vs. stub *today*. Never assume a module
+- `docs/STATUS.md` — what's real vs. stub *today*. Never assume a module
   is fully wired without checking this first.
-- `docs/00_PHASES_INDEX.md` — phase order and dependencies. Never start a phase whose
+- `docs/PHASES_INDEX.md` — phase order and dependencies. Never start a phase whose
   dependency isn't done per its own Definition of Done.
 - The specific `PHASE_XX_*.md` for whatever you're building — it's the source of
   truth for that module; this file only captures cross-cutting invariants.
@@ -62,17 +62,17 @@
   polish.
 
 ## Skeleton-awareness
-Check `docs/03_SKELETON_STATUS.md` before assuming — it's the live source of truth.
+Check `docs/STATUS.md` before assuming — it's the live source of truth.
 Treat the notes below as reminders of what tends to be mixed-state, not a snapshot:
 - Payments: provider is env-switched (`PAYMENT_PROVIDER=mock|paymob`) — never assume
   which is active without checking.
-- Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal.
-- Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push), *not*
-  Socket.io/MongoDB. Socket.io (from Phase 0) is used only for the separate Mongo-
-  backed Notification system's realtime delivery — don't conflate the two.
+- Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal. **Admin manual grants** (`POST /admin/users/:userId/subscription`) are a SEPARATE, non-payment path: they share the grant primitive `applyPlanGrant()` so entitlements are identical, but create no Payment, no SubscriptionOrder and no ledger entry. Never add a ledger write there. One active Subscription per user is enforced by a partial unique index — write plan changes through `replaceActivePlanCAS`, not `updateById`.
+- Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push). Notifications
+  are persisted in MongoDB and pushed via FCM. There is no Socket.io server layer in
+  this project (Decision P7).
 - AI module (`src/modules/ai/`): **empty except `.gitkeep`.** There is no `/api/v1/ai`
   route at all — it returns `404`, not `501`. The design is specified in
-  `docs/PHASE_15_AI_SKELETON.md` (overview) and built via `PHASE_15A`–`PHASE_15E`.
+  `docs/next-phase/PHASE_15_AI_SKELETON.md` (overview) and built via `PHASE_15A`–`PHASE_15E`.
   **`HARDENING_08_WARDROBE_AI_READINESS.md` blocks all of it.**
   Locked decisions: **one model** (`gemini-3.1-flash-lite`) for every AI task;
   **no LangChain, no LangGraph** (the workflow is a linear pipeline with one branch);
@@ -111,7 +111,7 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   an explicit `.select()` projection on any populate, never rely on `select: false`
   alone to prevent a leak.
 - **Named constants, not magic numbers**, for anything with a business rule attached
-  (`CANCELLATION_FULL_REFUND_HOURS`, `CANCELLATION_PARTIAL_REFUND_PERCENTAGE`,
+  (`CANCELLATION_POLICY.EARLY_HOURS`, `CANCELLATION_POLICY.EARLY_CLIENT_REFUND_PERCENTAGE`,
   `REQUEST_EXPIRY_HOURS`, daily caps) — always in `common/constants/`, never
   hardcoded inline in a service.
 
@@ -178,15 +178,23 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   only inside `paymob.provider.js` at the API boundary.
 - Platform fee + stylist payout === amount, exactly, always (test with decimal
   values, not just round numbers).
-- Cancellation is **four branches**: client ≥24h (100% refund), client <24h (75%
-  refund, thresholds are named constants), client no-show via dispute+admin (0%
-  refund but stylist still paid), stylist any-time (100% refund). Never merge or
-  simplify these.
+- Cancellation is **four branches**, all in `CANCELLATION_POLICY`
+  (`statuses.constant.js`): client ≥24h (**97%** refund, platform keeps 3%), client
+  <24h (**80%** refund, platform keeps 20%), client no-show via dispute+admin (0%
+  refund but stylist still paid — a separate policy, `NO_SHOW_POLICY`, not this one),
+  stylist any-time (100% refund to client, stylist accrues a 3%/20% penalty instead of
+  a payout deduction). Never merge or simplify these. **Corrected 2026-09-11** — this
+  file previously stated a pre-revision 100%/75% split; see
+  `docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md` finding X24.
 - Escrow holds once `Payment.status === 'paid'` (not at offer-acceptance). Session
   check-in and chat unlock both gate on this same flag.
 - Mutual confirmation → `SessionCompleted` marks the payout **eligible**, it does not
   auto-transfer. Actual payout is a manual admin action (`Payout` model), and a
-  booking with an open dispute or open safety report must never appear as payable.
+  booking with an open dispute must never appear as payable (enforced via `status`).
+  Under Product Decision P1 (Simplification Plan 2026-09), the dead safety scaffolding
+  (`Booking.isFrozen`/`frozenReason`/`frozenAt`, the `{isFrozen, payoutStatus}` index,
+  and `NOTIFICATION_TYPES.'safety'`) was deleted, and `src/modules/safety/` remains
+  intentionally unbuilt.
 
 ### Chat & Notifications (Phase 7)
 - Chat is **Firestore**, not Mongo — `conversationId === bookingId`, created closed
@@ -260,8 +268,8 @@ proactively per situation, not just when explicitly asked:
 | Designing or changing a Mongoose schema (esp. Payment, Booking, Payout, WardrobeItem) | The installed database-schema-review skill — check relationships, indexes, and constraints before implementation, not after. |
 | Adding or changing a REST endpoint, especially offer-accept, payment-callback, escrow-release, or check-in routes | The installed api-design-review skill — validate resource modeling, versioning, and error handling before implementation. |
 | Any claim that a step/phase is "done" | `verification-before-completion` — mandatory, no exceptions, in every module listed in the Verification Requirement below. |
-| Before merging/finishing a step | `requesting-code-review` (self-check against `02_PROJECT_RULES.md` and this file) before presenting the step for approval. |
-| Before starting Phases 12, 13, 14, 15, or 16 | Check `docs/RECOMMENDED_SKILLS_ROADMAP.md` and **prompt the user to install the recommended skill** before writing code for that phase. |
+| Before merging/finishing a step | `requesting-code-review` (self-check against `PROJECT_RULES.md` and this file) before presenting the step for approval. |
+| Before starting Phases 12, 13, 14, 15, or 16 | Check `docs/archive/reviews/RECOMMENDED_SKILLS_ROADMAP.md` and **prompt the user to install the recommended skill** before writing code for that phase. |
 | Independent, parallelizable work (e.g. researching Paymob API details while writing a validator) | `dispatching-parallel-agents` / `subagent-driven-development`. |
 
 This table exists because skill descriptions alone leave activation to the model's
@@ -269,12 +277,12 @@ judgment — for money-and-trust-critical modules in this project, that judgment
 should already be made, not left probabilistic.
 
 ## Pre-Phase Skill Installation Reminder Rule
+Phases 12, 13 and 14 have shipped; only the phases below are still ahead.
 Before beginning implementation on:
-- **Phase 12:** Check for `data-pipeline-builder` / `bullmq-redis-patterns`
-- **Phase 13:** Check for `security-reviewer` / `security-pentest-planner`
-- **Phase 14 & 15:** Check for `rag-engineer` / `langchain-architect`
-- **Phase 16:** Check for `devops-engineer` / `docker-debugger`
-If the skill is missing from `~/.gemini/config/skills/`, remind and prompt the user to install it before beginning step 1 of that phase.
+- **Phase 15 (AI Stylist — the active target):** Check for `rag-engineer`. **Not** `langchain-architect` — LangChain/LangGraph were explicitly ruled out, see `docs/next-phase/PHASE_15_AI_ARCHITECTURE_DECISION.md`
+- **Phase 16 (Deployment):** Check for `devops-engineer` / `docker-debugger`
+
+If the skill is missing from `~/.gemini/config/skills/`, remind and prompt the user to install it before beginning step 1 of that phase. The historical phase-to-skill matrix is archived at `docs/archive/reviews/RECOMMENDED_SKILLS_ROADMAP.md`.
 
 ## Verification requirement (ties to `verification-before-completion`)
 For any work touching auth, verification, payments/escrow, cancellation, scheduling,

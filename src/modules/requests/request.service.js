@@ -7,6 +7,7 @@ import { toPublicRequestDto } from './request.dto.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
+import logger from '../../config/logger.config.js';
 import { REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 
@@ -254,7 +255,7 @@ export const cancelRequest = async (clientId, requestId) => {
     try {
       await entitlementService.refundQuota(clientId, 'requests.daily', 1);
     } catch (err) {
-      console.error(`[Quota Refund Warning] ${err.message}`);
+      logger.warn(`[Quota Refund Warning] ${err.message}`);
     }
   }
 

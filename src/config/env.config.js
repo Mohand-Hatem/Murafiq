@@ -10,7 +10,13 @@ const isProd = process.env.NODE_ENV === 'production';
 const secret = (devDefault) => (isProd ? z.string().min(1) : z.string().default(devDefault));
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // No default: an environment must say what it is. A default of 'development' here
+  // previously meant a deploy that simply forgot to set NODE_ENV=production booted
+  // silently as development -- which lets every `secret()` field above fall back to its
+  // well-known placeholder value instead of failing to boot. See
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X6. `npm start`/`npm run dev` set this
+  // explicitly via `cross-env` (package.json) so local development is unaffected.
+  NODE_ENV: z.enum(['development', 'production', 'test']),
   PORT: z.string().default('4000'),
   MONGO_URI: secret('mongodb://127.0.0.1:27017/murafiq'),
   JWT_ACCESS_SECRET: secret('dev_access_secret_change_me_in_prod'),
@@ -70,12 +76,48 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   VECTOR_DB_URL: z.string().optional(),
   VECTOR_DB_API_KEY: z.string().optional(),
+  // Moderation enforcement switch (see moderation.service.js scanAndEnforce). This field
+  // was previously read from `env.MODERATION_MODE` with no schema entry -- Zod's default
+  // object parsing strips any key not declared here, so the read was permanently
+  // `undefined` and enforcement could never leave DRY_RUN regardless of the actual
+  // environment variable. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X2.
+  MODERATION_MODE: z.enum(['DRY_RUN', 'ENFORCE']).default('DRY_RUN'),
 });
 
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   console.error('❌ Invalid environment variables:', parsed.error.format());
   process.exit(1);
+}
+
+// Belt-and-braces beyond the isProd/secret() split above: those only make an UNSET secret
+// fail to boot in production. They do nothing if an operator's real production .env was
+// created by copying .env.example and never editing it -- the exact state this audit found
+// on this repository's own working tree (finding X6). Refuse to boot on the two
+// authentication secrets specifically, since a forged token signed with either is a full
+// account-takeover / privilege-escalation primitive.
+if (parsed.data.NODE_ENV === 'production') {
+  const placeholders = {
+    JWT_ACCESS_SECRET: 'dev_access_secret_change_me_in_prod',
+    JWT_REFRESH_SECRET: 'dev_refresh_secret_change_me_in_prod',
+  };
+  const stillPlaceholder = Object.entries(placeholders).filter(
+    ([key, value]) => parsed.data[key] === value
+  );
+  if (stillPlaceholder.length > 0) {
+    console.error(
+      `❌ Refusing to start in production with placeholder value(s) for: ${stillPlaceholder
+        .map(([key]) => key)
+        .join(', ')}. Set a real secret before deploying.`
+    );
+    process.exit(1);
+  }
+}
+
+// Loud and unconditional, not gated on NODE_ENV: a silently-wrong moderation mode is
+// exactly the failure this line exists to make impossible to miss (see finding X2).
+if (process.env.NODE_ENV !== 'test') {
+  console.log(`[env] MODERATION_MODE resolved to: ${parsed.data.MODERATION_MODE}`);
 }
 
 export default parsed.data;

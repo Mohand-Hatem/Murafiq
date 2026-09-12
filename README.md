@@ -72,12 +72,37 @@ npm run lint
 
 ## Documentation Index
 
-- [`docs/01_PROJECT_STRUCTURE.md`](file:///docs/01_PROJECT_STRUCTURE.md) — Architecture principles and complete folder tree.
-- [`docs/02_PROJECT_RULES.md`](file:///docs/02_PROJECT_RULES.md) — Coding conventions and engineering standards.
-- [`docs/03_SKELETON_STATUS.md`](file:///docs/03_SKELETON_STATUS.md) — Verified live implementation status.
-- [`docs/04_ROUTES.md`](file:///docs/04_ROUTES.md) — Complete API route dictionary with active status indicators.
-- [`docs/DATA_MODEL.md`](file:///docs/DATA_MODEL.md) — MongoDB schemas, relationships, and index rationale.
-- [`docs/AUTH_AND_PERMISSIONS.md`](file:///docs/AUTH_AND_PERMISSIONS.md) — RBAC matrix, token lifecycle, and session invalidation.
-- [`docs/MONEY_AND_LEDGER.md`](file:///docs/MONEY_AND_LEDGER.md) — Escrow, refunds, commission, and payout mechanics.
-- [`docs/ERRORS.md`](file:///docs/ERRORS.md) — HTTP status-code contract and response envelopes.
-- [`docs/OPS.md`](file:///docs/OPS.md) — Production operations, health checks, and go-live checklist.
+**Start here:** [`docs/PHASES_INDEX.md`](docs/PHASES_INDEX.md) — the phase map and the pointer to
+every current source of truth.
+
+### Current
+
+| Document | Owns |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Agent + engineering contract |
+| [`docs/STATUS.md`](docs/STATUS.md) | What is actually built, right now |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture principles and folder tree |
+| [`docs/PROJECT_RULES.md`](docs/PROJECT_RULES.md) | Coding conventions and engineering standards |
+| [`docs/BUSINESS_RULES.md`](docs/BUSINESS_RULES.md) | Business rules — the authority |
+| [`docs/MONEY_AND_LEDGER.md`](docs/MONEY_AND_LEDGER.md) | Escrow, refunds, commission, payouts |
+| [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Schemas, relationships, index rationale |
+| [`docs/ROUTES.md`](docs/ROUTES.md) | Route dictionary |
+| [`docs/API_DOCUMENTATION_AND_LIFECYCLE_GUIDE.md`](docs/API_DOCUMENTATION_AND_LIFECYCLE_GUIDE.md) | End-to-end API lifecycle narrative |
+| [`docs/AUTH_AND_PERMISSIONS.md`](docs/AUTH_AND_PERMISSIONS.md) | RBAC, tokens, account-status enforcement |
+| [`docs/ERRORS.md`](docs/ERRORS.md) | HTTP status contract and response envelopes |
+| [`docs/OPS.md`](docs/OPS.md) | Production operations and health checks |
+| [`docs/DEPLOYMENT_READINESS.md`](docs/DEPLOYMENT_READINESS.md) | Go-live checklist |
+| [`docs/END_TO_END_TESTING_GUIDE.md`](docs/END_TO_END_TESTING_GUIDE.md) | Manual E2E test walkthrough |
+| [`docs/MURAFIQ_PRODUCT_AND_BUSINESS_GUIDE.md`](docs/MURAFIQ_PRODUCT_AND_BUSINESS_GUIDE.md) | Product definition |
+
+### Next phase — Phase 15 (AI Stylist, **not implemented**)
+
+[`docs/next-phase/`](docs/next-phase/) — product brief, architecture decision of record,
+sub-phase specs 15A–15F, and [`BACKLOG.md`](docs/next-phase/BACKLOG.md) (the only current list of
+open technical debt).
+
+### History
+
+[`docs/archive/`](docs/archive/README.md) — Phase 0–14 build records (one file per phase),
+completed audits, remediation, simplification and hardening work. Preserved, **not** current
+guidance.

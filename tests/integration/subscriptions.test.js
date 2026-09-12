@@ -58,6 +58,11 @@ const mockCreateSubscription = jest.fn().mockResolvedValue(mockSubscription);
 const mockUpdateSubscriptionById = jest.fn().mockImplementation((id, data) =>
   Promise.resolve({ ...mockSubscription, ...data })
 );
+const mockReplaceActivePlanCAS = jest.fn().mockImplementation((id, data) =>
+  Promise.resolve({ ...mockSubscription, ...data, _id: id })
+);
+const mockCreateHistoryEntry = jest.fn().mockResolvedValue({});
+const mockFindOrCreateActiveSubscription = jest.fn().mockResolvedValue(mockSubscription);
 const mockFindByCode = jest.fn().mockImplementation((code) => {
   if (code === 'client.pro') return Promise.resolve(mockProPlan);
   return Promise.resolve(mockFreePlan);
@@ -79,15 +84,21 @@ jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
 jest.unstable_mockModule('../../src/modules/subscriptions/subscription.repository.js', () => ({
   default: {
     findActiveByUserId: mockFindActiveByUserId,
+    findOrCreateActiveSubscription: mockFindOrCreateActiveSubscription,
     findByUserId: mockFindActiveByUserId,
     createSubscription: mockCreateSubscription,
     updateById: mockUpdateSubscriptionById,
+    replaceActivePlanCAS: mockReplaceActivePlanCAS,
+    createHistoryEntry: mockCreateHistoryEntry,
     findExpiringSubscriptions: jest.fn().mockResolvedValue([]),
   },
   findActiveByUserId: mockFindActiveByUserId,
+  findOrCreateActiveSubscription: mockFindOrCreateActiveSubscription,
   findByUserId: mockFindActiveByUserId,
   createSubscription: mockCreateSubscription,
   updateById: mockUpdateSubscriptionById,
+  replaceActivePlanCAS: mockReplaceActivePlanCAS,
+  createHistoryEntry: mockCreateHistoryEntry,
   findExpiringSubscriptions: jest.fn().mockResolvedValue([]),
 }));
 
@@ -216,6 +227,7 @@ describe('Stage R3 Integration — Subscriptions Endpoints', () => {
       expect(res.status).toBe(402);
       expect(res.body.message).toMatch(/requires payment/i);
       expect(mockUpdateSubscriptionById).not.toHaveBeenCalled();
+      expect(mockReplaceActivePlanCAS).not.toHaveBeenCalled();
     });
 
     it('refuses a paid YEARLY plan too', async () => {
@@ -229,6 +241,7 @@ describe('Stage R3 Integration — Subscriptions Endpoints', () => {
 
       expect(res.status).toBe(402);
       expect(mockUpdateSubscriptionById).not.toHaveBeenCalled();
+      expect(mockReplaceActivePlanCAS).not.toHaveBeenCalled();
     });
 
     it('rejects an unknown field — .strict() is now actually enforced', async () => {

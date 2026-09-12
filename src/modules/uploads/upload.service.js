@@ -11,6 +11,14 @@ const ALLOWED_FOLDERS = new Set([
   'wardrobe',
 ]);
 
+export const FOLDER_ROLES = Object.freeze({
+  avatars: ['client', 'stylist', 'admin'],
+  'kyc-documents': ['client', 'stylist', 'admin'],
+  portfolio: ['stylist', 'admin'],
+  'request-images': ['client', 'admin'],
+  wardrobe: ['client', 'admin'],
+});
+
 /**
  * Compresses an image buffer in-memory using Sharp.
  * Capped at 1920x1920 (no upscaling) with format-appropriate compression.
@@ -33,6 +41,11 @@ export const compressImage = async (buffer, mimeType) => {
 export const uploadFile = async (user, folder, file) => {
   if (!ALLOWED_FOLDERS.has(folder)) {
     throw new ApiError(400, `Invalid upload folder '${folder}'. Allowed: ${Array.from(ALLOWED_FOLDERS).join(', ')}`);
+  }
+
+  const allowedRoles = FOLDER_ROLES[folder];
+  if (!user || (!allowedRoles?.includes(user.role) && user.role !== 'admin')) {
+    throw new ApiError(403, `Role '${user?.role}' is not authorized to upload to folder '${folder}'`);
   }
 
   if (!file || !file.buffer) {

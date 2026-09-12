@@ -1,12 +1,17 @@
 // PM2 process config for a single manually-provisioned VPS (no Docker, no Redis, no Postgres —
 // see docs/PHASE_16_DEPLOYMENT_READINESS.md). MongoDB stays a managed Atlas replica set.
 //
-// instances: 1 / exec_mode: 'fork' is NOT a performance default here — it's a correctness
-// requirement. src/jobs/offer-expiry.cron.js registers an in-process node-cron job with no
-// distributed lock; running this file in PM2 cluster mode would schedule that sweep once per
-// worker process, hitting the database N times on every tick instead of once. Do not change this
-// to cluster mode without first moving the cron job to a leader-election scheme or migrating it to
-// the BullMQ-based worker planned for Phase 12.
+// instances: 1 / exec_mode: 'fork' is NOT a performance default here — it is a strict correctness
+// requirement pinning four load-bearing in-process dependencies (see Simplification Plan D.17):
+//   1. The six crons' re-entrancy: in-process node-cron sweeps run without distributed locks; cluster
+//      mode would trigger duplicate concurrent executions on every worker tick.
+//   2. The tokenVersionCache 30s in-process revocation cache (auth.middleware.js): token invalidation
+//      on one cluster worker would not invalidate tokens verified by peer workers within the cache TTL.
+//   3. The session-reminder reminderSentAt guard: avoids duplicate reminder dispatch races across instances.
+//   4. The moderation blocked-word in-memory cache (blocked-words.service.js): dictionary reloads
+//      remain local to a single process.
+// Do not change this to cluster mode without a Redis SET NX PX leader lock for crons (or migrating
+// to BullMQ background workers) and migrating tokenVersionCache and moderation dictionaries to Redis.
 module.exports = {
   apps: [
     {

@@ -2,6 +2,13 @@
 
 Welcome to the comprehensive API documentation and lifecycle reference for **Murafiq** (مرافق) — the premier platform connecting clients with mobile and home hair stylists and barbers across Egypt.
 
+> **What this document owns.** It is the *narrative* API reference: the end-to-end business
+> cycles and how the endpoints compose into real user journeys. It is **not** the authority on
+> the exact request/response shape of any single endpoint — the generated OpenAPI spec is
+> (`npm run validate:openapi` proves 137 documented operations against 137 live routes), with
+> [`ROUTES.md`](ROUTES.md) as the quick index. When this guide and the spec disagree about a
+> payload, the spec is right.
+
 This document breaks down:
 1. **Core Architectural & Security Foundations**
 2. **The 9 Complete Business Cycles (Step-by-Step User Journeys)**
@@ -13,12 +20,15 @@ This document breaks down:
 
 - **Base URL:** `/api/v1`
 - **Authentication:**
-  - Standard JWT access token with 1-hour validity passed via `Authorization: Bearer <token>` header or `accessToken` cookie.
+  - Standard JWT access token — 15-minute validity by default (`ACCESS_TOKEN_EXPIRES_IN`, `src/config/env.config.js`) — passed via `Authorization: Bearer <token>` header or `accessToken` cookie.
   - Refresh tokens stored in HttpOnly cookies with cryptographic rotation.
   - **Immediate Token Revocation (`tokenVersion`):** When a user is suspended, blocked, or has their password/sessions revoked, their `tokenVersion` in database and in-memory cache is incremented. Any token issued before that bump stops working immediately.
 - **Account Statuses:**
   - `active`: Normal access to platform features.
-  - `restricted`: Chat privileges restricted (automated strike 2).
+  - `restricted`: **Chat mute** — the user cannot send messages while `chatRestrictedUntil`
+    is in the future (enforced in `chat.service.js` `sendMessage`, `403`). Reading history and
+    all booking obligations are unaffected. Set by moderation strike 2 or by an admin.
+    Expiry is lazy: the mute simply stops applying once the timestamp passes.
   - `suspended`: Account temporarily locked out (automated strike 3).
   - `blocked`: Account permanently banned by admin for safety/fraud.
   - `deleted`: Soft-deleted user account.
@@ -263,7 +273,7 @@ This document breaks down:
 
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| POST | /chat/token | Authenticated | Mint secure Firebase / WebSocket authentication token for real-time messaging. |
+| POST | /chat/token | Authenticated | Mint secure Firebase authentication token for real-time messaging. |
 | GET | /chat/:conversationId/messages | Authenticated | Fetch paginated chat history for an active booking/request conversation. |
 | POST | /chat/:conversationId/messages | Authenticated | Send message (automatically passed through real-time safety scanner). |
 | POST | /chat/:conversationId/report | Authenticated | Report an abusive message for operator/admin review. |

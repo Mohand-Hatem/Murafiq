@@ -1,7 +1,17 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import mongoose from 'mongoose';
+import '../../src/common/globals.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
+const mockBookingTransitionStatus = jest.fn((id, from, patch, session) =>
+  session ? mockBookingUpdateById(id, patch, session) : mockBookingUpdateById(id, patch)
+);
 const mockScheduleDelete = jest.fn();
 const mockPaymentFindByBookingId = jest.fn();
 const mockPaymentProcessRefund = jest.fn();
@@ -13,9 +23,11 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
   default: {
     findById: mockBookingFindById,
     updateById: mockBookingUpdateById,
+    transitionStatus: mockBookingTransitionStatus,
   },
   findById: mockBookingFindById,
   updateById: mockBookingUpdateById,
+  transitionStatus: mockBookingTransitionStatus,
 }));
 
 jest.unstable_mockModule('../../src/modules/bookings/schedule.repository.js', () => ({
@@ -47,6 +59,15 @@ jest.unstable_mockModule('../../src/modules/penalties/penalty.repository.js', ()
     create: mockPenaltyCreate,
   },
   create: mockPenaltyCreate,
+}));
+
+const mockCouponIssue = jest.fn().mockResolvedValue({});
+
+jest.unstable_mockModule('../../src/modules/coupons/coupon.service.js', () => ({
+  default: {
+    issueCoupon: mockCouponIssue,
+  },
+  issueCoupon: mockCouponIssue,
 }));
 
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
@@ -104,6 +125,9 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('calculateCancellationOutcome', () => {
@@ -195,7 +219,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         amount: 1000,
       });
 
-      const result = await cancelBooking(bookingId, mockStylistUser, {
+      const result = await cancelBooking(mockStylistUser, bookingId, {
         reason: 'Stylist emergency',
       });
 
@@ -207,7 +231,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
           assessedMinor: 20000, // 200 EGP = 20,000 piastres
           status: 'OUTSTANDING',
         }),
-        null
+        fakeSession
       );
 
       // Now posted as a balanced pair (postDoubleEntry): DEBIT STYLIST / CREDIT PLATFORM.
@@ -221,6 +245,15 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
           entryType: 'PENALTY_ASSESSMENT',
           accountType: 'PLATFORM',
           amountMinor: 20000,
+        }),
+        fakeSession
+      );
+
+      expect(mockCouponIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: clientId,
+          sourceBookingId: bookingId,
+          issuedReason: 'LATE_STYLIST_CANCELLATION',
         })
       );
 
@@ -245,7 +278,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         amount: 1000,
       });
 
-      await cancelBooking(bookingId, mockAdminUser, {
+      await cancelBooking(mockAdminUser, bookingId, {
         reason: 'Platform-initiated cancellation',
       });
 
@@ -258,6 +291,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
       expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
         expect.objectContaining({ refundPercentage: 80 })
       );
+      expect(mockCouponIssue).not.toHaveBeenCalled();
     });
 
     it('quote and actual cancellation agree for an admin on the same booking', async () => {
@@ -275,13 +309,38 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
         status: 'paid',
         amount: 1000,
       });
-      await cancelBooking(bookingId, mockAdminUser, { reason: 'Platform-initiated' });
+      await cancelBooking(mockAdminUser, bookingId, { reason: 'Platform-initiated' });
 
       expect(mockPaymentProcessRefund).toHaveBeenCalledWith(
         expect.objectContaining({ refundPercentage: quote.refundPercentage })
       );
       expect(quote.penaltyAmount).toBe(0);
       expect(mockPenaltyCreate).not.toHaveBeenCalled();
+    });
+
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X10: a session
+    // already checked into ('in-progress') used to be cancellable like any other booking,
+    // letting a client collect an 80% refund for work the stylist actually performed,
+    // with no recourse for the stylist (fileDispute requires 'in-progress' or 'completed',
+    // never 'cancelled' -- so once cancelled the stylist had no way back).
+    it('refuses to cancel a session already in progress', async () => {
+      mockBookingFindById.mockResolvedValue({ ...mockLateBooking, status: 'in-progress' });
+
+      await expect(
+        cancelBooking(mockClientUser, bookingId, { reason: 'Changed my mind' })
+      ).rejects.toThrow(/in progress/i);
+
+      expect(mockBookingUpdateById).not.toHaveBeenCalled();
+      expect(mockPaymentProcessRefund).not.toHaveBeenCalled();
+    });
+
+    it('refuses to cancel if booking left confirmed status after read (CAS race)', async () => {
+      mockBookingFindById.mockResolvedValueOnce(mockLateBooking);
+      mockBookingTransitionStatus.mockResolvedValueOnce(null);
+
+      await expect(
+        cancelBooking(mockClientUser, bookingId, { reason: 'Changed my mind' })
+      ).rejects.toThrow(/no longer cancellable/i);
     });
   });
 });

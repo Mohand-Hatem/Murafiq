@@ -14,9 +14,9 @@
 >   ghosts, zero broken `$ref`s, security schemes declared
 > - Application boots
 >
-> Companion documents: `docs/03_SKELETON_STATUS.md` (live build state) ·
+> Companion documents: `docs/STATUS.md` (live build state) ·
 > `docs/END_TO_END_TESTING_GUIDE.md` (workflow-by-workflow API walkthrough) ·
-> `docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md` (business-rule specification) ·
+> `docs/BUSINESS_RULES.md` (business-rule specification) ·
 > `AGENTS.md` (engineering invariants)
 
 ---
@@ -588,7 +588,7 @@ staging environment. A single-VPS/PM2 path is decided but not executed.
 ## 26. Deferred — decided, not scheduled
 
 - **External AI moderation.** `MODERATION_PROVIDER=none`. Analysed in
-  `docs/REVISION_MODERATION_CLASSIFIER_GATE.md`; the blocker is Egyptian PDPL cross-border transfer,
+  `docs/archive/design/REVISION_MODERATION_CLASSIFIER_GATE.md`; the blocker is Egyptian PDPL cross-border transfer,
   not cost.
 - **Automatic CRITICAL-word enforcement.** No word match will move money without a human. The
   3-strike ladder plus human reports is the shipped design.

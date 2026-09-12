@@ -1,5 +1,5 @@
-import mongoose from 'mongoose';
 import payoutRepository, { PAYABLE_PAYMENT_STATUSES } from './payout.repository.js';
+import { withTransaction } from '../../common/transaction.util.js';
 import stylistRepository from '../stylists/stylist.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
@@ -79,18 +79,21 @@ class PayoutService {
 
   async createBatchPayouts(adminUserId, { stylistIds, holdWindowHours = DISPUTE_WINDOW_HOURS }) {
     const cutoffDate = new Date(Date.now() - holdWindowHours * 3600 * 1000);
-    const createdPayouts = [];
+    let createdPayouts = [];
 
-    const work = async (session) => {
+    await withTransaction(async (session) => {
+      // M5: reset accumulator inside work callback on any transaction retry
+      createdPayouts = [];
       for (const stylistId of stylistIds) {
-        const profile = await stylistRepository.findByUserId(stylistId);
+        const profile = await stylistRepository.findByUserId(stylistId, session);
         if (!profile || !profile.payoutAccount || !profile.payoutAccount.method) {
           throw new ApiError(400, `Stylist ${stylistId} has no configured payout account`);
         }
 
         const { bookings, totalPayoutAmount } = await payoutRepository.getEligibleBookingsForStylist(
           stylistId,
-          cutoffDate
+          cutoffDate,
+          session
         );
 
         if (bookings.length === 0 || totalPayoutAmount <= 0) {
@@ -161,20 +164,7 @@ class PayoutService {
 
         createdPayouts.push(payout);
       }
-    };
-
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    });
 
     for (const payout of createdPayouts) {
       eventBus.emit(EVENTS.PAYOUT_CREATED, {
@@ -258,7 +248,8 @@ class PayoutService {
 
       const payments = await paymentRepository.findByBookingIds(
         payout.bookingIds,
-        PAYABLE_PAYMENT_STATUSES
+        PAYABLE_PAYMENT_STATUSES,
+        session
       );
       const paymentByBookingId = new Map(
         payments.map((p) => [(p.bookingId._id || p.bookingId).toString(), p])
@@ -282,73 +273,63 @@ class PayoutService {
         const stylistPayoutMinor = egpToPiastres(payment.stylistPayoutAmount);
         const platformFeeMinor = egpToPiastres(payment.platformFeeAmount || 0);
 
-        try {
-          await ledgerService.postEntry(
+        await ledgerService.postDoubleEntry(
+          {
+            idempotencyKey: `payout:escrow:${payoutIdStr}:${bookingIdStr}`,
+            entryType: 'ESCROW_RELEASE',
+            accountType: 'ESCROW',
+            amountMinor: stylistPayoutMinor,
+            bookingId: bookingIdStr,
+            paymentId: payment._id,
+            payoutId: payoutIdStr,
+            correlationId: `payout_${payoutIdStr}`,
+            notes: 'Escrow release for stylist payout disbursement',
+          },
+          {
+            idempotencyKey: `payout:stylist:${payoutIdStr}:${bookingIdStr}`,
+            entryType: 'PAYOUT_DISBURSEMENT',
+            accountType: 'STYLIST',
+            amountMinor: stylistPayoutMinor,
+            bookingId: bookingIdStr,
+            paymentId: payment._id,
+            payoutId: payoutIdStr,
+            accountId: stylistIdStr,
+            correlationId: `payout_${payoutIdStr}`,
+            notes: 'Disbursed payout to stylist',
+          },
+          session
+        );
+
+        // Platform-fee recognition: escrow was credited `payment.amount` at payment
+        // time (stylistPayoutAmount + platformFeeAmount). The stylist's share just
+        // left escrow above; the platform's share must leave escrow too, or the
+        // commission sits in ESCROW forever and is never recognised as revenue.
+        if (platformFeeMinor > 0) {
+          await ledgerService.postDoubleEntry(
             {
-              idempotencyKey: `payout:escrow:${payoutIdStr}:${bookingIdStr}`,
-              entryType: 'ESCROW_RELEASE',
+              idempotencyKey: `payout:escrow_fee:${payoutIdStr}:${bookingIdStr}`,
+              entryType: 'PLATFORM_FEE',
               accountType: 'ESCROW',
-              direction: 'DEBIT',
-              amountMinor: stylistPayoutMinor,
+              amountMinor: platformFeeMinor,
               bookingId: bookingIdStr,
               paymentId: payment._id,
               payoutId: payoutIdStr,
               correlationId: `payout_${payoutIdStr}`,
-              notes: 'Escrow release for stylist payout disbursement',
+              notes: 'Escrow release of platform commission',
             },
-            session
-          );
-
-          await ledgerService.postEntry(
             {
-              idempotencyKey: `payout:stylist:${payoutIdStr}:${bookingIdStr}`,
-              entryType: 'PAYOUT_DISBURSEMENT',
-              accountType: 'STYLIST',
-              direction: 'CREDIT',
-              amountMinor: stylistPayoutMinor,
+              idempotencyKey: `payout:platform_fee:${payoutIdStr}:${bookingIdStr}`,
+              entryType: 'PLATFORM_FEE',
+              accountType: 'PLATFORM',
+              amountMinor: platformFeeMinor,
               bookingId: bookingIdStr,
               paymentId: payment._id,
               payoutId: payoutIdStr,
-              accountId: stylistIdStr,
               correlationId: `payout_${payoutIdStr}`,
-              notes: 'Disbursed payout to stylist',
+              notes: 'Platform commission recognised as revenue',
             },
             session
           );
-
-          // Platform-fee recognition: escrow was credited `payment.amount` at payment
-          // time (stylistPayoutAmount + platformFeeAmount). The stylist's share just
-          // left escrow above; the platform's share must leave escrow too, or the
-          // commission sits in ESCROW forever and is never recognised as revenue.
-          if (platformFeeMinor > 0) {
-            await ledgerService.postDoubleEntry(
-              {
-                idempotencyKey: `payout:escrow_fee:${payoutIdStr}:${bookingIdStr}`,
-                entryType: 'PLATFORM_FEE',
-                accountType: 'ESCROW',
-                amountMinor: platformFeeMinor,
-                bookingId: bookingIdStr,
-                paymentId: payment._id,
-                payoutId: payoutIdStr,
-                correlationId: `payout_${payoutIdStr}`,
-                notes: 'Escrow release of platform commission',
-              },
-              {
-                idempotencyKey: `payout:platform_fee:${payoutIdStr}:${bookingIdStr}`,
-                entryType: 'PLATFORM_FEE',
-                accountType: 'PLATFORM',
-                amountMinor: platformFeeMinor,
-                bookingId: bookingIdStr,
-                paymentId: payment._id,
-                payoutId: payoutIdStr,
-                correlationId: `payout_${payoutIdStr}`,
-                notes: 'Platform commission recognised as revenue',
-              },
-              session
-            );
-          }
-        } catch (ledgerErr) {
-          logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
         }
       }
 
@@ -369,18 +350,9 @@ class PayoutService {
       // / .status), together with `payout.deductions[]` -- both untouched by this change.
     };
 
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    await withTransaction(async (session) => {
+      await work(session);
+    });
 
     eventBus.emit(EVENTS.PAYOUT_PAID, {
       payoutId: payout._id.toString(),
@@ -434,18 +406,9 @@ class PayoutService {
       }
     };
 
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    await withTransaction(async (session) => {
+      await work(session);
+    });
 
     eventBus.emit(EVENTS.PAYOUT_FAILED, {
       payoutId: payout._id.toString(),

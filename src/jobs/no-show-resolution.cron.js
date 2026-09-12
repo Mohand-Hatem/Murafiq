@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import noShowService from '../modules/bookings/no-show.service.js';
 import couponRepository from '../modules/coupons/coupon.repository.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -23,7 +24,9 @@ export const startNoShowResolutionCron = () => {
 
   registered = true;
 
-  cron.schedule(SWEEP_SCHEDULE, async () => {
+  cron.schedule(
+    SWEEP_SCHEDULE,
+    async () => {
     try {
       const { resolved, scanned } = await noShowService.autoResolveExpiredNoShows();
       if (resolved > 0) {
@@ -31,6 +34,16 @@ export const startNoShowResolutionCron = () => {
       }
     } catch (err) {
       logger.error(`No-show auto-resolution sweep failed: ${err.message}`);
+    }
+
+    // Second pass: resume any unfinished no-show settlements (S3.2a)
+    try {
+      const { resolved, scanned } = await noShowService.resumeUnfinishedNoShowSettlements();
+      if (resolved > 0) {
+        logger.info(`No-show resume sweep: resumed ${resolved} of ${scanned} unfinished settlement(s).`);
+      }
+    } catch (err) {
+      logger.error(`No-show resume sweep failed: ${err.message}`);
     }
 
     // Coupon expiry rides along on the same tick rather than getting its own schedule.
@@ -43,7 +56,7 @@ export const startNoShowResolutionCron = () => {
     } catch (err) {
       logger.error(`Coupon expiry sweep failed: ${err.message}`);
     }
-  });
+  }, { timezone: BUSINESS_TIMEZONE });
 
   logger.info(`No-show resolution cron scheduled (${SWEEP_SCHEDULE}).`);
 };

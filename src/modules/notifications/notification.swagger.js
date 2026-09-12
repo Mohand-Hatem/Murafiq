@@ -17,7 +17,7 @@
  *           example: "60f719b8f1a2c81234567890"
  *         type:
  *           type: string
- *           enum: [request, offer, booking, payment, message, reminder, review, verification, safety, payout, system]
+ *           enum: [request, offer, booking, payment, message, reminder, review, verification, payout, system]
  *           example: "booking"
  *         title:
  *           type: string

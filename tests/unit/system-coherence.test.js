@@ -1,4 +1,5 @@
 import fs from 'fs';
+import * as babelParser from '@babel/parser';
 import LedgerEntry from '../../src/modules/ledger/ledger-entry.model.js';
 import Booking from '../../src/modules/bookings/booking.model.js';
 import { NOTIFICATION_TYPES } from '../../src/modules/notifications/notification.model.js';
@@ -87,6 +88,10 @@ describe('Money-affecting events are audit-logged', () => {
       'PAYMENT_REFUNDED',
       'PAYOUT_PAID',
       'DISPUTE_RESOLVED',
+      // Grants paid-tier entitlements with no payment behind it. Not a ledger movement, but
+      // it hands out something of value on one admin's say-so, so losing its audit listener
+      // would be exactly as bad as losing a refund's.
+      'SUBSCRIPTION_ADMIN_GRANTED',
     ];
     const missing = mustAudit.filter((k) => !audit.includes(`EVENTS.${k}`));
     expect(missing).toEqual([]);
@@ -117,12 +122,11 @@ describe('Booking terminal states are treated consistently', () => {
   });
 });
 
-describe('Payout eligibility excludes frozen bookings', () => {
-  it('filters isFrozen in the repository query', () => {
+describe('Payout eligibility queries (Decision P1)', () => {
+  it('does not contain dead isFrozen clause in repository query', () => {
     const repo = fs.readFileSync('src/modules/bookings/booking.repository.js', 'utf8');
-    // A frozen booking deliberately keeps status 'completed' so an admin can still resolve
-    // it, so a status-only filter would pay out money that is meant to be held.
-    expect(repo).toMatch(/isFrozen:\s*\{\s*\$ne:\s*true\s*\}/);
+    // Safety scaffolding and isFrozen were deleted under Product Decision P1 (Simplification Plan 2026-09).
+    expect(repo).not.toMatch(/isFrozen:\s*\{\s*\$ne:\s*true\s*\}/);
   });
 
   it('uses one shared predicate for both eligibility queries', () => {
@@ -166,6 +170,12 @@ describe('Cron jobs are safe under the documented deployment model', () => {
     expect(txt).toContain("env.NODE_ENV === 'test'");
   });
 
+  it('every cron declares the business timezone', () => {
+    for (const file of fs.readdirSync('src/jobs').filter((f) => f.endsWith('.cron.js'))) {
+      expect(fs.readFileSync(`src/jobs/${file}`, 'utf8')).toMatch(/timezone:\s*BUSINESS_TIMEZONE/);
+    }
+  });
+
   it('PM2 still pins a single instance, which the crons depend on', () => {
     const eco = fs.readFileSync('ecosystem.config.cjs', 'utf8');
     // These sweeps are in-process node-cron with no distributed lock. Scaling to cluster
@@ -173,5 +183,114 @@ describe('Cron jobs are safe under the documented deployment model', () => {
     // eventually lifts this constraint — until then it is load-bearing.
     expect(eco).toMatch(/instances:\s*1/);
     expect(eco).toMatch(/exec_mode:\s*'fork'/);
+  });
+});
+
+describe('Sweep indexes are declared for background creation (Task S6.4)', () => {
+  it('Booking schema defines background index for no-show sweep', async () => {
+    const { default: Booking } = await import('../../src/modules/bookings/booking.model.js');
+    const indexes = Booking.schema.indexes();
+    const match = indexes.find(
+      ([fields, options]) =>
+        fields['noShowDetails.reportedAt'] === 1 &&
+        fields['noShowDetails.respondedAt'] === 1 &&
+        fields.status === 1 &&
+        options?.background === true
+    );
+    expect(match).toBeDefined();
+  });
+
+  it('Offer schema defines background index for offer-expiry sweep', async () => {
+    const { default: Offer } = await import('../../src/modules/offers/offer.model.js');
+    const indexes = Offer.schema.indexes();
+    const match = indexes.find(
+      ([fields, options]) =>
+        fields.status === 1 &&
+        fields.expiresAt === 1 &&
+        options?.background === true
+    );
+    expect(match).toBeDefined();
+  });
+});
+
+describe('Booking participant checks state admin policy explicitly', () => {
+  it('every participant check states its admin policy explicitly', () => {
+    const files = [
+      'src/modules/bookings/booking.service.js',
+      'src/modules/bookings/no-show.service.js',
+    ];
+    for (const f of files) {
+      const txt = fs.readFileSync(f, 'utf8');
+      const calls = txt.match(/assertBookingParticipant\s*\([\s\S]*?\)/g) || [];
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) {
+        expect(c).toMatch(/allowAdmin:\s*(true|false)/);
+      }
+    }
+  });
+});
+
+function hasBookingUpdateByIdWithStatus(sourceCode) {
+  const ast = babelParser.parse(sourceCode, { sourceType: 'module' });
+  let found = false;
+  function walk(node) {
+    if (!node || typeof node !== 'object' || found) return;
+    if (node.type === 'CallExpression') {
+      const callee = node.callee;
+      const isBookingRepoUpdate =
+        callee.type === 'MemberExpression' &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'bookingRepository' &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'updateById';
+
+      if (isBookingRepoUpdate) {
+        for (const arg of node.arguments) {
+          if (arg.type === 'ObjectExpression') {
+            for (const prop of arg.properties) {
+              if (prop.type === 'ObjectProperty') {
+                const keyName = prop.key.type === 'Identifier' ? prop.key.name : prop.key.value;
+                if (keyName === 'status') {
+                  found = true;
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'comments') continue;
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) walk(c);
+      } else if (child && typeof child === 'object') {
+        walk(child);
+      }
+    }
+  }
+  walk(ast);
+  return found;
+}
+
+describe('Booking status writes go through repository state transitions', () => {
+  it('flags bookingRepository.updateById with nested call and status property in AST', () => {
+    const fixture = "bookingRepository.updateById(bookingId.toString(), { status: 'completed' });";
+    expect(hasBookingUpdateByIdWithStatus(fixture)).toBe(true);
+
+    const safeFixture = "bookingRepository.updateById(bookingId.toString(), { payoutStatus: 'paid' });";
+    expect(hasBookingUpdateByIdWithStatus(safeFixture)).toBe(false);
+  });
+
+  it('no booking status is written outside the repository', () => {
+    const files = [
+      'src/modules/bookings/booking.service.js',
+      'src/modules/bookings/no-show.service.js',
+    ];
+    for (const f of files) {
+      const txt = fs.readFileSync(f, 'utf8');
+      expect(hasBookingUpdateByIdWithStatus(txt)).toBe(false);
+    }
   });
 });

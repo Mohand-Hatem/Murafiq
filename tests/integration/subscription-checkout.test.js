@@ -1,6 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import request from 'supertest';
+import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const clientId = '60f719b8f1a2c81234567891';
 const clientToken = generateAccessToken({ sub: clientId, role: 'client' });
@@ -95,12 +101,33 @@ const mockUpdateOrderById = jest.fn().mockImplementation((id, data) => {
   return Promise.resolve({ _id: id, ...data });
 });
 
+// CAS mock mirroring subscriptionOrderRepository.transitionStatus's real semantics
+// (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X5): only writes -- and only returns
+// non-null -- when the in-memory order's current status matches `fromStatus`.
+const mockTransitionOrderStatus = jest.fn().mockImplementation((id, fromStatus, data) => {
+  for (const key of Object.keys(mockOrderStore)) {
+    if (mockOrderStore[key]._id === id || String(mockOrderStore[key]._id) === String(id)) {
+      if (mockOrderStore[key].status !== fromStatus) {
+        return Promise.resolve(null);
+      }
+      mockOrderStore[key] = { ...mockOrderStore[key], ...data };
+      return Promise.resolve(mockOrderStore[key]);
+    }
+  }
+  return Promise.resolve(null);
+});
+
 const mockFindActiveByUserId = jest.fn().mockResolvedValue(mockSubscription);
 const mockCreateSubscription = jest.fn().mockResolvedValue(mockSubscription);
 const mockUpdateSubscriptionById = jest.fn().mockImplementation((id, data) =>
   Promise.resolve({ ...mockSubscription, ...data })
 );
 
+const mockReplaceActivePlanCAS = jest.fn().mockImplementation((id, data) =>
+  Promise.resolve({ ...mockSubscription, ...data, _id: id })
+);
+const mockCreateHistoryEntry = jest.fn().mockResolvedValue({});
+const mockFindOrCreateActiveSubscription = jest.fn().mockResolvedValue(mockSubscription);
 const mockFindByCode = jest.fn().mockImplementation((code) => {
   if (code === 'client.pro') return Promise.resolve(mockProPlan);
   if (code === 'client.free') return Promise.resolve(mockFreePlan);
@@ -115,12 +142,14 @@ jest.unstable_mockModule('../../src/modules/subscriptions/subscription-order.rep
     findBySpecialReference: mockFindBySpecialReference,
     findByTransactionId: mockFindByTransactionId,
     updateById: mockUpdateOrderById,
+    transitionStatus: mockTransitionOrderStatus,
   },
   createOrder: mockCreateOrder,
   findById: mockFindOrderById,
   findBySpecialReference: mockFindBySpecialReference,
   findByTransactionId: mockFindByTransactionId,
   updateById: mockUpdateOrderById,
+  transitionStatus: mockTransitionOrderStatus,
 }));
 
 jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
@@ -138,14 +167,20 @@ jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
 jest.unstable_mockModule('../../src/modules/subscriptions/subscription.repository.js', () => ({
   default: {
     findActiveByUserId: mockFindActiveByUserId,
+    findOrCreateActiveSubscription: mockFindOrCreateActiveSubscription,
     findByUserId: mockFindActiveByUserId,
     createSubscription: mockCreateSubscription,
     updateById: mockUpdateSubscriptionById,
+    replaceActivePlanCAS: mockReplaceActivePlanCAS,
+    createHistoryEntry: mockCreateHistoryEntry,
   },
   findActiveByUserId: mockFindActiveByUserId,
+  findOrCreateActiveSubscription: mockFindOrCreateActiveSubscription,
   findByUserId: mockFindActiveByUserId,
   createSubscription: mockCreateSubscription,
   updateById: mockUpdateSubscriptionById,
+  replaceActivePlanCAS: mockReplaceActivePlanCAS,
+  createHistoryEntry: mockCreateHistoryEntry,
 }));
 
 jest.unstable_mockModule('../../src/modules/subscriptions/plan.repository.js', () => ({
@@ -164,10 +199,12 @@ const mockPiastresToEgp = jest.fn().mockImplementation((p) => p / 100);
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockPostEntry,
+    postDoubleEntry: mockPostEntry,
     egpToPiastres: mockEgpToPiastres,
     piastresToEgp: mockPiastresToEgp,
   },
   postEntry: mockPostEntry,
+  postDoubleEntry: mockPostEntry,
   egpToPiastres: mockEgpToPiastres,
   piastresToEgp: mockPiastresToEgp,
 }));
@@ -178,6 +215,9 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
   beforeEach(() => {
     mockOrderStore = {};
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('POST /api/v1/subscriptions/checkout', () => {
@@ -283,14 +323,106 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
       expect(webhookRes.body.data.received).toBe(true);
       expect(webhookRes.body.data.order).toBeUndefined();
 
-      // Verify subscription updated
-      expect(mockUpdateSubscriptionById).toHaveBeenCalledWith(
+      // Verify subscription updated. The grant now lands via replaceActivePlanCAS -- a
+      // compare-and-swap keyed on status:'active' -- rather than a bare updateById, so a
+      // concurrent webhook redelivery cannot write a second active row.
+      expect(mockReplaceActivePlanCAS).toHaveBeenCalledWith(
         mockSubscription._id,
         expect.objectContaining({
           planCode: 'client.pro',
           status: 'active',
-        })
+          source: 'paid',
+        }),
+        fakeSession
       );
+
+      // The plan it replaced is snapshotted before being overwritten.
+      expect(mockCreateHistoryEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changeType: 'paid',
+          newPlanCode: 'client.pro',
+          previousPlanCode: mockSubscription.planCode,
+        }),
+        fakeSession
+      );
+    });
+
+    it('rejects the webhook when the provider-reported amount does not match the order', async () => {
+      const checkoutRes = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro' });
+
+      const specialReference = checkoutRes.body.data.specialReference;
+      expect(specialReference).toBeDefined();
+
+      // client.pro is 250 EGP = 25,000 piastres. Simulate provider capturing only 10,000 piastres.
+      const webhookRes = await request(app)
+        .post('/api/v1/subscriptions/webhook')
+        .send({
+          secret: 'dev_mock_webhook_secret',
+          special_reference: specialReference,
+          status: 'paid',
+          transactionId: 'tx_paymob_mismatch_1',
+          amountCents: 10000,
+        });
+
+      expect(webhookRes.status).toBe(400);
+      expect(webhookRes.body.message).toMatch(/amount mismatch/i);
+
+      // No plan grant executed
+      expect(mockReplaceActivePlanCAS).not.toHaveBeenCalled();
+      expect(mockCreateHistoryEntry).not.toHaveBeenCalled();
+
+      // Order must NOT be marked paid or processing
+      expect(mockOrderStore[specialReference].status).toBe('pending');
+    });
+
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X5: the order used
+    // to be marked 'paid' BEFORE the grant was applied, so a grant failure left the
+    // customer charged with no entitlement, and a provider retry of the same webhook hit
+    // the `status === 'paid'` early-return and never tried the grant again.
+    it('leaves the order retryable (not paid) when applying the plan grant fails, and a retry succeeds', async () => {
+      const checkoutRes = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro' });
+      const specialReference = checkoutRes.body.data.specialReference;
+
+      // Simulate the grant itself failing (e.g. a lost CAS inside applyPlanGrant) on the
+      // FIRST delivery only.
+      mockReplaceActivePlanCAS.mockRejectedValueOnce(new Error('Simulated grant failure'));
+
+      const firstAttempt = await request(app)
+        .post('/api/v1/subscriptions/webhook')
+        .send({
+          secret: 'dev_mock_webhook_secret',
+          special_reference: specialReference,
+          status: 'paid',
+          transactionId: 'tx_paymob_retry_1',
+        });
+
+      // The webhook responds with an error (prompting the provider's own retry), and the
+      // order must NOT be left 'paid' with no entitlement granted.
+      expect(firstAttempt.status).toBeGreaterThanOrEqual(400);
+      const orderAfterFailure = mockOrderStore[specialReference];
+      expect(orderAfterFailure.status).toBe('pending');
+
+      // The provider retries the exact same webhook. This time the grant succeeds.
+      const retryAttempt = await request(app)
+        .post('/api/v1/subscriptions/webhook')
+        .send({
+          secret: 'dev_mock_webhook_secret',
+          special_reference: specialReference,
+          status: 'paid',
+          transactionId: 'tx_paymob_retry_1',
+        });
+
+      expect(retryAttempt.status).toBe(200);
+      expect(mockOrderStore[specialReference].status).toBe('paid');
+      // The grant was actually attempted a second time -- once for the failed delivery,
+      // once for the successful retry.
+      expect(mockReplaceActivePlanCAS).toHaveBeenCalledTimes(2);
     });
 
     it('returns idempotent response if webhook is re-delivered for an already paid order', async () => {

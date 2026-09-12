@@ -1,4 +1,4 @@
-﻿import BlockedWord from './blocked-word.model.js';
+import BlockedWord from './blocked-word.model.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};

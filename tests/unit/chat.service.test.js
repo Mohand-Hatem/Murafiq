@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import '../../src/common/globals.js';
 import chatService from '../../src/modules/chat/chat.service.js';
 import bookingRepository from '../../src/modules/bookings/booking.repository.js';
+import userRepository from '../../src/modules/users/user.repository.js';
 import eventBus from '../../src/common/events/event-bus.js';
 import { EVENTS } from '../../src/common/constants/events.constant.js';
 import { ROLES } from '../../src/common/constants/roles.constant.js';
@@ -19,6 +20,11 @@ describe('Chat Service Unit Tests', () => {
     // Re-create a fresh closed room before each test
     await chatService.createConversation(bookingId, [clientUserId, stylistUserId]);
     jest.spyOn(bookingRepository, 'findById').mockResolvedValue({ _id: bookingId, status: 'disputed' });
+    // sendMessage reads the sender to enforce the moderation RESTRICT mute
+    // (chatRestrictedUntil). Unrestricted by default; individual tests override.
+    jest
+      .spyOn(userRepository, 'findById')
+      .mockResolvedValue({ _id: clientUserId, chatRestrictedUntil: null });
   });
 
   describe('Lifecycle State Transitions', () => {
@@ -115,6 +121,57 @@ describe('Chat Service Unit Tests', () => {
       await expect(
         chatService.sendMessage(bookingId, clientUserId, { content: 'Trying to chat after end' })
       ).rejects.toThrow('Chat is locked');
+    });
+
+    // H1: chatRestrictedUntil was written by the moderation ladder and by
+    // POST /admin/users/:id/restrict, but no read site existed -- RESTRICT muted nobody.
+    it('rejects sending while the sender is chat-restricted', async () => {
+      await chatService.openConversation(bookingId);
+      const until = new Date(Date.now() + 60 * 60 * 1000);
+      jest
+        .spyOn(userRepository, 'findById')
+        .mockResolvedValue({ _id: clientUserId, chatRestrictedUntil: until });
+
+      await expect(
+        chatService.sendMessage(bookingId, clientUserId, { content: 'muted but trying' })
+      ).rejects.toThrow(/restricted from sending messages until/);
+    });
+
+    it('allows sending once the restriction timestamp has passed (lazy expiry)', async () => {
+      await chatService.openConversation(bookingId);
+      jest.spyOn(userRepository, 'findById').mockResolvedValue({
+        _id: clientUserId,
+        // still flagged 'restricted' on the account; only the clock has moved on
+        chatRestrictedUntil: new Date(Date.now() - 1000),
+      });
+
+      const msg = await chatService.sendMessage(bookingId, clientUserId, {
+        content: 'restriction served',
+      });
+      expect(msg).toBeDefined();
+    });
+
+    it('does not restrict a sender who has never been restricted', async () => {
+      await chatService.openConversation(bookingId);
+      jest
+        .spyOn(userRepository, 'findById')
+        .mockResolvedValue({ _id: clientUserId, chatRestrictedUntil: null });
+
+      const msg = await chatService.sendMessage(bookingId, clientUserId, { content: 'hello' });
+      expect(msg).toBeDefined();
+    });
+
+    it('restricts SENDING only — reading history stays available to a muted user', async () => {
+      await chatService.openConversation(bookingId);
+      jest.spyOn(userRepository, 'findById').mockResolvedValue({
+        _id: clientUserId,
+        chatRestrictedUntil: new Date(Date.now() + 60 * 60 * 1000),
+      });
+
+      // The mute must not become a de facto ban: bookings and their history are honoured.
+      await expect(
+        chatService.getMessages(bookingId, clientUserId, {})
+      ).resolves.toBeDefined();
     });
 
     it('successfully sends a message when room is open and active', async () => {

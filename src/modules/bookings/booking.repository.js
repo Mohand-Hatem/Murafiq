@@ -1,18 +1,19 @@
 import Booking from './booking.model.js';
+import { isLegalTransition } from './booking.transitions.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
   const [bookingDoc] = await Booking.create([data], options);
   return bookingDoc.populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
 export const findById = async (id, session = null) => {
   const query = Booking.findById(id).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
   if (session) query.session(session);
   return query;
@@ -32,8 +33,8 @@ export const findMine = async (clientId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Booking.countDocuments(query),
   ]);
@@ -55,8 +56,8 @@ export const findStylistBookings = async (stylistId, queryString = {}) => {
       .skip(skip)
       .limit(limit)
       .populate([
-        { path: 'clientId', select: 'nameEn nameAr profileImage' },
-        { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+        { path: 'clientId', select: 'name profileImage' },
+        { path: 'stylistId', select: 'name profileImage' },
       ]),
     Booking.countDocuments(query),
   ]);
@@ -91,8 +92,8 @@ export const updateById = async (id, data, session = null) => {
   if (session) options.session = session;
 
   return Booking.findByIdAndUpdate(id, data, options).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -115,8 +116,8 @@ export const setCompletionConfirmation = async (bookingId, field, session = null
     { $set: { [field]: new Date() } },
     options
   ).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -132,8 +133,78 @@ export const promoteToCompleted = async (bookingId, session = null) => {
     { $set: { status: 'completed', completedAt: new Date() } },
     options
   ).populate([
-    { path: 'clientId', select: 'nameEn nameAr profileImage' },
-    { path: 'stylistId', select: 'nameEn nameAr profileImage' },
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
+  ]);
+};
+
+// Settles a no-show only if the booking is still in one of the two REPORTABLE_STATUSES
+// (no-show.service.js). Without this CAS, the 15-minute no-show sweep and mutual
+// completion confirmation could race: both a no-show report and a genuine completion
+// can be pending on the same booking, and a plain updateById would let whichever call
+// lands second silently overwrite whichever landed first -- most dangerously, a
+// completed session (money already earned, reliability already recomputed) getting
+// stamped no-show-* afterwards. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X9.
+export const settleNoShow = async (bookingId, patch, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: { $in: ['confirmed', 'in-progress'] } },
+    { $set: patch },
+    options
+  ).populate([
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
+  ]);
+};
+
+/**
+ * The one compare-and-set primitive for booking lifecycle writes.
+ *
+ * Generalises the three hand-written CAS functions above (setCompletionConfirmation,
+ * promoteToCompleted, settleNoShow) so the five writers that previously used the
+ * precondition-free updateById get the same protection. Returns the updated document, or
+ * `null` when the CAS lost -- the booking moved on between the caller's read and this
+ * write. Callers MUST treat null as "the booking is no longer in a state this operation
+ * applies to" and surface a 400/409, never retry blindly and never fall back to updateById.
+ *
+ * The legality assertion is a DEVELOPER guard, not a runtime authorization check: it fails
+ * loudly if a caller asks for a transition BOOKING_TRANSITIONS does not contain, which is
+ * a programming error. Authorization stays in the service layer.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} bookingId
+ * @param {string[]} fromStates  statuses this write is allowed to apply from
+ * @param {Object}   patch       $set payload; `patch.status` is the target status
+ * @param {import('mongoose').ClientSession|null} [session]
+ * @returns {Promise<Object|null>}
+ */
+export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
+  const targetStatus = patch?.status ?? patch?.$set?.status;
+  if (targetStatus) {
+    for (const from of fromStates) {
+      if (from !== targetStatus && !isLegalTransition(from, targetStatus)) {
+        throw new Error(
+          `Illegal booking transition declared: '${from}' -> '${targetStatus}'. ` +
+            'Update BOOKING_TRANSITIONS deliberately if this is a real new edge.'
+        );
+      }
+    }
+  }
+
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  const hasOperator = Object.keys(patch || {}).some((key) => key.startsWith('$'));
+  const updateDoc = hasOperator ? patch : { $set: patch };
+
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: { $in: fromStates } },
+    updateDoc,
+    options
+  ).populate([
+    { path: 'clientId', select: 'name profileImage' },
+    { path: 'stylistId', select: 'name profileImage' },
   ]);
 };
 
@@ -141,12 +212,7 @@ export const promoteToCompleted = async (bookingId, session = null) => {
 // Used by payouts (cross-module): bookings eligible for a specific stylist's payout batch —
 // completed, unpaid, and past the dispute-window hold. Keeps the payouts module off the raw
 // Booking model, matching every other cross-module caller's repository-to-repository pattern.
-// `isFrozen` must be excluded here, not only relied on via `status`. A booking frozen by
-// the moderation enforcement chain keeps status 'completed' by design (so an admin can
-// still resolve it to any legitimate outcome), which means a status-only filter would
-// happily pay out money that is supposed to be held pending review — see §I.4 step 7 and
-// AGENTS.md: "a booking with an open dispute or open safety report must never appear as
-// payable."
+// Safety scaffolding and isFrozen were deleted under Product Decision P1 (Simplification Plan 2026-09).
 // A booking becomes payout-eligible via two paths: a normal completed session
 // (anchored on completedAt), or a resolved client no-show, where NO_SHOW_POLICY.CLIENT
 // entitles the stylist to a partial share even though the session never happened and
@@ -156,24 +222,27 @@ export const promoteToCompleted = async (bookingId, session = null) => {
 // record but can never actually be batched into a payout.
 const PAYOUT_ELIGIBILITY = (cutoffDate) => ({
   payoutStatus: 'unpaid',
-  isFrozen: { $ne: true },
   $or: [
     { status: 'completed', completedAt: { $ne: null, $lte: cutoffDate } },
     { status: 'no-show-client', 'noShowDetails.confirmedAt': { $ne: null, $lte: cutoffDate } },
   ],
 });
 
-export const findEligibleForPayout = async (stylistId, cutoffDate) => {
-  return Booking.find({ stylistId, ...PAYOUT_ELIGIBILITY(cutoffDate) }).select(
+export const findEligibleForPayout = async (stylistId, cutoffDate, session = null) => {
+  const query = Booking.find({ stylistId, ...PAYOUT_ELIGIBILITY(cutoffDate) }).select(
     '_id price scheduledDate'
   );
+  if (session) query.session(session);
+  return query.exec();
 };
 
 // Same eligibility rule as above, across all stylists — backs the admin pending-balances
 // summary. Shares PAYOUT_ELIGIBILITY deliberately: if these two ever diverge, the admin
 // dashboard shows a balance that the batch job will not actually pay.
-export const findCompletedUnpaidBefore = async (cutoffDate) => {
-  return Booking.find(PAYOUT_ELIGIBILITY(cutoffDate)).select('_id stylistId');
+export const findCompletedUnpaidBefore = async (cutoffDate, session = null) => {
+  const query = Booking.find(PAYOUT_ELIGIBILITY(cutoffDate)).select('_id stylistId');
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const updateManyPayoutStatus = async (bookingIds, data, session = null) => {
@@ -227,8 +296,135 @@ export const findPendingNoShowReports = async (cutoff) => {
   });
 };
 
+/**
+ * Atomic claim for cluster-mode concurrency safety.
+ * Guarantees that multiple PM2/cluster workers cannot both sweep and process Step B concurrently.
+ */
+export const claimSettlementResume = async (bookingId) =>
+  Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      status: { $in: ['no-show-stylist', 'no-show-client'] },
+      'noShowDetails.settlementCompletedAt': null,
+      'noShowDetails.isResuming': { $ne: true },
+      'noShowDetails.settlementExhausted': { $ne: true },
+    },
+    {
+      $set: { 'noShowDetails.isResuming': true, 'noShowDetails.resumedAt': new Date() },
+      $inc: { 'noShowDetails.settlementAttempts': 1 },
+    },
+    { returnDocument: 'after' }
+  );
+
+/**
+ * Releases the resume claim lock on error so subsequent cron passes can retry (up to maxAttempts).
+ */
+export const releaseSettlementResumeClaim = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    { $unset: { 'noShowDetails.isResuming': 1 } }
+  );
+
+/**
+ * Permanently flags exhausted bookings for admin dashboard / manual intervention.
+ */
+export const markSettlementExhausted = async (bookingId, errorReason) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: {
+        'noShowDetails.settlementExhausted': true,
+        'noShowDetails.settlementExhaustedAt': new Date(),
+        'noShowDetails.settlementExhaustedReason': errorReason,
+      },
+      $unset: { 'noShowDetails.isResuming': 1 },
+    }
+  );
+
+/**
+ * Admin action recovery: resets exhaustion flags so settlement can be retried.
+ */
+export const resetSettlementExhaustion = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: {
+        'noShowDetails.settlementExhausted': false,
+        'noShowDetails.settlementAttempts': 0,
+      },
+      $unset: {
+        'noShowDetails.settlementExhaustedAt': 1,
+        'noShowDetails.settlementExhaustedReason': 1,
+        'noShowDetails.isResuming': 1,
+      },
+    }
+  );
+
+/**
+ * Records an error occurring during post-settlement steps (Step D).
+ */
+export const recordPostSettlementError = async (bookingId, step, message) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $push: {
+        'noShowDetails.postSettlementErrors': {
+          step,
+          message,
+          at: new Date(),
+        },
+      },
+    }
+  );
+
+/**
+ * Stamps the final settlement completion marker (Step E) and clears resuming lock.
+ */
+export const stampSettlementCompleted = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId },
+    {
+      $set: { 'noShowDetails.settlementCompletedAt': new Date() },
+      $unset: { 'noShowDetails.isResuming': 1 },
+    }
+  );
+
+/**
+ * Sibling of findPendingNoShowReports.
+ * Finds bookings claimed into no-show status whose settlement never completed.
+ * Strictly state-driven query (settlementCompletedAt: null) without a temporal cutoff.
+ */
+export const findUnfinishedNoShowSettlements = async (maxAttempts = 5, batchSize = 50) =>
+  Booking.find({
+    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    'noShowDetails.settlementCompletedAt': null,
+    'noShowDetails.settlementAttempts': { $lt: maxAttempts },
+    'noShowDetails.isResuming': { $ne: true },
+    'noShowDetails.settlementExhausted': { $ne: true },
+  })
+    .sort({ 'noShowDetails.confirmedAt': 1 })
+    .limit(batchSize);
+
+/**
+ * Admin-visible query for manual review queue of exhausted settlements.
+ */
+export const findExhaustedNoShowSettlements = async () =>
+  Booking.find({
+    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    'noShowDetails.settlementCompletedAt': null,
+    'noShowDetails.settlementExhausted': true,
+  }).populate(['clientId', 'stylistId']);
+
 export default {
   findPendingNoShowReports,
+  claimSettlementResume,
+  releaseSettlementResumeClaim,
+  markSettlementExhausted,
+  resetSettlementExhaustion,
+  recordPostSettlementError,
+  stampSettlementCompleted,
+  findUnfinishedNoShowSettlements,
+  findExhaustedNoShowSettlements,
   create,
   findById,
   findEligibleForPayout,
@@ -241,6 +437,8 @@ export default {
   updateById,
   setCompletionConfirmation,
   promoteToCompleted,
+  settleNoShow,
+  transitionStatus,
   getBookingStats,
 };
 

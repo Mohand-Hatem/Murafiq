@@ -24,12 +24,13 @@ export default class MockProvider extends PaymentProviderInterface {
     };
   }
 
-  async refund(transactionId, amount) {
+  async refund(transactionId, amount, { idempotencyKey = null } = {}) {
     return {
       status: 'refunded',
       transactionId,
       amount,
       refundId: `mock_ref_${crypto.randomUUID()}`,
+      idempotencyKey,
     };
   }
 
@@ -56,6 +57,15 @@ export default class MockProvider extends PaymentProviderInterface {
       transactionId: payload.transactionId || `mock_tx_${crypto.randomUUID()}`,
       status: payload.status || 'paid',
       bookingId: payload.bookingId || payload.special_reference,
+      // Test-controllable amount-mismatch simulation (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
+      // finding X19 and HARDEN-006, "mock provider cannot simulate a failed webhook").
+      // undefined/omitted means "provider did not report an amount", matching a real
+      // Paymob callback that always does — tests exercise the mismatch path by passing
+      // amountCents explicitly.
+      amountCents:
+        payload.amountCents !== undefined && payload.amountCents !== null
+          ? Number(payload.amountCents)
+          : null,
     };
   }
 }

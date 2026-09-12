@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import LedgerEntry from '../../src/modules/ledger/ledger-entry.model.js';
 import Payment from '../../src/modules/payments/payment.model.js';
+import SubscriptionOrder from '../../src/modules/subscriptions/subscription-order.model.js';
 import { reconcileLedger } from '../../src/jobs/ledger-reconciliation.cron.js';
 import { connectTestDB, closeTestDB, clearTestDB } from '../setup/db-handler.js';
 
@@ -141,5 +142,97 @@ describe('Ledger entries are immutable and idempotent', () => {
     // Integer minor units, not floats: the ledger exists to be summed across many rows,
     // and repeated float addition is where drift appears.
     expect(entry.amountMinor).toBe(33333);
+  });
+});
+
+describe('Subscription reconciliation (Task S5.2)', () => {
+  const subId = new mongoose.Types.ObjectId();
+  const subCorrelationId = `sub_${subId}`;
+
+  it('flags a subscription whose debits and credits disagree (half-written pair)', async () => {
+    // Seed a deliberately half-written subscription pair: DEBIT only
+    await LedgerEntry.create({
+      idempotencyKey: `sub-charge-${new mongoose.Types.ObjectId()}`,
+      entryType: 'SUBSCRIPTION_PAYMENT',
+      accountType: 'CLIENT',
+      direction: 'DEBIT',
+      amountMinor: 25000,
+      correlationId: subCorrelationId,
+      notes: 'Subscription payment for Client Pro (monthly)',
+    });
+
+    const res = await reconcileLedger();
+    expect(res.unbalancedCount).toBe(1);
+  });
+
+  it('reports a balanced subscription pair as clean', async () => {
+    await LedgerEntry.create({
+      idempotencyKey: `sub-charge-${new mongoose.Types.ObjectId()}`,
+      entryType: 'SUBSCRIPTION_PAYMENT',
+      accountType: 'CLIENT',
+      direction: 'DEBIT',
+      amountMinor: 25000,
+      correlationId: subCorrelationId,
+      notes: 'Subscription payment for Client Pro (monthly)',
+    });
+    await LedgerEntry.create({
+      idempotencyKey: `sub-platform-${new mongoose.Types.ObjectId()}`,
+      entryType: 'PLATFORM_FEE',
+      accountType: 'PLATFORM',
+      direction: 'CREDIT',
+      amountMinor: 25000,
+      correlationId: subCorrelationId,
+      notes: 'Platform subscription revenue for Client Pro',
+    });
+
+    const res = await reconcileLedger();
+    expect(res.unbalancedCount).toBe(0);
+  });
+
+  it('flags a PAID subscription order with no ledger entries', async () => {
+    await SubscriptionOrder.create({
+      userId: clientId,
+      planCode: 'client.pro',
+      billingCycle: 'monthly',
+      amountEgp: 250,
+      status: 'paid',
+      specialReference: `subord_test_${new mongoose.Types.ObjectId()}`,
+    });
+
+    const res = await reconcileLedger();
+    expect(res.missingLedgerCount).toBe(1);
+    expect(res.unbalancedCount).toBe(0);
+  });
+
+  it('does not flag a PAID subscription order that has its ledger entries', async () => {
+    const order = await SubscriptionOrder.create({
+      userId: clientId,
+      planCode: 'client.pro',
+      billingCycle: 'monthly',
+      amountEgp: 250,
+      status: 'paid',
+      specialReference: `subord_test_${new mongoose.Types.ObjectId()}`,
+    });
+
+    await LedgerEntry.create({
+      idempotencyKey: `subscription:charge:${order._id}`,
+      entryType: 'SUBSCRIPTION_PAYMENT',
+      accountType: 'CLIENT',
+      direction: 'DEBIT',
+      amountMinor: 25000,
+      correlationId: subCorrelationId,
+    });
+    await LedgerEntry.create({
+      idempotencyKey: `subscription:platform:${order._id}`,
+      entryType: 'PLATFORM_FEE',
+      accountType: 'PLATFORM',
+      direction: 'CREDIT',
+      amountMinor: 25000,
+      correlationId: subCorrelationId,
+    });
+
+    const res = await reconcileLedger();
+    expect(res.missingLedgerCount).toBe(0);
+    expect(res.unbalancedCount).toBe(0);
   });
 });

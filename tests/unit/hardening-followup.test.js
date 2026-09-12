@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import mongoose from 'mongoose';
 import '../../src/common/globals.js';
 import eventBus from '../../src/common/events/event-bus.js';
 import { EVENTS } from '../../src/common/constants/events.constant.js';
@@ -10,6 +11,7 @@ import reviewService from '../../src/modules/reviews/review.service.js';
 import reviewRepository from '../../src/modules/reviews/review.repository.js';
 import userService from '../../src/modules/users/user.service.js';
 import userRepository from '../../src/modules/users/user.repository.js';
+import ledgerService from '../../src/modules/ledger/ledger.service.js';
 
 /**
  * Regression tests for the four cross-module coherence gaps found in the
@@ -35,6 +37,17 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
+
+beforeEach(() => {
+  fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+  fakeSession.endSession.mockResolvedValue();
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
+});
+
 describe('checkIn() emits CHECK_IN_COMPLETED', () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -46,7 +59,7 @@ describe('checkIn() emits CHECK_IN_COMPLETED', () => {
       status: 'confirmed',
     });
     jest.spyOn(paymentRepository, 'findByBookingId').mockResolvedValue({ status: 'paid' });
-    jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       clientId: { _id: clientId },
       stylistId: { _id: stylistId },
@@ -127,7 +140,7 @@ describe('confirmCompletion() / resolveDispute() set completedAt', () => {
       stylistId: { _id: stylistId },
     });
     jest.spyOn(paymentService, 'processRefund').mockResolvedValue({});
-    const updateSpy = jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    const updateSpy = jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       status: 'cancelled',
       clientId: { _id: clientId },
@@ -140,7 +153,7 @@ describe('confirmCompletion() / resolveDispute() set completedAt', () => {
       resolutionNotes: 'No-show confirmed',
     });
 
-    const [, updatePayload] = updateSpy.mock.calls[0];
+    const [, , updatePayload] = updateSpy.mock.calls[0];
     expect(updatePayload.completedAt).toBeUndefined();
   });
 });
@@ -181,7 +194,7 @@ describe('fileDispute() anchors the 48h window on completedAt, not updatedAt', (
       updatedAt: recentCompletion,
       createdAt: recentCompletion,
     });
-    jest.spyOn(bookingRepository, 'updateById').mockResolvedValue({
+    jest.spyOn(bookingRepository, 'transitionStatus').mockResolvedValue({
       _id: bookingId,
       status: 'disputed',
       clientId: { _id: clientId },
@@ -229,12 +242,13 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
       _id: bookingId,
       payoutStatus: 'unpaid',
     });
-    jest.spyOn(paymentRepository, 'updateById').mockResolvedValue({
-      _id: paymentId,
-      status: 'refunded',
-      bookingId,
-      clientId,
-    });
+    // processRefund() now CAS-claims via transitionStatus (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
+    // findings X17/X18) instead of a bare updateById, so that is what must be spied. It is
+    // called twice per invocation: claim into REFUNDING, then resolve to the terminal status.
+    jest.spyOn(paymentRepository, 'transitionStatus').mockImplementation((id, _from, data) =>
+      Promise.resolve({ _id: paymentId, bookingId, clientId, status: 'paid', amount: 1000, ...data })
+    );
+    jest.spyOn(ledgerService, 'postDoubleEntry').mockResolvedValue({});
 
     const result = await paymentService.processRefund({ bookingId, refundPercentage: 100 });
     expect(result.status).toBe('refunded');

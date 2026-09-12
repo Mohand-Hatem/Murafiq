@@ -46,7 +46,7 @@ const moderationEventSchema = new Schema(
     },
     actionTaken: {
       type: String,
-      enum: ['ALLOW', 'BLOCK_ONLY', 'OBSERVED', 'RESTRICT', 'BAN'],
+      enum: ['BLOCK_ONLY', 'OBSERVED', 'RESTRICT', 'BAN'],
       default: 'OBSERVED',
     },
     reviewStatus: {

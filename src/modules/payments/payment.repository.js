@@ -37,6 +37,26 @@ export const updateById = async (id, data, session = null) => {
   });
 };
 
+/**
+ * Compare-and-swap transition guarded on the payment's CURRENT status. `fromStatus` may
+ * be a single value or an array of acceptable current values. Returns null if the
+ * document's status no longer matches -- the caller must treat that as "someone else
+ * already transitioned this payment", never retry the write. See
+ * docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18/X19.
+ */
+export const transitionStatus = async (id, fromStatus, updateData, session = null) => {
+  const fromStatuses = Array.isArray(fromStatus) ? fromStatus : [fromStatus];
+  return Payment.findOneAndUpdate(
+    { _id: id, status: { $in: fromStatuses } },
+    { $set: updateData },
+    {
+      new: true,
+      runValidators: true,
+      ...(session ? { session } : {}),
+    }
+  );
+};
+
 export const findClientHistory = async (clientId, queryString = {}) => {
   const queryObj = { ...queryString, clientId };
   const baseQuery = Payment.find();
@@ -62,11 +82,13 @@ export const findClientHistory = async (clientId, queryString = {}) => {
 // Used by payouts (cross-module): payments backing a set of bookings, restricted to statuses that
 // still carry a payable stylistPayoutAmount (paid / partially_refunded). Keeps the payouts module
 // off the raw Payment model.
-export const findByBookingIds = async (bookingIds, statuses) => {
-  return Payment.find({
+export const findByBookingIds = async (bookingIds, statuses, session = null) => {
+  const query = Payment.find({
     bookingId: { $in: bookingIds },
     status: { $in: statuses },
   });
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const getRevenueStatsThisMonth = async (startDate, endDate) => {
@@ -115,6 +137,7 @@ export default {
   findByTransactionId,
   findByIntentionId,
   updateById,
+  transitionStatus,
   findClientHistory,
   getRevenueStatsThisMonth,
 };
