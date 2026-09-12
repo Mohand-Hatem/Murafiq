@@ -4,13 +4,13 @@ import uploadService from '../../src/modules/uploads/upload.service.js';
 describe('Upload Service', () => {
   it('rejects upload to an unapproved folder', async () => {
     await expect(
-      uploadService.uploadFile({ id: 'u1' }, 'forbidden-folder', { buffer: Buffer.from('test') })
+      uploadService.uploadFile({ id: 'u1', role: 'client' }, 'forbidden-folder', { buffer: Buffer.from('test') })
     ).rejects.toThrow(/Invalid upload folder/i);
   });
 
   it('rejects upload when file buffer is missing', async () => {
     await expect(
-      uploadService.uploadFile({ id: 'u1' }, 'avatars', null)
+      uploadService.uploadFile({ id: 'u1', role: 'client' }, 'avatars', null)
     ).rejects.toThrow(/No file provided/i);
   });
 

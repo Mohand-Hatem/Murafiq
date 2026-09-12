@@ -73,7 +73,7 @@ describe('uploadFile() skips Sharp compression for non-image mimetypes', () => {
       .jpeg()
       .toBuffer();
 
-    await uploadService.uploadFile({ id: 'u1' }, 'kyc-documents', {
+    await uploadService.uploadFile({ id: 'u1', role: 'client' }, 'kyc-documents', {
       buffer: decodableImageBuffer,
       mimetype: 'application/pdf',
     });

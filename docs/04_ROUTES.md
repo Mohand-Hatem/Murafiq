@@ -146,7 +146,7 @@
 
 | Method | Route | Auth | Status | Description |
 |---|---|---|---|---|
-| POST | `/uploads/:folder` | 🔐 | ✅ Built | Upload image to Cloudinary (folder allowlisted) |
+| POST | `/uploads/:folder` | 🔐 | ✅ Built | Upload image to Cloudinary (folder allowlisted & role-authorized: avatars/kyc for all, portfolio for stylists/admin, request-images/wardrobe for clients/admin) |
 
 ---
 
@@ -172,7 +172,7 @@
 
 | Method | Route | Auth | Status | Description |
 |---|---|---|---|---|
-| GET | `/admin/verifications` | 🔍 | ✅ Built | List pending identity verifications |
+| GET | `/admin/verifications` | 🔍 | ✅ Built | List pending identity verifications (returns signed Cloudinary URLs for review) |
 | PATCH | `/admin/verifications/:userId/approve` | 🔍 | ✅ Built | Approve identity verification |
 | PATCH | `/admin/verifications/:userId/reject` | 🔍 | ✅ Built | Reject identity verification with reason |
 | GET | `/admin/bookings/disputed` | 🛡️ | ✅ Built | List all disputed bookings |

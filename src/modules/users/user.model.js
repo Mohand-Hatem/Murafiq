@@ -96,6 +96,7 @@ const userSchema = new Schema(
             ],
           },
           url: String,
+          documentRef: String,
           uploadedAt: { type: Date, default: Date.now },
         },
       ],

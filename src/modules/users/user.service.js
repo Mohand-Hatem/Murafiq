@@ -84,11 +84,15 @@ export const uploadVerificationDocs = async (userId, role, documents) => {
     );
   }
 
-  const formattedDocs = documents.map((doc) => ({
-    type: doc.type,
-    url: doc.documentRef || doc.url,
-    uploadedAt: new Date(),
-  }));
+  const formattedDocs = documents.map((doc) => {
+    const ref = doc.documentRef || doc.url;
+    return {
+      type: doc.type,
+      url: ref,
+      documentRef: ref,
+      uploadedAt: new Date(),
+    };
+  });
 
   const updatedUser = await userRepository.updateById(userId, {
     'verification.documents': formattedDocs,
@@ -125,7 +129,7 @@ export const deleteAccount = async (userId) => {
 export const getVerifications = async (queryString) => {
   const { users, meta } = await userRepository.findVerifications(queryString);
   return {
-    items: users.map(toUserProfileDto),
+    items: users.map((u) => toUserProfileDto(u, { isReviewer: true })),
     meta,
   };
 };
@@ -160,7 +164,7 @@ export const approveVerification = async (userId, reviewerId) => {
     reviewedAt: new Date(),
   });
 
-  return toUserProfileDto(updatedUser);
+  return toUserProfileDto(updatedUser, { isReviewer: true });
 };
 
 export const rejectVerification = async (userId, reviewerId, rejectionReason) => {
@@ -190,7 +194,7 @@ export const rejectVerification = async (userId, reviewerId, rejectionReason) =>
     reviewedAt: new Date(),
   });
 
-  return toUserProfileDto(updatedUser);
+  return toUserProfileDto(updatedUser, { isReviewer: true });
 };
 
 
@@ -390,7 +394,7 @@ export const getPublicProfile = async (targetUserId) => {
 export const getAllUsers = async (queryString) => {
   const { users, meta } = await userRepository.findAllUsers(queryString);
   return {
-    items: users.map(toUserProfileDto),
+    items: users.map((u) => toUserProfileDto(u, { isReviewer: true })),
     meta,
   };
 };

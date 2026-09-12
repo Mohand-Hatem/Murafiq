@@ -1,6 +1,24 @@
-export const toUserProfileDto = (user) => {
+import { getSignedKycUrl } from '../uploads/upload.service.js';
+
+export const toUserProfileDto = (user, { isReviewer = false } = {}) => {
   if (!user) return null;
   const doc = user.toObject ? user.toObject() : user;
+
+  let verification = doc.verification || { status: 'unverified', documents: [] };
+  if (verification.documents && Array.isArray(verification.documents)) {
+    verification = {
+      ...verification,
+      documents: verification.documents.map((d) => {
+        const docObj = d.toObject ? d.toObject() : d;
+        const ref = docObj.documentRef || docObj.url;
+        return {
+          ...docObj,
+          documentRef: ref,
+          url: isReviewer && ref ? getSignedKycUrl(ref) : ref,
+        };
+      }),
+    };
+  }
 
   return {
     id: doc._id?.toString() || doc.id,
@@ -17,7 +35,7 @@ export const toUserProfileDto = (user) => {
     city: doc.city || null,
     area: doc.area || null,
     location: doc.location || { type: 'Point', coordinates: [0, 0] },
-    verification: doc.verification || { status: 'unverified', documents: [] },
+    verification,
     isOnline: doc.isOnline || false,
     clientRating: doc.clientRating || 0,
     clientTotalReviews: doc.clientTotalReviews || 0,
