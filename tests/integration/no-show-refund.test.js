@@ -192,7 +192,15 @@ describe('resolveNoShow — real refund persistence (X1 regression)', () => {
     const { booking, payment } = await createBookingAndPayment({ reportedAgainst: 'stylist', price: 1000 });
 
     // Crash between the provider refund (Step B) and the settlement transaction (Step C)
-    const spy = jest.spyOn(ledgerService, 'postDoubleEntry').mockRejectedValueOnce(new Error('crash'));
+    let crashed = false;
+    const realPostDoubleEntry = ledgerService.postDoubleEntry.bind(ledgerService);
+    const spy = jest.spyOn(ledgerService, 'postDoubleEntry').mockImplementation(async (debit, credit, session) => {
+      if (!crashed && debit.entryType === 'PENALTY_ASSESSMENT') {
+        crashed = true;
+        throw new Error('crash');
+      }
+      return realPostDoubleEntry(debit, credit, session);
+    });
     await expect(
       noShowService.resolveNoShow(booking._id.toString(), { reason: 'test crash' })
     ).rejects.toThrow('crash');

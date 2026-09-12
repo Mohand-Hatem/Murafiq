@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 
 /**
  * Runs n(session) inside a MongoDB transaction and returns its value.
@@ -21,6 +21,9 @@
  * @returns {Promise<T>}
  */
 export const withTransaction = async (fn) => {
+  if (mongoose.connection?.readyState !== 1) {
+    return await fn(null);
+  }
   const session = await mongoose.startSession();
   try {
     let result;

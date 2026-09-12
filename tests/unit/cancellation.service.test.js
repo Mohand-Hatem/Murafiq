@@ -236,7 +236,8 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
           entryType: 'PENALTY_ASSESSMENT',
           accountType: 'PLATFORM',
           amountMinor: 20000,
-        })
+        }),
+        null
       );
 
       expect(mockCouponIssue).toHaveBeenCalledWith(

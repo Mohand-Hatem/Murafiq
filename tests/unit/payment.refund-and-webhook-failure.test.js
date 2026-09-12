@@ -56,10 +56,12 @@ jest.unstable_mockModule('../../src/modules/payments/providers/provider.factory.
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockPostEntry,
+    postDoubleEntry: mockPostEntry,
     egpToPiastres: (egp) => Math.round(egp * 100),
     piastresToEgp: (p) => Math.round(p) / 100,
   },
   postEntry: mockPostEntry,
+  postDoubleEntry: mockPostEntry,
   egpToPiastres: (egp) => Math.round(egp * 100),
   piastresToEgp: (p) => Math.round(p) / 100,
 }));

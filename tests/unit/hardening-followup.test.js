@@ -10,6 +10,7 @@ import reviewService from '../../src/modules/reviews/review.service.js';
 import reviewRepository from '../../src/modules/reviews/review.repository.js';
 import userService from '../../src/modules/users/user.service.js';
 import userRepository from '../../src/modules/users/user.repository.js';
+import ledgerService from '../../src/modules/ledger/ledger.service.js';
 
 /**
  * Regression tests for the four cross-module coherence gaps found in the
@@ -235,6 +236,7 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
     jest.spyOn(paymentRepository, 'transitionStatus').mockImplementation((id, _from, data) =>
       Promise.resolve({ _id: paymentId, bookingId, clientId, status: 'paid', amount: 1000, ...data })
     );
+    jest.spyOn(ledgerService, 'postDoubleEntry').mockResolvedValue({});
 
     const result = await paymentService.processRefund({ bookingId, refundPercentage: 100 });
     expect(result.status).toBe('refunded');

@@ -193,10 +193,12 @@ const mockPiastresToEgp = jest.fn().mockImplementation((p) => p / 100);
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockPostEntry,
+    postDoubleEntry: mockPostEntry,
     egpToPiastres: mockEgpToPiastres,
     piastresToEgp: mockPiastresToEgp,
   },
   postEntry: mockPostEntry,
+  postDoubleEntry: mockPostEntry,
   egpToPiastres: mockEgpToPiastres,
   piastresToEgp: mockPiastresToEgp,
 }));

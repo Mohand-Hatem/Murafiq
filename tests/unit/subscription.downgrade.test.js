@@ -38,8 +38,13 @@ jest.unstable_mockModule('../../src/modules/subscriptions/subscription.repositor
   createHistoryEntry: mockCreateHistoryEntry,
 }));
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
-  default: { postEntry: mockPostEntry, egpToPiastres: (n) => Math.round(n * 100) },
+  default: {
+    postEntry: mockPostEntry,
+    postDoubleEntry: mockPostEntry,
+    egpToPiastres: (n) => Math.round(n * 100),
+  },
   postEntry: mockPostEntry,
+  postDoubleEntry: mockPostEntry,
   egpToPiastres: (n) => Math.round(n * 100),
 }));
 
