@@ -14,6 +14,7 @@
     "lint": "eslint src tests",
     "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
     "seed:admin": "cross-env NODE_ENV=development node scripts/seed-admin.js",
+    "prestart:prod": "node scripts/check-duplicate-active-subscriptions.js",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",
     "validate:openapi": "cross-env NODE_ENV=development node scripts/validate-openapi.js",
     "predeploy": "node scripts/check-duplicate-active-subscriptions.js",

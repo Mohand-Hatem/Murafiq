@@ -66,16 +66,15 @@ Before switching traffic to production, verify every item on this checklist:
 - [ ] **Configure Payment Gateway:** Set `PAYMENT_PROVIDER=paymob` and provide production Paymob API keys, HMAC secret, and integration IDs.
 - [ ] **Seed Initial Admin:** Run `npm run seed:admin` once to bootstrap the platform superuser.
 - [ ] **Seed Subscription Plan Catalogue:** Run `node scripts/seed-plans.js` once per database to populate canonical client and stylist plans. Without this step, `GET /subscriptions/plans` returns empty and every checkout 404s.
-- [ ] **Verify Reverse Proxy Configuration:** Ensure `app.set('trust proxy', 1)` is enabled (default in `src/app.js`) and Nginx passes `X-Forwarded-For` and `X-Forwarded-Proto` for accurate rate limiting.
-- [ ] **Run Predeploy Checks:** Execute `npm run predeploy` (`scripts/check-duplicate-active-subscriptions.js`) to verify no user holds duplicate active subscriptions before index creation.
+- [ ] **Run Predeploy Checks (Automated Gate):** `npm run start:prod` automatically triggers `prestart:prod` (`scripts/check-duplicate-active-subscriptions.js`), hard-aborting PM2 startup if duplicate active subscriptions exist. In staging or manual deployment runbooks, execute `npm run predeploy` prior to initiating release steps.
 - [ ] **Ensure MongoDB Replica Set:** Ensure production MongoDB is deployed as a replica set with oplog enabled for multi-document transaction support.
 
 ---
 
 ## 4. Maintenance & Seeding Scripts
 
-- **`npm run predeploy` / `node scripts/check-duplicate-active-subscriptions.js` (Required Deploy Gate):**
-  Pre-flight check for the partial unique index on Subscription `{ userId }` where `status: 'active'`. Confirms zero users have duplicate active subscriptions before deployment. Fails with exit code 1 if duplicates exist.
+- **`prestart:prod` / `npm run predeploy` (`scripts/check-duplicate-active-subscriptions.js`):**
+  Pre-flight deploy gate for the partial unique index on Subscription `{ userId }` where `status: 'active'`. Runs automatically via npm lifecycle hooks whenever `npm run start:prod` is invoked, and can be invoked manually (`npm run predeploy`). Confirms zero users hold duplicate active subscriptions before PM2 starts and indexes build. Exits with code 1 if duplicates exist.
 
 - **`node scripts/seed-plans.js` (Required / Production-Safe):**
   Seeds and updates canonical subscription tiers (client and stylist) and entitlements. Also safely migrates legacy `.yearly` rows to the unified pricing schema. Idempotent and safe to run on live environments.
