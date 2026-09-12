@@ -106,7 +106,18 @@ export const scanText = (rawText, blockedDomains = [], blockedWords = []) => {
   if (blockedDomains && blockedDomains.length > 0) {
     const lowerText = normalized.toLowerCase();
     for (const domain of blockedDomains) {
-      if (domain && lowerText.includes(domain.toLowerCase())) {
+      if (!domain) continue;
+      const escapedDomain = domain.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      let domainRegex;
+      if (domain.includes('.')) {
+        domainRegex = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapedDomain}(?:$|[^\\p{L}\\p{N}])`, 'iu');
+      } else {
+        domainRegex = new RegExp(
+          `(?:https?:\\/\\/|www\\.|\\.)(?:[\\w-]+\\.)*${escapedDomain}(?:[\\/:]|$|[^\\p{L}\\p{N}])|(?:^|[^\\p{L}\\p{N}])${escapedDomain}(?:\\.[a-z]{2,}|\\/|:)`,
+          'iu'
+        );
+      }
+      if (domainRegex.test(lowerText)) {
         detectedPatterns.push(`BLOCKED_DOMAIN: ${domain}`);
         matchedLayer = 'DOMAIN_DENYLIST';
         matchedRule = `BLOCKED_DOMAIN_${domain.toUpperCase()}`;
@@ -129,7 +140,7 @@ export const scanText = (rawText, blockedDomains = [], blockedWords = []) => {
         `(?:^|[^\\p{L}\\p{N}])${normWord.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}(?:$|[^\\p{L}\\p{N}])`,
         'iu'
       );
-      if (wordRegex.test(lowerText) || lowerText.includes(normWord)) {
+      if (wordRegex.test(lowerText)) {
         detectedPatterns.push(`BLOCKED_WORD: ${wordStr}`);
         if (!matchedLayer) {
           matchedLayer = 'WORD_LIST';

@@ -14,7 +14,6 @@ import Coupon from '../src/modules/coupons/coupon.model.js';
 import ModerationEvent from '../src/modules/moderation/moderation-event.model.js';
 import PolicyViolation from '../src/modules/moderation/policy-violation.model.js';
 import BlockedDomain from '../src/modules/moderation/blocked-domain.model.js';
-import ReliabilityEvent from '../src/modules/reliability/reliability-event.model.js';
 import { connectDB } from '../src/database/connection.js';
 
 export const backfillRevisionFoundation = async () => {
@@ -230,7 +229,6 @@ export const backfillRevisionFoundation = async () => {
     await ModerationEvent.syncIndexes();
     await PolicyViolation.syncIndexes();
     await BlockedDomain.syncIndexes();
-    await ReliabilityEvent.syncIndexes();
     console.log('✅ All model indexes synchronized successfully.');
   } catch (error) {
     console.error(`❌ Migration backfill failed: ${error.message}`);

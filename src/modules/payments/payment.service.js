@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import paymentRepository from './payment.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import userRepository from '../users/user.repository.js';

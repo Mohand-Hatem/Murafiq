@@ -40,9 +40,6 @@ const bookingSchema = new Schema(
       ],
       default: 'confirmed',
     },
-    isFrozen: { type: Boolean, default: false },
-    frozenReason: String,
-    frozenAt: Date,
     checkInAt: Date,
     clientCheckInAt: Date,
     stylistCheckInAt: Date,
@@ -127,7 +124,6 @@ bookingSchema.index({ requestId: 1 }, { unique: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
-bookingSchema.index({ isFrozen: 1, payoutStatus: 1 });
 bookingSchema.index({
   status: 1,
   'noShowDetails.settlementCompletedAt': 1,

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import withTransaction from '../../common/transaction.util.js';
 import bookingRepository from './booking.repository.js';
 import scheduleRepository from './schedule.repository.js';
 import requestRepository from '../requests/request.repository.js';

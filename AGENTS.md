@@ -191,13 +191,10 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - Mutual confirmation → `SessionCompleted` marks the payout **eligible**, it does not
   auto-transfer. Actual payout is a manual admin action (`Payout` model), and a
   booking with an open dispute must never appear as payable (enforced via `status`).
-  **`isFrozen` (the mechanism a safety report would use to freeze a payout) is defined
-  and checked by the payout query, but nothing can set it to `true`** — the safety
-  module (`src/modules/safety/`) is intentionally unbuilt (see
-  `docs/hardening/SAFETY_MODULE_DECISION.md`, HARDEN-014, and
-  `docs/AUDIT_2026_09_FULL_SYSTEM.md` finding X25). Do not claim this half of the
-  invariant is enforced until that module exists; building it is a product-scope
-  decision, not a bug fix.
+  Under Product Decision P1 (Simplification Plan 2026-09), the dead safety scaffolding
+  (`Booking.isFrozen`/`frozenReason`/`frozenAt`, the `{isFrozen, payoutStatus}` index,
+  and `NOTIFICATION_TYPES.'safety'`) was deleted, and `src/modules/safety/` remains
+  intentionally unbuilt.
 
 ### Chat & Notifications (Phase 7)
 - Chat is **Firestore**, not Mongo — `conversationId === bookingId`, created closed

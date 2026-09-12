@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import payoutRepository, { PAYABLE_PAYMENT_STATUSES } from './payout.repository.js';
 import { withTransaction } from '../../common/transaction.util.js';
 import stylistRepository from '../stylists/stylist.repository.js';

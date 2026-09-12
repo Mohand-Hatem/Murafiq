@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import offerRepository from './offer.repository.js';
 import { withTransaction } from '../../common/transaction.util.js';
 import requestRepository from '../requests/request.repository.js';

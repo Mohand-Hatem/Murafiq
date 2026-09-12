@@ -32,7 +32,7 @@
  *           enum: [LOW, MEDIUM, HIGH, CRITICAL]
  *         actionTaken:
  *           type: string
- *           enum: [ALLOW, BLOCK_ONLY, OBSERVED, RESTRICT, BAN]
+ *           enum: [BLOCK_ONLY, OBSERVED, RESTRICT, BAN]
  *         reviewStatus:
  *           type: string
  *           enum: [PENDING, APPROVED, DISMISSED]

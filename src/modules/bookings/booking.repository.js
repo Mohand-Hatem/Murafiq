@@ -212,12 +212,7 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
 // Used by payouts (cross-module): bookings eligible for a specific stylist's payout batch —
 // completed, unpaid, and past the dispute-window hold. Keeps the payouts module off the raw
 // Booking model, matching every other cross-module caller's repository-to-repository pattern.
-// `isFrozen` must be excluded here, not only relied on via `status`. A booking frozen by
-// the moderation enforcement chain keeps status 'completed' by design (so an admin can
-// still resolve it to any legitimate outcome), which means a status-only filter would
-// happily pay out money that is supposed to be held pending review — see §I.4 step 7 and
-// AGENTS.md: "a booking with an open dispute or open safety report must never appear as
-// payable."
+// Safety scaffolding and isFrozen were deleted under Product Decision P1 (Simplification Plan 2026-09).
 // A booking becomes payout-eligible via two paths: a normal completed session
 // (anchored on completedAt), or a resolved client no-show, where NO_SHOW_POLICY.CLIENT
 // entitles the stylist to a partial share even though the session never happened and
@@ -227,7 +222,6 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
 // record but can never actually be batched into a payout.
 const PAYOUT_ELIGIBILITY = (cutoffDate) => ({
   payoutStatus: 'unpaid',
-  isFrozen: { $ne: true },
   $or: [
     { status: 'completed', completedAt: { $ne: null, $lte: cutoffDate } },
     { status: 'no-show-client', 'noShowDetails.confirmedAt': { $ne: null, $lte: cutoffDate } },

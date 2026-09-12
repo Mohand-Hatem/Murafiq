@@ -122,12 +122,11 @@ describe('Booking terminal states are treated consistently', () => {
   });
 });
 
-describe('Payout eligibility excludes frozen bookings', () => {
-  it('filters isFrozen in the repository query', () => {
+describe('Payout eligibility queries (Decision P1)', () => {
+  it('does not contain dead isFrozen clause in repository query', () => {
     const repo = fs.readFileSync('src/modules/bookings/booking.repository.js', 'utf8');
-    // A frozen booking deliberately keeps status 'completed' so an admin can still resolve
-    // it, so a status-only filter would pay out money that is meant to be held.
-    expect(repo).toMatch(/isFrozen:\s*\{\s*\$ne:\s*true\s*\}/);
+    // Safety scaffolding and isFrozen were deleted under Product Decision P1 (Simplification Plan 2026-09).
+    expect(repo).not.toMatch(/isFrozen:\s*\{\s*\$ne:\s*true\s*\}/);
   });
 
   it('uses one shared predicate for both eligibility queries', () => {

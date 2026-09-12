@@ -29,7 +29,7 @@ const subscriptionSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'past_due', 'cancelled', 'expired'],
+      enum: ['active', 'cancelled', 'expired'],
       default: 'active',
       index: true,
     },

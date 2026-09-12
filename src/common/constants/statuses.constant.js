@@ -58,7 +58,6 @@ export const PAYMENT_STATUS = {
   PENDING: 'pending',
   PAID: 'paid',
   FAILED: 'failed',
-  CANCELLED: 'cancelled',
   REFUNDED: 'refunded',
   PARTIALLY_REFUNDED: 'partially_refunded',
   // Transient CAS-claimed state (payment.service.js processRefund): set the instant a
@@ -106,11 +105,6 @@ export const CANCELLATION_POLICY = {
   // The stylist instead accrues a penalty debt, netted against a future payout.
   EARLY_STYLIST_PENALTY_PERCENTAGE: 3,
   LATE_STYLIST_PENALTY_PERCENTAGE: 20,
-
-  // Backward-compatible aliases (pre-revision call sites).
-  FULL_REFUND_HOURS: 24,
-  PARTIAL_REFUND_PERCENTAGE: 80,
-  PARTIAL_PLATFORM_FEE_PERCENTAGE: 20,
 };
 
 // No-show policy — see §H. Treated separately from cancellation: different money,
