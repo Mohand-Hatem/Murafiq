@@ -27,7 +27,15 @@ const bookingSchema = new Schema({
   duration: Number, // minutes
   status: {
     type: String,
-    enum: ['confirmed', 'in-progress', 'completed', 'cancelled', 'disputed'],
+    enum: [
+      'confirmed',
+      'in-progress',
+      'completed',
+      'cancelled',
+      'disputed',
+      'no-show-stylist',
+      'no-show-client',
+    ],
     default: 'confirmed',
   },
   // Session verification (see Phase 11 for safety-related fields too)
@@ -167,14 +175,15 @@ async function acceptOffer(offerId, clientId) {
 ### 5. Cancellation
 - `PATCH /bookings/:id/cancel` — validates who's cancelling and when, applies the cancellation policy:
 
-| Who cancels | Timing | Refund to client | Platform keeps |
+| Who cancels | Timing | Refund to client | Platform keeps / Outcome |
 |---|---|---|---|
-| Client | ≥24h before `scheduledDate`/time | 100% (`CANCELLATION_FULL_REFUND_HOURS = 24`) | 0% |
-| Client | <24h before | 75% (`CANCELLATION_PARTIAL_REFUND_PERCENTAGE = 75`) | 25% |
-| Client | no-show (reported via `POST /bookings/:id/dispute`, step 4a, and confirmed by admin) | 0% — stylist still gets their `stylistPayoutAmount` for the reserved slot | 100% (or distributed per admin resolution) |
-| Stylist | any time / no-show | 100% automatic refund to client, regardless of timing | 0% |
+| Client | ≥24h before `scheduledDate`/time (`hours >= CANCELLATION_POLICY.EARLY_HOURS`) | 97% (`CANCELLATION_POLICY.EARLY_CLIENT_REFUND_PERCENTAGE`) | 3% (`CANCELLATION_POLICY.EARLY_PLATFORM_FEE_PERCENTAGE`) |
+| Client | <24h before start | 80% (`CANCELLATION_POLICY.LATE_CLIENT_REFUND_PERCENTAGE`) | 20% (`CANCELLATION_POLICY.LATE_PLATFORM_FEE_PERCENTAGE`) |
+| Client | no-show (reported via dispute, confirmed by admin) | 60% refund | Platform 20%, Stylist 20% (`NO_SHOW_POLICY.CLIENT_NO_SHOW`) |
+| Stylist | ≥24h before start | 100% refund | 3% penalty accrued to stylist |
+| Stylist | <24h before start / no-show | 100% refund | 20% penalty accrued to stylist + goodwill coupon eligibility |
 
-  Both threshold values live as named constants in `common/constants/statuses.constant.js` (`CANCELLATION_FULL_REFUND_HOURS`, `CANCELLATION_PARTIAL_REFUND_PERCENTAGE`) — never hardcoded in the service, so they're one place to change. A client-initiated cancel is a direct `PATCH /bookings/:id/cancel` call; a no-show goes through the dispute flow (step 4a) instead, since it needs admin confirmation before the 0%-refund-to-client outcome is applied.
+  Threshold and percentage values live as named constants in `common/constants/statuses.constant.js` (`CANCELLATION_POLICY`, `NO_SHOW_POLICY`) — never hardcoded in the service. A client-initiated cancel is a direct `PATCH /bookings/:id/cancel` call; a no-show goes through the dispute flow (step 4a) instead, since it needs admin confirmation before the no-show settlement is applied.
 - On cancellation: release the `ScheduleBlock`, update `Booking.status`, set fields on `Payment` for refund (actual refund execution happens in Phase 6's payment service, per the table above), and emit `BookingCancelled` — the same event Phase 10's dispute-resolution "cancelled" outcome emits, so Phase 7's notification listener and the Firestore conversation-lock listener (`PHASE_07_CHAT_NOTIFICATIONS.md` step 5a) handle both paths identically.
 
 ---

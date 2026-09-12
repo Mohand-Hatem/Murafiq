@@ -113,6 +113,20 @@ real false-positive rate.** The PO retains the decision.
 **Nothing in this document is now blocked on a human decision** — the classifier is a deliberate
 future decision, not an outstanding one.
 
+### Decisions Log Amendment — 2026-09-12 (Simplification Plan Decisions P1–P7)
+
+The Simplification & Remediation Plan (2026-09) formalized and executed seven strategic architectural decisions:
+
+| ID | Subject | Decision Outcome | Shipped Implementation / Verification |
+|---|---|---|---|
+| **P1** | Safety Scaffolding | **DELETE THE SCAFFOLDING.** Removed unbuilt safety module scaffolding: deleted `Booking.isFrozen`, `frozenReason`, `frozenAt`, `{ isFrozen, payoutStatus }` index, `NOTIFICATION_TYPES.'safety'`, and the `AGENTS.md` invariant claim. `src/modules/safety/` remains intentionally unbuilt. | Dead fields, indexes, and types removed in Stage S4. Payout eligibility strictly checks `payoutStatus: 'unpaid'`. |
+| **P2** | Reliability Events | **DELETE UNUSED SCAFFOLDING.** Deleted `ReliabilityEvent` model and orphaned events. Stylist reliability metrics are maintained directly on `StylistProfile`. | Removed in Stage S4; 0 occurrences in `src/`. |
+| **P3** | Plan Upgrade Proration | **KEEP CURRENT BEHAVIOR, FIX THE SPEC.** No proration on plan change. Immediate period reset and full plan charge per Product Guide. Upgrading early forfeits remaining paid time in exchange for immediate higher-tier entitlement. | Spec §E.5 amended to match code; zero proration drift. |
+| **P4** | `Subscription.status: 'past_due'` | **RETAIN DECLARED ENUM VALUE WITHOUT AUTO-RENEWAL.** No automatic renewals or grace periods in v1. Subscriptions expire cleanly at `currentPeriodEnd`. | Status retained; cron marks expired subscriptions without charging. |
+| **P5** | `REQUEST_STATUS.DECLINED` | **RETAIN AS FORMAL TERMINAL STATUS.** Distinct terminal state for direct requests declined by the target stylist. | Retained in `statuses.constant.js`. |
+| **P6** | `ACCOUNT_STATUS.blocked` vs `suspended` | **STANDARDIZE ACCESS REVOCATION ON `suspended`.** Both statuses exist in enum; `accountStatus: 'suspended'` is the authoritative access-revoking status that terminates auth tokens and blocks actions. | Validated in auth middleware. |
+| **P7** | Realtime Architecture / Socket.IO | **DELETE THE CLAIMS.** Removed all obsolete Socket.IO claims across 8 documents. Chat runs on Firebase Firestore; push notifications run on FCM + MongoDB. | Zero Socket.IO packages or servers; all docs updated in S7. |
+
 ---
 
 **Related docs:** `docs/03_SKELETON_STATUS.md` (what is actually built today) · `AGENTS.md` (invariants — §J and §G.1 below propose two explicit amendments to it) · `docs/MONEY_AND_LEDGER.md` (contains a policy the code has never implemented — see §B.5).
@@ -580,6 +594,9 @@ LedgerEntry {
 unique index: { idempotencyKey }
 index: { bookingId, createdAt }, { subjectId, entryType, createdAt }, { correlationId }
 ```
+
+> **Authoritative Entry Types in Code (Stage R2 / D.13):** The model schema (`ledger-entry.model.js`) implements the finalized, authoritative enum values:
+> `PAYMENT`, `ESCROW_HOLD`, `ESCROW_RELEASE`, `REFUND`, `PLATFORM_FEE`, `PENALTY_ASSESSMENT` (for the draft's `STYLIST_PENALTY`), `PENALTY_SETTLEMENT`, `PAYOUT_DISBURSEMENT` (for `STYLIST_PAYOUT`), `SUBSCRIPTION_PAYMENT` (for `SUBSCRIPTION_CHARGE`), `COUPON_DISCOUNT` (for `COUPON_CREDIT`), and `ADJUSTMENT`.
 
 **Immutability is enforced, not just intended:** a `pre('findOneAndUpdate')` / `pre('updateOne')` hook on the schema throws. Corrections are new `ADJUSTMENT` entries that reference the original via `correlationId`. Never an edit, never a delete.
 

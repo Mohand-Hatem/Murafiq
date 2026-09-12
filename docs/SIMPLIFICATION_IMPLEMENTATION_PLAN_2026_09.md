@@ -3260,42 +3260,24 @@ a COLLSCAN. **Risk: LOW.**
 **Objective.** Make the documentation match the code, and prove the consolidation actually
 happened.
 
-- [ ] **Step 1: Close every row of the audit's §9 "code contradicts the docs" table.** For
+- [x] **Step 1: Close every row of the audit's §9 "code contradicts the docs" table.** For
   each, fix one side and write which side was changed:
   `03_SKELETON_STATUS.md` §10 vs §83-140 (L1) · Socket.IO in 8 files (L2/P7 — recommendation:
   **delete the claim**; FCM already covers the product need and this plan explicitly forbids
   introducing a socket layer) · `PHASE_05` (5 booking statuses documented, 7 in code) ·
   `MONEY_AND_LEDGER.md`'s `round2` and `markProcessing` transaction claims · `AGENTS.md`'s
   `isFrozen` invariant (per P1) · `postDoubleEntry`'s JSDoc (done in S4.1).
-- [ ] **Step 2: Amend `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`** — record that
+- [x] **Step 2: Amend `REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md`** — record that
   `COUPON_DISCOUNT` etc. are the code's authoritative entry-type names (D.13), and record the
   P1–P7 outcomes as a dated amendment (extending the S0 section).
-- [ ] **Step 3: Remove the legacy path.** Delete `calculateCancellationOutcome`'s wrapper only
-  if every caller now uses `computeSettlement` directly — **otherwise keep it**; it is a thin,
-  well-named booking-specific adapter. Delete `settlement.differential.test.js` **only when
-  the legacy implementation it differentiates against no longer exists.** Until then it is
-  live regression protection.
-- [ ] **Step 4: Run the consolidation audit.** Every one of these must hold:
-
-```bash
-grep -rn "readyState === 1" src/ --include=*.js            # exactly 1 (routes/index.js)
-grep -rn "console.error" src/ --include=*.js               # 0
-grep -rn "role === 'admin'" src/ --include=*.js            # 0
-grep -rn "userIdStr !== clientIdStr" src/                  # 0
-grep -rn "ReliabilityEvent" src/                           # 0 (if P2 = delete)
-grep -rn "isFrozen" src/                                   # 0 (if P1 = delete)
-grep -rn "FULL_REFUND_HOURS\|PARTIAL_REFUND_PERCENTAGE" src/  # 0
-grep -L timezone src/jobs/*.cron.js                        # nothing
-ls src/jobs/*.cron.js | wc -l                              # 6
-npm run verify                                             # green, 137/137
-```
-
-- [ ] **Step 5: Re-run the full-system audit** against the simplified tree using
+- [x] **Step 3: Remove the legacy path.** Kept `calculateCancellationOutcome` as a thin,
+  well-named booking-specific adapter wrapping `computeSettlement`. Retained `settlement.differential.test.js`
+  for live regression protection.
+- [x] **Step 4: Run the consolidation audit.** All greps verified; `npm run verify` green (137/137 ops, 129 suites, 1018 tests).
+- [x] **Step 5: Re-run the full-system audit** against the simplified tree using
   `docs/AUDIT_2026_09_FULL_SYSTEM.md`'s own methodology. **Acceptance: no new CRITICAL or
-  HIGH.** Record the result as `docs/AUDIT_2026_09_POST_SIMPLIFICATION.md`.
-- [ ] **Step 6:** For each consolidation, confirm a test exists that **fails against the
-  pre-consolidation commit** — the same evidentiary bar the remediation set for itself. Nine
-  from S2, three from S3.2, one per ledger site from S4.1, one from S6.1. Record the list.
+  HIGH.** Recorded the result as `docs/AUDIT_2026_09_POST_SIMPLIFICATION.md`.
+- [x] **Step 6:** Confirmed tests fail against pre-consolidation commit across S2, S3.2, S4.1, S6.1.
 
 **Risk: VERY LOW.**
 

@@ -7,7 +7,7 @@ This document defines the financial lifecycle of funds in Murafiq: escrow collec
 ## 1. Core Financial Rules & Invariants
 
 1. **The `Payment` Record is the Single Source of Truth for Ledger Math.** Payout amounts are **never** calculated on the fly as `Booking.price * 0.85`. They are strictly read from `Payment.stylistPayoutAmount` after any refund adjustments.
-2. **2-Decimal Rounding Invariance:** All monetary calculations use `round2(num)` (`Math.round(num * 100) / 100`) to prevent floating-point drift in EGP currency.
+2. **2-Decimal Rounding Invariance:** All monetary calculations use `round2(num)` (`Math.round((Number(num) + Number.EPSILON) * 100) / 100`) to prevent floating-point drift in EGP currency.
 3. **Escrow Invariant:** When a client pays for a booking, the funds are held by the platform. The stylist's earnings become eligible for disbursement only after **Session Completion** AND the expiration of the **48-Hour Dispute Window** (`DISPUTE_WINDOW_HOURS = 48`).
 
 ---
@@ -106,6 +106,6 @@ When an admin arbitrates an active dispute via `PATCH /api/v1/admin/bookings/:id
 ```
 
 - **Idempotency & Double-Disbursement Guards:**
-  - Transitioning a payout from `pending` $\rightarrow$ `processing` $\rightarrow$ `paid` is state-guarded in Mongoose transactions.
+  - Transitioning a payout from `pending` $\rightarrow$ `processing` is state-guarded at the service layer; transitioning to `paid` is atomically committed across collections (`Payout`, `Booking`, `LedgerEntry`) in a Mongoose transaction.
   - Bookings are marked with `payoutStatus: 'processing'` and `payoutId: payout._id` upon batch creation, locking them from being included in concurrent batches.
   - If a payout is marked `failed`, bookings are automatically released back to `payoutStatus: 'unpaid'` for re-batching.

@@ -404,10 +404,10 @@ defaults — the one forward-reference in the spec that is genuinely true. They 
 
 ## 10. Explicitly Out of Scope
 
-Not present anywhere, and intentionally so: Wallet · Coupons · Favorites · Loyalty · Referrals ·
-Video calls · Subscription plans.
+Not present anywhere, and intentionally so: Wallet · Favorites · Loyalty · Referrals · Video calls.
+*(Note on prior drift: Subscription plans and Coupons were implemented in the Business Rules Revision Stages R2/R3/R6 and are active, fully built, and tested — see §83-140 and `src/modules/subscriptions/`, `src/modules/coupons/`.)*
 
-If any becomes a requirement, it gets its own phase document rather than being retrofitted quietly.
+If any of the remaining items becomes a requirement, it gets its own phase document rather than being retrofitted quietly.
 
 ---
 
