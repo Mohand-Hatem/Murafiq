@@ -4,6 +4,7 @@ import { getAppointmentDateTime } from '../modules/bookings/booking.service.js';
 import { minutesToTime } from '../common/utils/timeUtils.js';
 import eventBus from '../common/events/event-bus.js';
 import { EVENTS } from '../common/constants/events.constant.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -74,16 +75,20 @@ export const startSessionReminderCron = () => {
 
   registered = true;
 
-  cron.schedule(SESSION_REMINDER_SCHEDULE, async () => {
-    try {
-      const summary = await sweepSessionReminders();
-      if (summary.remindersSent > 0) {
-        logger.info(`Session reminder sweep: Dispatched reminders for ${summary.remindersSent} booking(s).`);
+  cron.schedule(
+    SESSION_REMINDER_SCHEDULE,
+    async () => {
+      try {
+        const summary = await sweepSessionReminders();
+        if (summary.remindersSent > 0) {
+          logger.info(`Session reminder sweep: Dispatched reminders for ${summary.remindersSent} booking(s).`);
+        }
+      } catch (err) {
+        logger.error(`Session reminder sweep failed: ${err.message}`);
       }
-    } catch (err) {
-      logger.error(`Session reminder sweep failed: ${err.message}`);
-    }
-  });
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Session reminder cron scheduled (${SESSION_REMINDER_SCHEDULE}).`);
 };

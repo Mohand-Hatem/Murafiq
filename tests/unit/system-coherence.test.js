@@ -170,6 +170,12 @@ describe('Cron jobs are safe under the documented deployment model', () => {
     expect(txt).toContain("env.NODE_ENV === 'test'");
   });
 
+  it('every cron declares the business timezone', () => {
+    for (const file of fs.readdirSync('src/jobs').filter((f) => f.endsWith('.cron.js'))) {
+      expect(fs.readFileSync(`src/jobs/${file}`, 'utf8')).toMatch(/timezone:\s*BUSINESS_TIMEZONE/);
+    }
+  });
+
   it('PM2 still pins a single instance, which the crons depend on', () => {
     const eco = fs.readFileSync('ecosystem.config.cjs', 'utf8');
     // These sweeps are in-process node-cron with no distributed lock. Scaling to cluster

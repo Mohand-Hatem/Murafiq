@@ -3,6 +3,7 @@ import planRepository from '../modules/subscriptions/plan.repository.js';
 import subscriptionRepository from '../modules/subscriptions/subscription.repository.js';
 import eventBus from '../common/events/event-bus.js';
 import { EVENTS } from '../common/constants/events.constant.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -174,16 +175,20 @@ export const startSubscriptionRenewalCron = () => {
 
   registered = true;
 
-  cron.schedule(RENEWAL_SWEEP_SCHEDULE, async () => {
-    try {
-      const summary = await sweepExpiredSubscriptions();
-      if (summary.sweptCount > 0) {
-        logger.info(`Subscription renewal sweep: Downgraded ${summary.sweptCount} expired subscription(s) to Free.`);
+  cron.schedule(
+    RENEWAL_SWEEP_SCHEDULE,
+    async () => {
+      try {
+        const summary = await sweepExpiredSubscriptions();
+        if (summary.sweptCount > 0) {
+          logger.info(`Subscription renewal sweep: Downgraded ${summary.sweptCount} expired subscription(s) to Free.`);
+        }
+      } catch (err) {
+        logger.error(`Subscription renewal sweep failed: ${err.message}`);
       }
-    } catch (err) {
-      logger.error(`Subscription renewal sweep failed: ${err.message}`);
-    }
-  });
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Subscription renewal cron scheduled (${RENEWAL_SWEEP_SCHEDULE}).`);
 };

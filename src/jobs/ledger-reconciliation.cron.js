@@ -3,6 +3,7 @@ import LedgerEntry from '../modules/ledger/ledger-entry.model.js';
 import Payment from '../modules/payments/payment.model.js';
 import SubscriptionOrder from '../modules/subscriptions/subscription-order.model.js';
 import { PAYMENT_STATUS } from '../common/constants/statuses.constant.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -153,16 +154,20 @@ export const startLedgerReconciliationCron = () => {
 
   registered = true;
 
-  cron.schedule(RECONCILIATION_SCHEDULE, async () => {
-    try {
-      const summary = await reconcileLedger();
-      logger.info(
-        `Ledger reconciliation complete: Checked ${summary.checkedBookings} booking(s), ${summary.unbalancedCount} unbalanced, ${summary.missingLedgerCount} settled payment(s) with no ledger entry.`
-      );
-    } catch (err) {
-      logger.error(`Ledger reconciliation cron failed: ${err.message}`);
-    }
-  });
+  cron.schedule(
+    RECONCILIATION_SCHEDULE,
+    async () => {
+      try {
+        const summary = await reconcileLedger();
+        logger.info(
+          `Ledger reconciliation complete: Checked ${summary.checkedBookings} booking(s), ${summary.unbalancedCount} unbalanced, ${summary.missingLedgerCount} settled payment(s) with no ledger entry.`
+        );
+      } catch (err) {
+        logger.error(`Ledger reconciliation cron failed: ${err.message}`);
+      }
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Ledger reconciliation cron scheduled (${RECONCILIATION_SCHEDULE}).`);
 };

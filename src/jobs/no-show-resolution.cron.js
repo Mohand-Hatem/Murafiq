@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import noShowService from '../modules/bookings/no-show.service.js';
 import couponRepository from '../modules/coupons/coupon.repository.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -23,7 +24,9 @@ export const startNoShowResolutionCron = () => {
 
   registered = true;
 
-  cron.schedule(SWEEP_SCHEDULE, async () => {
+  cron.schedule(
+    SWEEP_SCHEDULE,
+    async () => {
     try {
       const { resolved, scanned } = await noShowService.autoResolveExpiredNoShows();
       if (resolved > 0) {
@@ -53,7 +56,7 @@ export const startNoShowResolutionCron = () => {
     } catch (err) {
       logger.error(`Coupon expiry sweep failed: ${err.message}`);
     }
-  });
+  }, { timezone: BUSINESS_TIMEZONE });
 
   logger.info(`No-show resolution cron scheduled (${SWEEP_SCHEDULE}).`);
 };

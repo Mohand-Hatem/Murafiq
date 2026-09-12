@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import offerRepository from '../modules/offers/offer.repository.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -21,16 +22,20 @@ export const startOfferExpiryCron = () => {
 
   registered = true;
 
-  cron.schedule(SWEEP_SCHEDULE, async () => {
-    try {
-      const result = await sweepExpiredOffers();
-      if (result?.modifiedCount) {
-        logger.info(`Offer-expiry sweep: flipped ${result.modifiedCount} offer(s) to 'expired'.`);
+  cron.schedule(
+    SWEEP_SCHEDULE,
+    async () => {
+      try {
+        const result = await sweepExpiredOffers();
+        if (result?.modifiedCount) {
+          logger.info(`Offer-expiry sweep: flipped ${result.modifiedCount} offer(s) to 'expired'.`);
+        }
+      } catch (err) {
+        logger.error(`Offer-expiry sweep failed: ${err.message}`);
       }
-    } catch (err) {
-      logger.error(`Offer-expiry sweep failed: ${err.message}`);
-    }
-  });
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Offer-expiry cron scheduled (${SWEEP_SCHEDULE}).`);
 };

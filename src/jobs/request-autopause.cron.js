@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import requestRepository from '../modules/requests/request.repository.js';
+import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -42,18 +43,22 @@ export const startRequestAutoPauseCron = () => {
 
   registered = true;
 
-  cron.schedule(AUTOPAUSE_SCHEDULE, async () => {
-    try {
-      const summary = await sweepAutoPauseRequests();
-      if (summary.pausedCount > 0 || summary.closedCount > 0) {
-        logger.info(
-          `Request auto-pause sweep: Paused ${summary.pausedCount} request(s), Closed ${summary.closedCount} request(s).`
-        );
+  cron.schedule(
+    AUTOPAUSE_SCHEDULE,
+    async () => {
+      try {
+        const summary = await sweepAutoPauseRequests();
+        if (summary.pausedCount > 0 || summary.closedCount > 0) {
+          logger.info(
+            `Request auto-pause sweep: Paused ${summary.pausedCount} request(s), Closed ${summary.closedCount} request(s).`
+          );
+        }
+      } catch (err) {
+        logger.error(`Request auto-pause sweep failed: ${err.message}`);
       }
-    } catch (err) {
-      logger.error(`Request auto-pause sweep failed: ${err.message}`);
-    }
-  });
+    },
+    { timezone: BUSINESS_TIMEZONE }
+  );
 
   logger.info(`Request auto-pause cron scheduled (${AUTOPAUSE_SCHEDULE}).`);
 };
