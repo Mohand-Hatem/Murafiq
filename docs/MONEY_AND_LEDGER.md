@@ -36,7 +36,7 @@ Refunds upon cancellation depend strictly on the **cancelling party** and the **
 > `statuses.constant.js` `CANCELLATION_POLICY`). The Business Rules Revision's Stage R6
 > (Cancellation, Refunds & Penalties) changed the client tiers and added a stylist penalty;
 > that landed in the code but this doc was never updated to match, which is exactly the kind
-> of drift `docs/AUDIT_2026_09_FULL_SYSTEM.md` finding X24 flags as its highest-consequence
+> of drift `docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md` finding X24 flags as its highest-consequence
 > documentation defect — a future "fix the code to match the doc" edit would have reverted
 > live refund percentages. The numbers below are read directly from the current constants.
 

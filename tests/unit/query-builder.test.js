@@ -49,7 +49,7 @@ describe('QueryBuilder Unit Tests', () => {
     expect(mockMongooseQuery.select).toHaveBeenCalledWith('name email');
   });
 
-  // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X23: this test's own
+  // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X23: this test's own
   // name says a client cannot force-select a select:false field, but its assertion used
   // to prove the opposite -- passwordHash was still passed straight through to
   // `.select()` after only the `+` character was stripped. Mongoose's `select: false` is

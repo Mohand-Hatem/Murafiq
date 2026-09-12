@@ -306,7 +306,7 @@ export const fileDispute = async (user, bookingId, disputeData) => {
   // resolution also tried to refund, processRefund() rejected it outright (the Payment
   // was already 'partially_refunded'/'refunded' from the first round) -- leaving the
   // booking permanently stuck in 'disputed' with no admin path out. See
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
   if (booking.disputeResolution?.resolvedAt) {
     throw new ApiError(
       409,
@@ -500,7 +500,7 @@ export const resolveDispute = async (
       // never went through mutual confirmation). If it already has one, preserve it --
       // rewriting it to `new Date()` on every resolution used to restart the 48h
       // dispute-filing window each time, which combined with no reopen guard is what made
-      // disputes re-openable indefinitely. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
+      // disputes re-openable indefinitely. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X7.
       ...(targetStatus === 'completed' && !booking.completedAt ? { completedAt: new Date() } : {}),
       disputeResolution: {
         outcome,
@@ -642,7 +642,7 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
   // refund while the stylist is paid nothing for work actually performed -- and the
   // stylist's only other recourse (fileDispute) requires 'in-progress' or 'completed',
   // never 'cancelled', so once cancelled there was no way back. See
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X10. The correct paths from here are mutual
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X10. The correct paths from here are mutual
   // completion, a dispute, or (after the grace window) a no-show report.
   if (booking.status === 'in-progress') {
     throw new ApiError(

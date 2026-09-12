@@ -1,4 +1,4 @@
-﻿import Booking from '../src/modules/bookings/booking.model.js';
+import Booking from '../src/modules/bookings/booking.model.js';
 import Payout from '../src/modules/payouts/payout.model.js';
 import { connectDB } from '../src/database/connection.js';
 import mongoose from 'mongoose';

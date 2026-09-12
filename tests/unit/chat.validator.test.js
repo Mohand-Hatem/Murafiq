@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { sendMessageSchema } from '../../src/modules/chat/chat.validator.js';
 
 /**
- * Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X12: chat moderation
+ * Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X12: chat moderation
  * (chat.service.js sendMessage) only scans `content` when `type === 'text'`, so a
  * message sent as `{type: 'image', content: 'call me 01012345678'}` used to skip the
  * scan entirely while storing and rendering arbitrary free text.

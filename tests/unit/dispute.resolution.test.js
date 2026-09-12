@@ -149,7 +149,7 @@ describe('Dispute Resolution & Filing Window Unit Tests', () => {
       });
     });
 
-    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X7: resolving a
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X7: resolving a
     // dispute back to 'completed' used to rewrite completedAt to `new Date()` on every
     // resolution, restarting the 48h dispute-filing window and allowing an already-
     // resolved dispute to be re-filed indefinitely.

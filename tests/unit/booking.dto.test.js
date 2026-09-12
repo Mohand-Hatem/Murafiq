@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { toPublicBookingDto } from '../../src/modules/bookings/booking.dto.js';
 
 /**
- * Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X26.
+ * Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X26.
  *
  * booking.repository.js used to populate clientId/stylistId with
  * `select: 'nameEn nameAr profileImage'` -- fields that do not exist on User (only

@@ -1,6 +1,7 @@
 import { firestore, auth } from '../../config/firebase.config.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import moderationService from '../moderation/moderation.service.js';
+import userRepository from '../users/user.repository.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
@@ -216,6 +217,28 @@ class ChatService {
 
     if (conversation.isLocked) {
       throw new ApiError(400, 'Chat is locked because this booking has ended.');
+    }
+
+    // Moderation RESTRICT enforcement. `chatRestrictedUntil` is set by the 2-strike rung of
+    // the moderation ladder (moderation.service.js) and by POST /admin/users/:id/restrict.
+    // Until this check existed the field was written and never read, so RESTRICT bumped a
+    // token version and changed a label but muted nobody.
+    //
+    // Expiry is LAZY and read-only, the same pattern entitlement.service.js uses for a
+    // lapsed plan: a timestamp in the past simply stops blocking. Nothing writes the status
+    // back to 'active' here -- that stays an explicit admin unrestrict, so the moderation
+    // history of the account is not silently erased by the next message send.
+    //
+    // Deliberately scoped to SENDING only. The restriction is a mute, not a ban: reading
+    // history, and every booking/payment obligation attached to it, is untouched. See
+    // docs/BUSINESS_RULES.md and the restrict rung in docs/ARCHIVE hardening notes.
+    const sender = await userRepository.findById(stringSenderId);
+    const restrictedUntil = sender?.chatRestrictedUntil;
+    if (restrictedUntil && restrictedUntil.getTime() > Date.now()) {
+      throw new ApiError(
+        403,
+        `You are restricted from sending messages until ${restrictedUntil.toISOString()}.`
+      );
     }
 
     // Real-time Content Moderation Scan

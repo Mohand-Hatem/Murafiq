@@ -318,7 +318,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
       expect(mockPenaltyCreate).not.toHaveBeenCalled();
     });
 
-    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X10: a session
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X10: a session
     // already checked into ('in-progress') used to be cancellable like any other booking,
     // letting a client collect an 80% refund for work the stylist actually performed,
     // with no recourse for the stylist (fileDispute requires 'in-progress' or 'completed',

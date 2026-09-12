@@ -42,7 +42,7 @@ export const invalidateBlockedWordsCache = () => {
  * (`scanAndEnforce`, ENFORCE mode) and admin-confirmed user reports (`confirmEvent`) --
  * previously `confirmEvent` recorded nothing and applied no enforcement action at all,
  * so a human confirming a report as a real violation had no more effect than dismissing
- * it. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+ * it. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
  *
  * @returns {Promise<{ strikeNumber: number, action: 'WARN'|'RESTRICT'|'SUSPEND' }|null>}
  *   null if recording the strike itself failed (logged, never thrown -- a moderation
@@ -203,7 +203,7 @@ export const reportContent = async (reporterId, { conversationId, messageId, rep
   // booking's own client/stylist pair IS the conversation's participant list -- reading
   // it via the repository avoids pulling the Firestore-backed chat service (and its
   // Firebase Admin init) into a module that otherwise has no chat dependency.
-  // See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X13.
+  // See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X13.
   const conversationBooking = await bookingRepository.findById(conversationId);
   if (!conversationBooking) {
     throw new ApiError(404, 'Conversation not found');
@@ -278,7 +278,7 @@ export const forgiveStrike = async (violationId, adminUserId) => {
  * never cleared, and a dismissed-then-resolved report could never be re-filed by the
  * same reporter, since the anti-flood dedup also keys on `reviewStatus: 'PENDING'`.
  * (2) confirming had no effect on the reported user at all. Both are fixed here. See
- * docs/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+ * docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
  */
 export const confirmEvent = async (eventId, reviewerId, notes = '') => {
   const event = await moderationEventRepository.findById(eventId);

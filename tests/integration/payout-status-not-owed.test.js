@@ -1,4 +1,4 @@
-﻿import '../../src/common/globals.js';
+import '../../src/common/globals.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import mongoose from 'mongoose';
 import { connectTestDB, closeTestDB, clearTestDB } from '../setup/db-handler.js';

@@ -46,7 +46,7 @@ const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentByTxId = jest.fn().mockResolvedValue(mockPayment);
 const mockUpdatePaymentById = jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockPayment, ...data }));
-// CAS mock for payment.repository.transitionStatus — see docs/AUDIT_2026_09_FULL_SYSTEM.md
+// CAS mock for payment.repository.transitionStatus — see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
 // findings X17/X18/X19. Accumulates across calls since processRefund() now calls this
 // twice per invocation (claim into REFUNDING, then resolve to the terminal status).
 let lastTransitionResult = null;
@@ -189,7 +189,7 @@ describe('Stage R2 Integration — Ledger Dual-Write Journaling', () => {
     );
   });
 
-  // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X20: a cancelled
+  // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X20: a cancelled
   // booking's retained platform fee (3%/20% depending on timing) used to sit in ESCROW
   // forever with no ledger entry ever recognising it as PLATFORM revenue -- cancelled
   // bookings never reach PAYOUT_ELIGIBILITY, which was the only other place that

@@ -16,7 +16,7 @@ export const objectIdField = z
 // without it a `type: 'image'` message could carry arbitrary free text as `content`,
 // skipping the moderation scan that only runs for `type === 'text'` (a bare-name
 // change of `type` is not itself a security boundary). See
-// docs/AUDIT_2026_09_FULL_SYSTEM.md finding X12. Reused from the identical pattern in
+// docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X12. Reused from the identical pattern in
 // wardrobe.validator.js / user.validator.js rather than left as a third local copy.
 export const isCloudinaryUrl = (val) => {
   try {

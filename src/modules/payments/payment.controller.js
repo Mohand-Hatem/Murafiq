@@ -59,7 +59,7 @@ export const processRefund = asyncHandler(async (req, res) => {
     reason: req.body?.reason,
     // See payment.validator.js refundPaymentSchema — an explicit admin choice, not a
     // silently changed default. Undefined here means processRefund's own default (0)
-    // applies exactly as before. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X21.
+    // applies exactly as before. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X21.
     stylistPayoutOverrideAmount: req.body?.stylistPayoutOverrideAmount,
   });
 

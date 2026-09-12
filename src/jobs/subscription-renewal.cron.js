@@ -38,7 +38,7 @@ export const sweepExpiredSubscriptions = async () => {
         // silently overwritten -- the user loses a plan they just paid for. A null
         // result means exactly that race happened; skip this row, do not count it as
         // swept, and do not emit an event that never actually took effect. See
-        // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X8.
+        // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X8.
         const settled = await subscriptionRepository.expireSubscriptionCAS(
           sub._id,
           {
@@ -65,7 +65,7 @@ export const sweepExpiredSubscriptions = async () => {
         // The most common subscription transition (a scheduled downgrade taking effect)
         // used to write no SubscriptionHistory row at all -- 'scheduled_downgrade' was a
         // declared enum value with zero writers. See
-        // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
+        // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
         try {
           await subscriptionRepository.createHistoryEntry({
             userId: sub.userId,
@@ -132,7 +132,7 @@ export const sweepExpiredSubscriptions = async () => {
 
       // Same gap as above: an ordinary expiry-to-Free is the SINGLE most common
       // subscription transition, and it wrote no history at all. See
-      // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
+      // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X15.
       try {
         await subscriptionRepository.createHistoryEntry({
           userId: sub.userId,

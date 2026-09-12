@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envConfigUrl = pathToFileURL(path.join(__dirname, '../../src/config/env.config.js')).href;
 const MARKER = '__ENV_MODERATION_MODE__:';
 
-// Regression guard for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X2: MODERATION_MODE was
+// Regression guard for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X2: MODERATION_MODE was
 // missing from the env.config.js Zod schema, so Zod's default object parsing silently
 // stripped the key from `process.env` and `env.MODERATION_MODE` was always `undefined`
 // regardless of what was actually set in the environment — meaning moderation enforcement

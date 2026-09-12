@@ -239,7 +239,7 @@ export const handleWebhook = async (payload, query = {}) => {
     // unforgeable but says nothing about whether the CORRECT amount was captured -- a
     // partial capture, or an intention created before a coupon discounted the price,
     // would otherwise mark the booking fully paid for less than it collected. See
-    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
     if (result.amountCents !== undefined && result.amountCents !== null) {
       const expectedMinor = ledgerService.egpToPiastres(payment.amount);
       if (Number(result.amountCents) !== expectedMinor) {
@@ -258,7 +258,7 @@ export const handleWebhook = async (payload, query = {}) => {
     // guards above (both reading e.g. 'pending') and both proceed to write and emit
     // PAYMENT_SUCCEEDED. A lost CAS means someone else already resolved this delivery;
     // re-read and return that result rather than redoing the work. See
-    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
     let updated;
     await withTransaction(async (session) => {
       updated = await paymentRepository.transitionStatus(
@@ -419,7 +419,7 @@ export const processRefund = async ({
   const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
 
   // CAS-claim the payment into REFUNDING *before* calling the provider, not after.
-  // Two things this closes (docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
+  // Two things this closes (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
   // (1) durability -- a crash between the provider call succeeding and the terminal
   //     write used to leave NOTHING persisted: the client was refunded by the provider
   //     but our own record still said 'paid', so the booking still looked payout-eligible
@@ -517,7 +517,7 @@ export const processRefund = async ({
     // fix for every processRefund() caller (cancellation, dispute, no-show), not only
     // cancellation: `platformFeeAmount` here is by construction the platform's retained
     // share after any stylist override, in every case. See
-    // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X20.
+    // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X20.
     if (platformFeeAmount > 0) {
       const platformFeeMinor = ledgerService.egpToPiastres(platformFeeAmount);
       await ledgerService.postDoubleEntry(

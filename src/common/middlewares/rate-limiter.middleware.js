@@ -12,7 +12,7 @@ import createRateLimitStore from './rate-limit-store.js';
 // 100-per-15-minutes limiter in front of it meant a legitimate Paymob retry burst could
 // be 429'd by the OUTER limiter even though the inner one would have allowed it, leaving
 // an order stuck 'pending' after money was actually taken. See
-// docs/AUDIT_2026_09_FULL_SYSTEM.md finding X27.
+// docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X27.
 export const EXEMPT_PATHS = new Set([
   '/api/v1/health',
   '/api/v1/payments/callback',

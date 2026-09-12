@@ -1,4 +1,4 @@
-﻿import { ROLES } from '../constants/roles.constant.js';
+import { ROLES } from '../constants/roles.constant.js';
 
 const idOf = (v) => (v && typeof v === 'object' ? (v._id ?? v.id ?? v) : v)?.toString();
 

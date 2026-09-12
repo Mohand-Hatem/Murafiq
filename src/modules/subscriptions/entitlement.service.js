@@ -30,7 +30,7 @@ export const getEntitlements = async (userId, role = 'client') => {
   // the 02:00 renewal sweep ran next -- or indefinitely if that cron ever stopped. This
   // is read-only: it never writes the downgrade itself, which stays the sweep's job (and
   // the sweep is what records the SubscriptionHistory transition). See
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X16.
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X16.
   const isLapsed =
     activeSub?.currentPeriodEnd && activeSub.currentPeriodEnd.getTime() <= Date.now();
 

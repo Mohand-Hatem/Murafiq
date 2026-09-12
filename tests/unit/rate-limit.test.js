@@ -2,7 +2,7 @@ import '../../src/common/globals.js';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 
 /**
- * Regression tests for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X27: every rate limiter
+ * Regression tests for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X27: every rate limiter
  * used the library's per-process default store (reset on every restart, silently
  * multiplied by instance count under horizontal scaling), the global limiter sat in
  * front of /health and both payment webhooks, and OTP-sensitive routes were keyed by IP

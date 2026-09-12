@@ -20,7 +20,7 @@ const mockEvent = {
   actionTaken: 'BLOCKED',
   // The real ModerationEvent field is reviewStatus (PENDING|APPROVED|DISMISSED) —
   // this fixture previously used reviewOutcome, a field that does not exist on the
-  // model, which is exactly docs/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
+  // model, which is exactly docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X11.
   reviewStatus: 'PENDING',
 };
 
@@ -184,6 +184,10 @@ describe('Stage R11 Integration — Admin & Operations Controls', () => {
     });
 
     it('allows Admin to unrestrict user and restore active status', async () => {
+      // unrestrictUser guards on the CURRENT status, mirroring reactivateUser ('suspended'
+      // only) and unblockUser ('blocked' only). The account therefore has to actually be
+      // restricted before it can be unrestricted -- the shared mockUser fixture is 'active'.
+      mockUserFindById.mockResolvedValue({ ...mockUser, accountStatus: 'restricted' });
       mockUserUpdateById.mockResolvedValue({
         ...mockUser,
         accountStatus: 'active',

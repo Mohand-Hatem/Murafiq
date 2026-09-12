@@ -1,4 +1,4 @@
-﻿import { BOOKING_TRANSITIONS, isLegalTransition, legalFromStatesFor }
+import { BOOKING_TRANSITIONS, isLegalTransition, legalFromStatesFor }
   from '../../src/modules/bookings/booking.transitions.js';
 import { BOOKING_STATUS } from '../../src/common/constants/statuses.constant.js';
 

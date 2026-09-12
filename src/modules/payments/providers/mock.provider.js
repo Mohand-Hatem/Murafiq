@@ -57,7 +57,7 @@ export default class MockProvider extends PaymentProviderInterface {
       transactionId: payload.transactionId || `mock_tx_${crypto.randomUUID()}`,
       status: payload.status || 'paid',
       bookingId: payload.bookingId || payload.special_reference,
-      // Test-controllable amount-mismatch simulation (see docs/AUDIT_2026_09_FULL_SYSTEM.md
+      // Test-controllable amount-mismatch simulation (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
       // finding X19 and HARDEN-006, "mock provider cannot simulate a failed webhook").
       // undefined/omitted means "provider did not report an amount", matching a real
       // Paymob callback that always does — tests exercise the mismatch path by passing

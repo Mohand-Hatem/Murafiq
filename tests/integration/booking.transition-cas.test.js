@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import '../../src/common/globals.js';
 import { connectTestDB, clearTestDB, closeTestDB } from '../setup/db-handler.js';
 import User from '../../src/modules/users/user.model.js';

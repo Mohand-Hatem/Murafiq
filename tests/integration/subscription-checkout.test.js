@@ -102,7 +102,7 @@ const mockUpdateOrderById = jest.fn().mockImplementation((id, data) => {
 });
 
 // CAS mock mirroring subscriptionOrderRepository.transitionStatus's real semantics
-// (see docs/AUDIT_2026_09_FULL_SYSTEM.md finding X5): only writes -- and only returns
+// (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X5): only writes -- and only returns
 // non-null -- when the in-memory order's current status matches `fromStatus`.
 const mockTransitionOrderStatus = jest.fn().mockImplementation((id, fromStatus, data) => {
   for (const key of Object.keys(mockOrderStore)) {
@@ -378,7 +378,7 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
       expect(mockOrderStore[specialReference].status).toBe('pending');
     });
 
-    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X5: the order used
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X5: the order used
     // to be marked 'paid' BEFORE the grant was applied, so a grant failure left the
     // customer charged with no entitlement, and a provider retry of the same webhook hit
     // the `status === 'paid'` early-return and never tried the grant again.

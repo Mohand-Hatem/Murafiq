@@ -29,7 +29,7 @@ export const sendMessageSchema = {
     .strict()
     // A 'image' message's `content` must actually BE an image reference, not arbitrary
     // text wearing an 'image' label to dodge the moderation scan that only runs for
-    // type:'text' in chat.service.js. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X12.
+    // type:'text' in chat.service.js. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X12.
     .refine((data) => data.type !== 'image' || isCloudinaryUrl(data.content), {
       message: 'An image message must reference an uploaded Cloudinary image URL',
       path: ['content'],

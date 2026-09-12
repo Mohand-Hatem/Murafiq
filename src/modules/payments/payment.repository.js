@@ -42,7 +42,7 @@ export const updateById = async (id, data, session = null) => {
  * be a single value or an array of acceptable current values. Returns null if the
  * document's status no longer matches -- the caller must treat that as "someone else
  * already transitioned this payment", never retry the write. See
- * docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18/X19.
+ * docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18/X19.
  */
 export const transitionStatus = async (id, fromStatus, updateData, session = null) => {
   const fromStatuses = Array.isArray(fromStatus) ? fromStatus : [fromStatus];

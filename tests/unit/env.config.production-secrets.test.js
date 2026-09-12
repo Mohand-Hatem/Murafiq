@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envConfigUrl = pathToFileURL(path.join(__dirname, '../../src/config/env.config.js')).href;
 
 /**
- * Regression guard for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X6: NODE_ENV defaulted
+ * Regression guard for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X6: NODE_ENV defaulted
  * to 'development' (so a deploy that forgot to set it silently ran on placeholder JWT
  * secrets instead of failing to boot), and nothing checked whether a real production
  * .env still held the literal placeholder value even when NODE_ENV WAS correctly set to

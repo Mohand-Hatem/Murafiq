@@ -68,7 +68,7 @@ export const PAYMENT_STATUS = {
   // written until after the provider succeeded, so a crash there left the client
   // refunded by the provider with no trace in our own system; (2) a second concurrent
   // processRefund call cannot also pass the `status === PAID` guard and call the
-  // provider a second time. See docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17 and X18.
+  // provider a second time. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17 and X18.
   REFUNDING: 'refunding',
 };
 
@@ -86,7 +86,7 @@ export const PAYOUT_STATUS = {
   NOT_OWED: 'not_owed',
 };
 
-// Cancellation policy — see docs/REVISION_BUSINESS_RULES_AND_ARCHITECTURE.md §H.
+// Cancellation policy — see docs/BUSINESS_RULES.md §H.
 // Boundary: exactly 24h00m falls in the CLIENT-FAVOURABLE tier (`diffHours >= EARLY_HOURS`).
 export const CANCELLATION_POLICY = {
   EARLY_HOURS: 24,
@@ -155,6 +155,7 @@ export default {
   REQUEST_ACTIVE_STATUSES,
   OFFER_STATUS,
   PAYMENT_STATUS,
+  PAYOUT_STATUS,
   CANCELLATION_POLICY,
   NO_SHOW_POLICY,
   COUPON_POLICY,

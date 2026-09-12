@@ -94,7 +94,7 @@ export const findExpiringSubscriptions = async (beforeDate = new Date()) => {
  * silently overwritten: the CAS would still match on status alone, and the user would
  * lose a plan they just paid for. A `null` return means exactly that race happened --
  * the caller must skip the row, never retry the downgrade. See
- * docs/AUDIT_2026_09_FULL_SYSTEM.md finding X8.
+ * docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X8.
  *
  * @param {string|import('mongoose').Types.ObjectId} subscriptionId
  * @param {Object} updateData

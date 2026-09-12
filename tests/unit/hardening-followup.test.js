@@ -242,7 +242,7 @@ describe('processRefund() blocks refunds against an already-batched payout', () 
       _id: bookingId,
       payoutStatus: 'unpaid',
     });
-    // processRefund() now CAS-claims via transitionStatus (docs/AUDIT_2026_09_FULL_SYSTEM.md
+    // processRefund() now CAS-claims via transitionStatus (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
     // findings X17/X18) instead of a bare updateById, so that is what must be spied. It is
     // called twice per invocation: claim into REFUNDING, then resolve to the terminal status.
     jest.spyOn(paymentRepository, 'transitionStatus').mockImplementation((id, _from, data) =>

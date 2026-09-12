@@ -369,7 +369,7 @@ export const subscribe = async (
   // destroys the plan it overwrote. This path (the one a real customer payment goes
   // through) previously called applyPlanGrant with no session at all, so the two writes
   // were never atomic here even though the identical admin path was already wrapped. See
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X14.
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X14.
   let updatedSubscription;
   await withTransaction(async (session) => {
     updatedSubscription = await applyPlanGrant(grantArgs, session);
@@ -452,7 +452,7 @@ export const cancelSubscription = async (userId) => {
   });
 
   // 'cancellation' was a declared SubscriptionHistory changeType with zero writers (see
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15). The plan itself does not change here
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X15). The plan itself does not change here
   // -- the user keeps what they paid for until currentPeriodEnd -- so previous* and new*
   // are identical; what this row records is the moment the cancellation intent itself was
   // set, which the eventual expiry_sweep entry alone cannot answer ("did they cancel, or
@@ -636,7 +636,7 @@ export const handleSubscriptionWebhook = async (payload = {}, query = {}) => {
   const userRole = plan ? plan.role : 'client';
 
   // CAS-claim the order into 'processing' BEFORE granting anything and BEFORE marking it
-  // 'paid'. Two problems this fixes together (docs/AUDIT_2026_09_FULL_SYSTEM.md finding
+  // 'paid'. Two problems this fixes together (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding
   // X5): (1) the order used to be marked 'paid' first, so if subscribe() then threw --
   // a lost CAS in applyPlanGrant, a missing plan, any validation error -- the customer
   // was charged, received no entitlement and no ledger entry, and Paymob's retry hit the

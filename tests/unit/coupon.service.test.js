@@ -1,4 +1,4 @@
-﻿import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import couponService from '../../src/modules/coupons/coupon.service.js';
 import couponRepository from '../../src/modules/coupons/coupon.repository.js';
 import { issueCouponSchema } from '../../src/modules/coupons/coupon.validator.js';

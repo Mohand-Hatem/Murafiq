@@ -8,7 +8,7 @@ import Plan from '../../src/modules/subscriptions/plan.model.js';
 import { sweepExpiredSubscriptions } from '../../src/jobs/subscription-renewal.cron.js';
 
 /**
- * Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X8: the renewal sweep
+ * Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X8: the renewal sweep
  * read all expired subscriptions, then wrote a plain updateById with no re-check that the
  * row was STILL expired. A paid webhook granting a fresh period between the sweep's read
  * and its write was silently overwritten -- the user paid for a new period and lost it to
@@ -111,7 +111,7 @@ describe('sweepExpiredSubscriptions — CAS against concurrent renewal (X8)', ()
     expect(updated.currentPeriodEnd.getTime()).toBe(freshPeriodEnd.getTime());
   });
 
-  // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X15: the sweep is the
+  // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X15: the sweep is the
   // single most common subscription transition and used to write no SubscriptionHistory
   // entry at all -- 'expiry_sweep' was a declared changeType with zero writers.
   it('records an expiry_sweep SubscriptionHistory entry when downgrading to Free', async () => {

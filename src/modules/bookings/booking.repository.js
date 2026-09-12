@@ -144,7 +144,7 @@ export const promoteToCompleted = async (bookingId, session = null) => {
 // can be pending on the same booking, and a plain updateById would let whichever call
 // lands second silently overwrite whichever landed first -- most dangerously, a
 // completed session (money already earned, reliability already recomputed) getting
-// stamped no-show-* afterwards. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X9.
+// stamped no-show-* afterwards. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X9.
 export const settleNoShow = async (bookingId, patch, session = null) => {
   const options = { returnDocument: 'after', runValidators: true };
   if (session) options.session = session;

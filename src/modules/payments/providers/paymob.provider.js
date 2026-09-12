@@ -185,7 +185,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
       // Paymob's own captured amount, in piastres (its native minor unit) — surfaced so
       // the caller can verify it against what it actually expected to collect rather
       // than trusting the local record alone. See
-      // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
+      // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X19.
       amountCents:
         dataObj.amount_cents !== undefined && dataObj.amount_cents !== null
           ? Number(dataObj.amount_cents)

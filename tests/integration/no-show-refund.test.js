@@ -14,7 +14,7 @@ import noShowService from '../../src/modules/bookings/no-show.service.js';
 import { PAYMENT_STATUS } from '../../src/common/constants/statuses.constant.js';
 
 /**
- * End-to-end regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X1.
+ * End-to-end regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X1.
  *
  * A stylist no-show has NO_SHOW_POLICY.STYLIST.STYLIST_PERCENTAGE === 0, which
  * resolveNoShow used to interpret as "nothing owed to the stylist" by writing

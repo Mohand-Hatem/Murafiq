@@ -82,7 +82,7 @@ const bookingId = '60f719b8f1a2c81234567888';
 const paymentId = '60f719b8f1a2c81234567877';
 
 /**
- * Regression tests for docs/AUDIT_2026_09_FULL_SYSTEM.md findings X17 and X19 —
+ * Regression tests for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17 and X19 —
  * specifically the two branches Round 2's initial pass left covered only by inspection:
  * the provider-call-throws revert path, and the webhook amount-mismatch rejection.
  */

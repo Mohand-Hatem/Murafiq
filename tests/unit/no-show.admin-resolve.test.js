@@ -9,7 +9,7 @@ import noShowService from '../../src/modules/bookings/no-show.service.js';
 import { ROLES } from '../../src/common/constants/roles.constant.js';
 
 /**
- * Regression tests for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X4:
+ * Regression tests for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X4:
  * `adminResolveNoShow` used to reset ANY booking, in ANY status, to a hardcoded
  * 'confirmed' given only {upheld: false} — with no check that a no-show had ever been
  * reported, that it was ever contested, or what the booking's actual prior status was.

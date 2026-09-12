@@ -46,7 +46,7 @@ export const refundPaymentSchema = {
       // was no way to supply this at all (the schema was `.strict()` with no such field),
       // so an admin could not pay the stylist their share of a partial goodwill refund
       // even when they deliberately wanted to. See
-      // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X21. processRefund() itself clamps
+      // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X21. processRefund() itself clamps
       // this to whatever the platform actually retained, so it can never exceed that.
       stylistPayoutOverrideAmount: z.number().min(0).optional(),
     })

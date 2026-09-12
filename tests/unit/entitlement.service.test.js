@@ -94,7 +94,7 @@ describe('Entitlement Service (Unit)', () => {
       expect(result.entitlements['ai.messages.daily']).toBe(80);
     });
 
-    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X16: entitlements
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X16: entitlements
     // used to be resolved purely from `status: 'active'` with no comparison against
     // currentPeriodEnd, so a plan that had already lapsed kept granting full paid
     // entitlements until the once-daily renewal sweep got around to downgrading it.

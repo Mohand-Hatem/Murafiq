@@ -436,7 +436,7 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
  * `respondToNoShow` contest branch moved to 'disputed'. Guarded on that precondition
  * explicitly (rather than trusting the route comment alone) after an audit found this
  * function would previously reset ANY booking, in ANY status, to 'confirmed' given
- * {upheld:false} and no no-show context at all — see docs/AUDIT_2026_09_FULL_SYSTEM.md
+ * {upheld:false} and no no-show context at all — see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
  * finding X4.
  */
 export const adminResolveNoShow = async (adminUser, bookingId, { upheld, notes = '' }) => {

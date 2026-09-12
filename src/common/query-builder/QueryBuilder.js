@@ -9,7 +9,7 @@ const MONGO_OPERATORS = new Set(['gte', 'gt', 'lte', 'lt', 'ne', 'in']);
 // controlled `?fields=passwordHash` or `?sort=passwordHash` previously bypassed it
 // outright. Currently latent everywhere it matters (every reader maps through an
 // allowlist DTO before the client sees it), but it is one `return doc` away from a live
-// leak. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X23.
+// leak. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X23.
 const SENSITIVE_FIELD_DENYLIST = new Set([
   'passwordHash',
   'otpCode',

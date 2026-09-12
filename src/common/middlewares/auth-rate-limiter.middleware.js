@@ -9,7 +9,7 @@ import createRateLimitStore from './rate-limit-store.js';
 // target account). Falls back to IP alone only when the body has no email at all (a
 // malformed request, or a route this key generator is reused for that doesn't take one),
 // so the limiter never throws on a request it can't key by account. See
-// docs/AUDIT_2026_09_FULL_SYSTEM.md finding X27.
+// docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X27.
 export const accountAwareKey = (req) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : null;
   return email ? `email:${email}` : ipKeyGenerator(req.ip);

@@ -1,11 +1,11 @@
-﻿import { BOOKING_STATUS } from '../../common/constants/statuses.constant.js';
+import { BOOKING_STATUS } from '../../common/constants/statuses.constant.js';
 
 /**
  * The single definition of which booking status transitions are legal.
  *
  * Transcribed from the nine status writers that existed before this file, NOT redesigned:
  * every edge below is one a writer already performed, and no edge a writer performed is
- * missing. See docs/SIMPLIFICATION_IMPLEMENTATION_PLAN_2026_09.md §E.1 for the writer-by-
+ * missing. See docs/archive/simplification/SIMPLIFICATION_IMPLEMENTATION_PLAN_2026_09.md §E.1 for the writer-by-
  * writer derivation, and §D.5 BK1 for why nine divergent copies produced audit findings
  * X4 (admin resurrects any booking), X9 (terminal overwrite) and X10 (in-progress
  * cancellable) independently of one another.
@@ -43,7 +43,7 @@ export const BOOKING_TRANSITIONS = Object.freeze({
   [BOOKING_STATUS.NO_SHOW_CLIENT]: Object.freeze([]),
 });
 
-/** Every status a booking may legally be in immediately before reaching 	oStatus. */
+/** Every status a booking may legally be in immediately before reaching `toStatus`. */
 export const legalFromStatesFor = (toStatus) =>
   Object.entries(BOOKING_TRANSITIONS)
     .filter(([, targets]) => targets.includes(toStatus))

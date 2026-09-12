@@ -9,7 +9,7 @@ import subscriptionRepository from '../../src/modules/subscriptions/subscription
 import subscriptionService from '../../src/modules/subscriptions/subscription.service.js';
 
 /**
- * Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X14: the paid grant path
+ * Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X14: the paid grant path
  * (subscribe() -> applyPlanGrant) used to call applyPlanGrant with NO session, so the
  * SubscriptionHistory snapshot and the plan replacement were two independent writes on
  * the path a real customer payment goes through -- unlike the identical admin-grant path,

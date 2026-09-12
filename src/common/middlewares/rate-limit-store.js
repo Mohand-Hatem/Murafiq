@@ -6,7 +6,7 @@ import { logger } from '../../config/logger.config.js';
  * Shared Redis-backed store for every `express-rate-limit` instance in the app.
  *
  * All four limiters previously used the library's default in-memory store: a Map local
- * to one Node process. Two consequences (docs/AUDIT_2026_09_FULL_SYSTEM.md finding X27):
+ * to one Node process. Two consequences (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X27):
  * every counter resets on a deploy/restart, and horizontal scaling silently multiplies
  * every configured limit by the instance count (5 processes behind a load balancer turns
  * "5 login attempts per 5 minutes" into 25). `ioredis` was already a dependency, wired for

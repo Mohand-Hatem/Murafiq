@@ -31,7 +31,7 @@ const subscriptionOrderSchema = new Schema(
       // starts applying the plan grant, and moves on to 'paid' on success or back to
       // 'pending' on failure so a provider retry can actually retry the grant instead of
       // permanently short-circuiting on `status === 'paid'` with no entitlement ever
-      // applied. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X5.
+      // applied. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X5.
       enum: ['pending', 'processing', 'paid', 'failed'],
       default: 'pending',
       index: true,

@@ -1,7 +1,6 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
-import chatService from '../../src/modules/chat/chat.service.js';
 
 const clientId = '60f719b8f1a2c81234567891';
 const stylistId = '60f719b8f1a2c81234567890';
@@ -69,7 +68,12 @@ jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
   updateById: mockUpdateUserById,
 }));
 
+// Both imported dynamically, AFTER the jest.unstable_mockModule registrations above.
+// chat.service.js reads user.repository (the RESTRICT mute check in sendMessage); a
+// static import at the top of this file would bind the REAL repository before the mock
+// is registered, and the send would hit a disconnected Mongoose and time out.
 const { default: app } = await import('../../src/app.js');
+const { default: chatService } = await import('../../src/modules/chat/chat.service.js');
 
 describe('Phase 7 Integration — Chat & Notifications Endpoints', () => {
   const clientToken = generateAccessToken({ sub: clientId, role: 'client' });

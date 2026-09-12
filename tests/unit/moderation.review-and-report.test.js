@@ -64,7 +64,7 @@ const adminId = '60f719b8f1a2c81234567877';
 const eventId = '60f719b8f1a2c81234567866';
 
 /**
- * Regression suite for docs/AUDIT_2026_09_FULL_SYSTEM.md findings X11 and X13.
+ * Regression suite for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X11 and X13.
  */
 describe('confirmEvent / overturnEvent — reviewStatus and enforcement (X11)', () => {
   beforeEach(() => {

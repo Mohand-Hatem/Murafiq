@@ -48,7 +48,7 @@ const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentByTxId = jest.fn().mockResolvedValue(mockPayment);
 const mockUpdatePaymentById = jest.fn().mockImplementation((id, data) => Promise.resolve({ ...mockPayment, ...data }));
-// CAS mock for payment.repository.transitionStatus (see docs/AUDIT_2026_09_FULL_SYSTEM.md
+// CAS mock for payment.repository.transitionStatus (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
 // findings X17/X18/X19). processRefund() now calls this TWICE per invocation (claim into
 // REFUNDING, then resolve to the terminal status), so the mock accumulates state across
 // calls onto `lastTransitionResult` rather than always merging onto the static base
@@ -301,7 +301,7 @@ describe('Phase 6 Integration — Payments & Escrow Endpoints', () => {
       expect(res.body.data.refundAmount).toBe(750.0);
     });
 
-    // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X21: the schema was
+    // Regression test for docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X21: the schema was
     // `.strict()` with no field for the stylist's share of a partial refund, so this
     // request body was silently rejected (or, before that, always forwarded as 0
     // regardless of what the admin wanted) -- an admin had no way to let the stylist

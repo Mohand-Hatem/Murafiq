@@ -48,7 +48,45 @@ This document outlines the authentication mechanisms, token lifecycles, session 
 
 ---
 
-## 4. Route × Role Access Matrix
+## 4. Account status — enforcement ladder and legal transitions
+
+`ACCOUNT_STATUS` is an enforcement ladder, not a free-form label. Each rung is enforced by a
+*different* mechanism, and they are not interchangeable.
+
+| Status | What it means | How it is enforced |
+|---|---|---|
+| `active` | Normal account | — |
+| `restricted` | **Chat mute.** Bookings, payments and history are untouched | `chatRestrictedUntil` checked in `chat.service.js` `sendMessage`; rejects with `403` while the timestamp is in the future |
+| `suspended` | Cannot authenticate | `auth.middleware.js` (403), plus login, Google sign-in and refresh |
+| `blocked` | Cannot authenticate | same as `suspended` |
+| `deleted` | Soft-deleted | `user.model.js` `pre(/^find/)` hook excludes `isDeleted`, so lookups return nothing and the session dies with a `401` |
+
+### RESTRICT is send-only, and expires lazily
+
+The mute blocks **sending** messages. Reading conversation history stays available, and every
+booking obligation attached to the account is honoured — a restriction is not a ban.
+
+Expiry is **lazy and read-only**: once `chatRestrictedUntil` is in the past the send simply stops
+being blocked. Nothing rewrites `accountStatus` back to `active` on that path, so an account's
+moderation history is never silently erased by its next message. Returning to `active` requires an
+explicit admin unrestrict.
+
+### Legal status transitions
+
+Each admin endpoint guards on the current status. The guards exist to stop a weaker sanction
+overwriting a stronger one — `auth.middleware` only rejects `suspended` and `blocked`, so writing
+`restricted` or `active` over either of those silently restores access.
+
+| Operation | Legal from | Rejects with |
+|---|---|---|
+| `restrict` | `active`, `restricted` (extending a mute) | `400` otherwise |
+| `unrestrict` | `restricted` only | `400` otherwise |
+| `suspend` | `active` (not `deleted`) | `400` otherwise |
+| `reactivate` | `suspended` only | `400` otherwise |
+| `block` | anything except `blocked`, `deleted` | `400` otherwise |
+| `unblock` | `blocked` only | `400` otherwise |
+
+## 5. Route × Role Access Matrix
 
 | Route Group | Path Prefix | Public (🔓) | Client (👤) | Stylist (💇) | Operator (🔍) | Admin (🛡️) |
 |---|---|---|---|---|---|---|

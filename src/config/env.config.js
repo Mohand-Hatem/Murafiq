@@ -14,7 +14,7 @@ const envSchema = z.object({
   // previously meant a deploy that simply forgot to set NODE_ENV=production booted
   // silently as development -- which lets every `secret()` field above fall back to its
   // well-known placeholder value instead of failing to boot. See
-  // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X6. `npm start`/`npm run dev` set this
+  // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X6. `npm start`/`npm run dev` set this
   // explicitly via `cross-env` (package.json) so local development is unaffected.
   NODE_ENV: z.enum(['development', 'production', 'test']),
   PORT: z.string().default('4000'),
@@ -80,7 +80,7 @@ const envSchema = z.object({
   // was previously read from `env.MODERATION_MODE` with no schema entry -- Zod's default
   // object parsing strips any key not declared here, so the read was permanently
   // `undefined` and enforcement could never leave DRY_RUN regardless of the actual
-  // environment variable. See docs/AUDIT_2026_09_FULL_SYSTEM.md finding X2.
+  // environment variable. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X2.
   MODERATION_MODE: z.enum(['DRY_RUN', 'ENFORCE']).default('DRY_RUN'),
 });
 
