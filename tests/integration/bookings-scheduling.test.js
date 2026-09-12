@@ -1,6 +1,12 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
+import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const mockClient = {
   _id: '60f719b8f1a2c81234567891',
@@ -169,6 +175,9 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
   const stylistToken = generateAccessToken({ sub: mockStylist._id, role: 'stylist' });
 
   beforeEach(() => {
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
     mockOverlapBlock = null;
     mockBookingDoc = {
       _id: 'a0f719b8f1a2c81234567890',

@@ -1,4 +1,10 @@
 import { jest } from '@jest/globals';
+import mongoose from 'mongoose';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 /**
  * Deferred downgrades (§E.5).
@@ -61,6 +67,9 @@ const ENTERPRISE = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+  fakeSession.endSession.mockResolvedValue();
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   mockUpdateById.mockImplementation((_id, data) => Promise.resolve({ _id, ...data }));
   mockReplaceActivePlanCAS.mockImplementation((_id, data) => Promise.resolve({ _id, ...data }));
   mockCreateHistoryEntry.mockResolvedValue({});

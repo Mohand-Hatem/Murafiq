@@ -87,8 +87,8 @@ export const findByBookingIds = async (bookingIds, statuses, session = null) => 
     bookingId: { $in: bookingIds },
     status: { $in: statuses },
   });
-  if (session && query?.session) query.session(session);
-  return query;
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const getRevenueStatsThisMonth = async (startDate, endDate) => {

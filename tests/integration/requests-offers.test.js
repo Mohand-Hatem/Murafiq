@@ -1,7 +1,13 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
+import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 import ApiError from '../../src/common/utils/ApiError.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const mockVerifiedClient = {
   _id: '60f719b8f1a2c81234567891',
@@ -183,6 +189,16 @@ jest.unstable_mockModule('../../src/modules/payments/payment.repository.js', () 
   },
 }));
 
+jest.unstable_mockModule('../../src/modules/moderation/blocked-word.repository.js', () => ({
+  default: { findAllActiveWords: jest.fn().mockResolvedValue([]) },
+  findAllActiveWords: jest.fn().mockResolvedValue([]),
+}));
+
+jest.unstable_mockModule('../../src/modules/moderation/blocked-domain.repository.js', () => ({
+  default: { findAllActiveDomains: jest.fn().mockResolvedValue([]) },
+  findAllActiveDomains: jest.fn().mockResolvedValue([]),
+}));
+
 const { default: app } = await import('../../src/app.js');
 
 describe('Phase 4 Integration — Requests & Offers', () => {
@@ -194,6 +210,9 @@ describe('Phase 4 Integration — Requests & Offers', () => {
     clientRequestCount = 0;
     stylistOfferCount = 0;
     activeOfferStore = null;
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('POST /api/v1/requests', () => {

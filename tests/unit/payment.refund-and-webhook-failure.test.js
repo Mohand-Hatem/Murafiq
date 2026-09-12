@@ -1,5 +1,11 @@
 import '../../src/common/globals.js';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import mongoose from 'mongoose';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const mockFindByBookingId = jest.fn();
 const mockFindByTransactionId = jest.fn();
@@ -83,6 +89,9 @@ const paymentId = '60f719b8f1a2c81234567877';
 describe('processRefund — reverts to paid when the provider call fails (X17)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
     lastTransitionResult = null;
   });
 
@@ -128,6 +137,9 @@ describe('handleWebhook — rejects a captured-amount mismatch before marking an
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
     lastTransitionResult = null;
     const service = await import('../../src/modules/payments/payment.service.js');
     handleWebhook = service.handleWebhook;

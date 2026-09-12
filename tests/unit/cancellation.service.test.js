@@ -1,5 +1,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import mongoose from 'mongoose';
 import '../../src/common/globals.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const mockBookingFindById = jest.fn();
 const mockBookingUpdateById = jest.fn();
@@ -119,6 +125,9 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('calculateCancellationOutcome', () => {
@@ -222,7 +231,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
           assessedMinor: 20000, // 200 EGP = 20,000 piastres
           status: 'OUTSTANDING',
         }),
-        null
+        fakeSession
       );
 
       // Now posted as a balanced pair (postDoubleEntry): DEBIT STYLIST / CREDIT PLATFORM.
@@ -237,7 +246,7 @@ describe('Cancellation & Refund Revision Engine (Unit)', () => {
           accountType: 'PLATFORM',
           amountMinor: 20000,
         }),
-        null
+        fakeSession
       );
 
       expect(mockCouponIssue).toHaveBeenCalledWith(

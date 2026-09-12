@@ -1,4 +1,10 @@
 import { jest } from '@jest/globals';
+import mongoose from 'mongoose';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 /**
  * adminGrantSubscription() — the manual entitlement path.
@@ -93,6 +99,9 @@ const stylistUser = { _id: USER, role: 'stylist', name: 'Stylist' };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+  fakeSession.endSession.mockResolvedValue();
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   mockFindUserById.mockResolvedValue(clientUser);
   mockFindByCode.mockImplementation((code) => {
     if (code === 'client.pro') return Promise.resolve(CLIENT_PRO);

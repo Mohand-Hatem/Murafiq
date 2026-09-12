@@ -1,6 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import request from 'supertest';
+import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const clientId = '60f719b8f1a2c81234567891';
 const clientToken = generateAccessToken({ sub: clientId, role: 'client' });
@@ -209,6 +215,9 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
   beforeEach(() => {
     mockOrderStore = {};
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('POST /api/v1/subscriptions/checkout', () => {
@@ -324,9 +333,7 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
           status: 'active',
           source: 'paid',
         }),
-        // null session: the webhook grant is not yet wrapped in a transaction (only the
-        // admin grant is). Asserted explicitly so sessioning it later is a visible change.
-        null
+        fakeSession
       );
 
       // The plan it replaced is snapshotted before being overwritten.
@@ -336,7 +343,7 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
           newPlanCode: 'client.pro',
           previousPlanCode: mockSubscription.planCode,
         }),
-        null
+        fakeSession
       );
     });
 

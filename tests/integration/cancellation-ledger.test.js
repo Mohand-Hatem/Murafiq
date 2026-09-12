@@ -1,6 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import request from 'supertest';
+import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
 
 const clientId = '60f719b8f1a2c81234567891';
 const stylistId = '60f719b8f1a2c81234567890';
@@ -103,6 +109,9 @@ const { default: app } = await import('../../src/app.js');
 describe('Stage R6 Integration — Cancellation Quote & Execution', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+    fakeSession.endSession.mockResolvedValue();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
   });
 
   describe('GET /api/v1/bookings/:id/cancellation-quote', () => {
@@ -131,7 +140,7 @@ describe('Stage R6 Integration — Cancellation Quote & Execution', () => {
       expect(mockUpdateBookingById).toHaveBeenCalledWith(
         bookingId,
         expect.objectContaining({ status: 'cancelled', cancelledBy: 'client' }),
-        null
+        fakeSession
       );
     });
 
@@ -146,7 +155,7 @@ describe('Stage R6 Integration — Cancellation Quote & Execution', () => {
       expect(mockUpdateBookingById).toHaveBeenCalledWith(
         bookingId,
         expect.objectContaining({ status: 'cancelled', cancelledBy: 'stylist' }),
-        null
+        fakeSession
       );
     });
   });

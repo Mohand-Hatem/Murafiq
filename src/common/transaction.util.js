@@ -21,9 +21,6 @@ import mongoose from 'mongoose';
  * @returns {Promise<T>}
  */
 export const withTransaction = async (fn) => {
-  if (mongoose.connection?.readyState !== 1 && !mongoose.startSession?._isMockFunction) {
-    return await fn(null);
-  }
   const session = await mongoose.startSession();
   try {
     let result;

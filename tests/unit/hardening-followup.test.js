@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import mongoose from 'mongoose';
 import '../../src/common/globals.js';
 import eventBus from '../../src/common/events/event-bus.js';
 import { EVENTS } from '../../src/common/constants/events.constant.js';
@@ -34,6 +35,17 @@ const paymentId = '60f719b8f1a2c81234567895';
 // earlier block's stub (e.g. a spy on paymentService.processRefund returning {}).
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+const fakeSession = {
+  withTransaction: jest.fn(async (cb) => cb()),
+  endSession: jest.fn(async () => {}),
+};
+
+beforeEach(() => {
+  fakeSession.withTransaction.mockImplementation(async (cb) => cb());
+  fakeSession.endSession.mockResolvedValue();
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
 });
 
 describe('checkIn() emits CHECK_IN_COMPLETED', () => {

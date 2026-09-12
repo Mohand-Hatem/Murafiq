@@ -273,73 +273,63 @@ class PayoutService {
         const stylistPayoutMinor = egpToPiastres(payment.stylistPayoutAmount);
         const platformFeeMinor = egpToPiastres(payment.platformFeeAmount || 0);
 
-        try {
-          await ledgerService.postEntry(
+        await ledgerService.postDoubleEntry(
+          {
+            idempotencyKey: `payout:escrow:${payoutIdStr}:${bookingIdStr}`,
+            entryType: 'ESCROW_RELEASE',
+            accountType: 'ESCROW',
+            amountMinor: stylistPayoutMinor,
+            bookingId: bookingIdStr,
+            paymentId: payment._id,
+            payoutId: payoutIdStr,
+            correlationId: `payout_${payoutIdStr}`,
+            notes: 'Escrow release for stylist payout disbursement',
+          },
+          {
+            idempotencyKey: `payout:stylist:${payoutIdStr}:${bookingIdStr}`,
+            entryType: 'PAYOUT_DISBURSEMENT',
+            accountType: 'STYLIST',
+            amountMinor: stylistPayoutMinor,
+            bookingId: bookingIdStr,
+            paymentId: payment._id,
+            payoutId: payoutIdStr,
+            accountId: stylistIdStr,
+            correlationId: `payout_${payoutIdStr}`,
+            notes: 'Disbursed payout to stylist',
+          },
+          session
+        );
+
+        // Platform-fee recognition: escrow was credited `payment.amount` at payment
+        // time (stylistPayoutAmount + platformFeeAmount). The stylist's share just
+        // left escrow above; the platform's share must leave escrow too, or the
+        // commission sits in ESCROW forever and is never recognised as revenue.
+        if (platformFeeMinor > 0) {
+          await ledgerService.postDoubleEntry(
             {
-              idempotencyKey: `payout:escrow:${payoutIdStr}:${bookingIdStr}`,
-              entryType: 'ESCROW_RELEASE',
+              idempotencyKey: `payout:escrow_fee:${payoutIdStr}:${bookingIdStr}`,
+              entryType: 'PLATFORM_FEE',
               accountType: 'ESCROW',
-              direction: 'DEBIT',
-              amountMinor: stylistPayoutMinor,
+              amountMinor: platformFeeMinor,
               bookingId: bookingIdStr,
               paymentId: payment._id,
               payoutId: payoutIdStr,
               correlationId: `payout_${payoutIdStr}`,
-              notes: 'Escrow release for stylist payout disbursement',
+              notes: 'Escrow release of platform commission',
             },
-            session
-          );
-
-          await ledgerService.postEntry(
             {
-              idempotencyKey: `payout:stylist:${payoutIdStr}:${bookingIdStr}`,
-              entryType: 'PAYOUT_DISBURSEMENT',
-              accountType: 'STYLIST',
-              direction: 'CREDIT',
-              amountMinor: stylistPayoutMinor,
+              idempotencyKey: `payout:platform_fee:${payoutIdStr}:${bookingIdStr}`,
+              entryType: 'PLATFORM_FEE',
+              accountType: 'PLATFORM',
+              amountMinor: platformFeeMinor,
               bookingId: bookingIdStr,
               paymentId: payment._id,
               payoutId: payoutIdStr,
-              accountId: stylistIdStr,
               correlationId: `payout_${payoutIdStr}`,
-              notes: 'Disbursed payout to stylist',
+              notes: 'Platform commission recognised as revenue',
             },
             session
           );
-
-          // Platform-fee recognition: escrow was credited `payment.amount` at payment
-          // time (stylistPayoutAmount + platformFeeAmount). The stylist's share just
-          // left escrow above; the platform's share must leave escrow too, or the
-          // commission sits in ESCROW forever and is never recognised as revenue.
-          if (platformFeeMinor > 0) {
-            await ledgerService.postDoubleEntry(
-              {
-                idempotencyKey: `payout:escrow_fee:${payoutIdStr}:${bookingIdStr}`,
-                entryType: 'PLATFORM_FEE',
-                accountType: 'ESCROW',
-                amountMinor: platformFeeMinor,
-                bookingId: bookingIdStr,
-                paymentId: payment._id,
-                payoutId: payoutIdStr,
-                correlationId: `payout_${payoutIdStr}`,
-                notes: 'Escrow release of platform commission',
-              },
-              {
-                idempotencyKey: `payout:platform_fee:${payoutIdStr}:${bookingIdStr}`,
-                entryType: 'PLATFORM_FEE',
-                accountType: 'PLATFORM',
-                amountMinor: platformFeeMinor,
-                bookingId: bookingIdStr,
-                paymentId: payment._id,
-                payoutId: payoutIdStr,
-                correlationId: `payout_${payoutIdStr}`,
-                notes: 'Platform commission recognised as revenue',
-              },
-              session
-            );
-          }
-        } catch (ledgerErr) {
-          logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
         }
       }
 
