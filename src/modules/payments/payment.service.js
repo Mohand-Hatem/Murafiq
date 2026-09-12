@@ -11,6 +11,7 @@ import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
+import { withTransaction } from '../../common/transaction.util.js';
 import logger from '../../config/logger.config.js';
 
 export const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
@@ -268,50 +269,60 @@ export const handleWebhook = async (payload, query = {}) => {
     // PAYMENT_SUCCEEDED. A lost CAS means someone else already resolved this delivery;
     // re-read and return that result rather than redoing the work. See
     // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
-    const updated = await paymentRepository.transitionStatus(payment._id, payment.status, {
-      status: PAYMENT_STATUS.PAID,
-      paidAt: new Date(),
-      providerTransactionId: result.transactionId || payment.providerTransactionId,
+    let updated;
+    await withTransaction(async (session) => {
+      updated = await paymentRepository.transitionStatus(
+        payment._id,
+        payment.status,
+        {
+          status: PAYMENT_STATUS.PAID,
+          paidAt: new Date(),
+          providerTransactionId: result.transactionId || payment.providerTransactionId,
+        },
+        session
+      );
+      if (!updated) {
+        return;
+      }
+
+      const amountMinor = ledgerService.egpToPiastres(updated.amount);
+      const paymentIdStr = updated._id.toString();
+      const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
+      const clientIdStr = (updated.clientId?._id || updated.clientId || '').toString();
+
+      // Dual-write to ledger: Client DEBIT, Escrow CREDIT (Task S4.1, B6)
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `payment:paid:client:${paymentIdStr}`,
+          entryType: 'PAYMENT',
+          accountType: 'CLIENT',
+          amountMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          accountId: clientIdStr || null,
+          correlationId: `payment_${paymentIdStr}`,
+          notes: 'Client payment received into escrow hold',
+        },
+        {
+          idempotencyKey: `payment:paid:escrow:${paymentIdStr}`,
+          entryType: 'ESCROW_HOLD',
+          accountType: 'ESCROW',
+          amountMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `payment_${paymentIdStr}`,
+          notes: 'Escrow hold for booking',
+        },
+        session
+      );
     });
+
     if (!updated) {
       return paymentRepository.findById(payment._id);
     }
 
-    const amountMinor = ledgerService.egpToPiastres(updated.amount);
-    const paymentIdStr = updated._id.toString();
     const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
     const clientIdStr = (updated.clientId?._id || updated.clientId || '').toString();
-
-    // Dual-write to ledger: Client DEBIT, Escrow CREDIT
-    try {
-      await ledgerService.postEntry({
-        idempotencyKey: `payment:paid:client:${paymentIdStr}`,
-        entryType: 'PAYMENT',
-        accountType: 'CLIENT',
-        direction: 'DEBIT',
-        amountMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        accountId: clientIdStr || null,
-        correlationId: `payment_${paymentIdStr}`,
-        notes: 'Client payment received into escrow hold',
-      });
-
-      await ledgerService.postEntry({
-        idempotencyKey: `payment:paid:escrow:${paymentIdStr}`,
-        entryType: 'ESCROW_HOLD',
-        accountType: 'ESCROW',
-        direction: 'CREDIT',
-        amountMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        correlationId: `payment_${paymentIdStr}`,
-        notes: 'Escrow hold for booking',
-      });
-    } catch (ledgerErr) {
-      // Ledger dual-write logging without failing the webhook response
-      console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
-    }
 
     eventBus.emit(EVENTS.PAYMENT_SUCCEEDED, {
       paymentId: updated._id.toString(),
@@ -443,16 +454,10 @@ export const processRefund = async ({
   }
 
   const provider = getProvider();
-  let updated;
   try {
     if (payment.providerTransactionId && provider.refund) {
       await provider.refund(payment.providerTransactionId, refundAmount, { idempotencyKey });
     }
-
-    updated = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
-      status,
-      refundedAt: new Date(),
-    });
   } catch (providerErr) {
     // The provider call itself failed (network error, provider-side rejection, etc.) --
     // revert to 'paid' so a retry (the caller re-invoking processRefund, or an admin
@@ -467,39 +472,50 @@ export const processRefund = async ({
     throw providerErr;
   }
 
-  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
-  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
-  const paymentIdStr = (updated._id || updated.id || payment._id).toString();
+  let updated;
+  await withTransaction(async (session) => {
+    updated = await paymentRepository.transitionStatus(
+      payment._id,
+      PAYMENT_STATUS.REFUNDING,
+      {
+        status,
+        refundedAt: new Date(),
+      },
+      session
+    );
 
-  // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund)
-  try {
+    const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+    const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
+    const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
+
+    // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund) (Task S4.1, B6)
     const refundMinor = ledgerService.egpToPiastres(refundAmount);
     const sanitizedReason = (reason || 'standard').replace(/\s+/g, '_');
 
-    await ledgerService.postEntry({
-      idempotencyKey: `refund:escrow:${paymentIdStr}:${sanitizedReason}`,
-      entryType: 'ESCROW_RELEASE',
-      accountType: 'ESCROW',
-      direction: 'DEBIT',
-      amountMinor: refundMinor,
-      bookingId: bookingIdStr || null,
-      paymentId: paymentIdStr,
-      correlationId: `refund_${paymentIdStr}`,
-      notes: reason || 'Booking refund release from escrow',
-    });
-
-    await ledgerService.postEntry({
-      idempotencyKey: `refund:client:${paymentIdStr}:${sanitizedReason}`,
-      entryType: 'REFUND',
-      accountType: 'CLIENT',
-      direction: 'CREDIT',
-      amountMinor: refundMinor,
-      bookingId: bookingIdStr || null,
-      paymentId: paymentIdStr,
-      accountId: clientIdStr || null,
-      correlationId: `refund_${paymentIdStr}`,
-      notes: reason || 'Client refund credit',
-    });
+    await ledgerService.postDoubleEntry(
+      {
+        idempotencyKey: `refund:escrow:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'ESCROW_RELEASE',
+        accountType: 'ESCROW',
+        amountMinor: refundMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Booking refund release from escrow',
+      },
+      {
+        idempotencyKey: `refund:client:${paymentIdStr}:${sanitizedReason}`,
+        entryType: 'REFUND',
+        accountType: 'CLIENT',
+        amountMinor: refundMinor,
+        bookingId: bookingIdStr || null,
+        paymentId: paymentIdStr,
+        accountId: clientIdStr || null,
+        correlationId: `refund_${paymentIdStr}`,
+        notes: reason || 'Client refund credit',
+      },
+      session
+    );
 
     // Recognise whatever the platform actually keeps as revenue THE MOMENT it is
     // retained, not only if/when the booking later happens to reach a payout batch.
@@ -514,33 +530,35 @@ export const processRefund = async ({
     // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X20.
     if (platformFeeAmount > 0) {
       const platformFeeMinor = ledgerService.egpToPiastres(platformFeeAmount);
-      await ledgerService.postEntry({
-        idempotencyKey: `refund:platform_fee:${paymentIdStr}:${sanitizedReason}`,
-        entryType: 'PLATFORM_FEE',
-        accountType: 'ESCROW',
-        direction: 'DEBIT',
-        amountMinor: platformFeeMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        correlationId: `refund_${paymentIdStr}`,
-        notes: reason || 'Platform fee retained on refund/cancellation',
-      });
-
-      await ledgerService.postEntry({
-        idempotencyKey: `refund:platform_fee_credit:${paymentIdStr}:${sanitizedReason}`,
-        entryType: 'PLATFORM_FEE',
-        accountType: 'PLATFORM',
-        direction: 'CREDIT',
-        amountMinor: platformFeeMinor,
-        bookingId: bookingIdStr || null,
-        paymentId: paymentIdStr,
-        correlationId: `refund_${paymentIdStr}`,
-        notes: reason || 'Platform fee revenue recognised on refund/cancellation',
-      });
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `refund:platform_fee:${paymentIdStr}:${sanitizedReason}`,
+          entryType: 'PLATFORM_FEE',
+          accountType: 'ESCROW',
+          amountMinor: platformFeeMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `refund_${paymentIdStr}`,
+          notes: reason || 'Platform fee retained on refund/cancellation',
+        },
+        {
+          idempotencyKey: `refund:platform_fee_credit:${paymentIdStr}:${sanitizedReason}`,
+          entryType: 'PLATFORM_FEE',
+          accountType: 'PLATFORM',
+          amountMinor: platformFeeMinor,
+          bookingId: bookingIdStr || null,
+          paymentId: paymentIdStr,
+          correlationId: `refund_${paymentIdStr}`,
+          notes: reason || 'Platform fee revenue recognised on refund/cancellation',
+        },
+        session
+      );
     }
-  } catch (ledgerErr) {
-    console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
-  }
+  });
+
+  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
+  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
+  const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
 
   eventBus.emit(EVENTS.PAYMENT_REFUNDED, {
     paymentId: paymentIdStr,

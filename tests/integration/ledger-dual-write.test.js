@@ -37,6 +37,10 @@ const mockBooking = {
 };
 
 const mockPostEntry = jest.fn().mockResolvedValue({});
+const mockPostDoubleEntry = jest.fn(async (debit, credit) => [
+  await mockPostEntry({ ...debit, direction: 'DEBIT' }),
+  await mockPostEntry({ ...credit, direction: 'CREDIT' }),
+]);
 const mockFindBookingById = jest.fn().mockResolvedValue(mockBooking);
 const mockFindPaymentByBookingId = jest.fn().mockResolvedValue(mockPayment);
 const mockFindPaymentById = jest.fn().mockResolvedValue(mockPayment);
@@ -51,17 +55,22 @@ const mockTransitionStatus = jest.fn().mockImplementation((id, _fromStatus, data
   return Promise.resolve(lastTransitionResult);
 });
 
+jest.unstable_mockModule('../../src/common/transaction.util.js', () => ({
+  default: async (fn) => fn({}),
+  withTransaction: async (fn) => fn({}),
+}));
+
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({
   default: {
     postEntry: mockPostEntry,
-    postDoubleEntry: jest.fn().mockResolvedValue([{}, {}]),
+    postDoubleEntry: mockPostDoubleEntry,
     egpToPiastres: (egp) => Math.round(egp * 100),
     piastresToEgp: (piastres) => piastres / 100,
     getBookingStatement: jest.fn().mockResolvedValue([]),
     getUserStatement: jest.fn().mockResolvedValue([]),
   },
   postEntry: mockPostEntry,
-  postDoubleEntry: jest.fn().mockResolvedValue([{}, {}]),
+  postDoubleEntry: mockPostDoubleEntry,
   egpToPiastres: (egp) => Math.round(egp * 100),
   piastresToEgp: (piastres) => piastres / 100,
   getBookingStatement: jest.fn().mockResolvedValue([]),

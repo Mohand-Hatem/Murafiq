@@ -3,6 +3,7 @@ import subscriptionRepository from './subscription.repository.js';
 import planRepository from './plan.repository.js';
 import subscriptionOrderRepository from './subscription-order.repository.js';
 import UsageCounter from './usage-counter.model.js';
+import { withTransaction } from '../../common/transaction.util.js';
 import * as entitlementService from './entitlement.service.js';
 import ledgerService from '../ledger/ledger.service.js';
 import userRepository from '../users/user.repository.js';
@@ -370,25 +371,15 @@ export const subscribe = async (
   // were never atomic here even though the identical admin path was already wrapped. See
   // docs/AUDIT_2026_09_FULL_SYSTEM.md finding X14.
   let updatedSubscription;
-  if (mongoose.connection?.readyState === 1) {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        updatedSubscription = await applyPlanGrant(grantArgs, session);
-      });
-    } finally {
-      session.endSession();
-    }
-  } else {
-    updatedSubscription = await applyPlanGrant(grantArgs, null);
-  }
+  await withTransaction(async (session) => {
+    updatedSubscription = await applyPlanGrant(grantArgs, session);
 
-  // Dual-write to the ledger ONLY for a payment that actually happened. This block used to
-  // run for any paid plan regardless of whether money was collected, so the free-grant path
-  // above minted matching DEBIT/CREDIT entries out of nothing -- and because they balanced,
-  // the reconciliation job saw a healthy book and never alerted.
-  if (paid && plan.priceEgp > 0) {
-    try {
+    // Dual-write to the ledger ONLY for a payment that actually happened. This block used to
+    // run for any paid plan regardless of whether money was collected, so the free-grant path
+    // above minted matching DEBIT/CREDIT entries out of nothing -- and because they balanced,
+    // the reconciliation job saw a healthy book and never alerted.
+    // Task S4.1 (B6): fail-closed atomic pair inside transaction
+    if (paid && plan.priceEgp > 0) {
       // Record what the customer was ACTUALLY charged, captured on the order at checkout --
       // not a price re-derived now. A catalogue edit between checkout and webhook would
       // otherwise book revenue the customer never paid.
@@ -400,30 +391,28 @@ export const subscribe = async (
       // retry after a failed charge) collided on the date-scoped key and was silently dropped.
       const entryScope = orderId ? orderId.toString() : subIdStr;
 
-      await ledgerService.postEntry({
-        idempotencyKey: `subscription:charge:${entryScope}`,
-        entryType: 'SUBSCRIPTION_PAYMENT',
-        accountType: 'CLIENT',
-        direction: 'DEBIT',
-        amountMinor,
-        accountId: userId.toString(),
-        correlationId: `sub_${subIdStr}`,
-        notes: `Subscription payment for ${plan.name} (${billingCycle})`,
-      });
-
-      await ledgerService.postEntry({
-        idempotencyKey: `subscription:platform:${entryScope}`,
-        entryType: 'PLATFORM_FEE',
-        accountType: 'PLATFORM',
-        direction: 'CREDIT',
-        amountMinor,
-        correlationId: `sub_${subIdStr}`,
-        notes: `Platform subscription revenue for ${plan.name}`,
-      });
-    } catch (ledgerErr) {
-      console.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `subscription:charge:${entryScope}`,
+          entryType: 'SUBSCRIPTION_PAYMENT',
+          accountType: 'CLIENT',
+          amountMinor,
+          accountId: userId.toString(),
+          correlationId: `sub_${subIdStr}`,
+          notes: `Subscription payment for ${plan.name} (${billingCycle})`,
+        },
+        {
+          idempotencyKey: `subscription:platform:${entryScope}`,
+          entryType: 'PLATFORM_FEE',
+          accountType: 'PLATFORM',
+          amountMinor,
+          correlationId: `sub_${subIdStr}`,
+          notes: `Platform subscription revenue for ${plan.name}`,
+        },
+        session
+      );
     }
-  }
+  });
 
   eventBus.emit(EVENTS.SUBSCRIPTION_ACTIVATED, {
     userId: userId.toString(),

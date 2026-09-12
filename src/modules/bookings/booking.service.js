@@ -696,13 +696,44 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
     // must follow the tier: the unique {bookingId, reasonType} index is what makes
     // assessment idempotent, so a hardcoded type would collide across tiers.
     if (outcome.penaltyAmount > 0) {
+      const isEarlyCancel = outcome.tier === 'EARLY_STYLIST_CANCEL';
+      const penaltyPct = isEarlyCancel
+        ? CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE
+        : CANCELLATION_POLICY.LATE_STYLIST_PENALTY_PERCENTAGE;
+
       await penaltyRepository.create(
         {
           stylistId: booking.stylistId._id || booking.stylistId,
           bookingId: booking._id,
-          reasonType: outcome.tier === 'EARLY_STYLIST_CANCEL' ? 'EARLY_CANCEL' : 'LATE_CANCEL',
+          reasonType: isEarlyCancel ? 'EARLY_CANCEL' : 'LATE_CANCEL',
           assessedMinor: egpToPiastres(outcome.penaltyAmount),
           status: 'OUTSTANDING',
+        },
+        session
+      );
+
+      // Paired: the platform recognises this as revenue from the moment the penalty is
+      // assessed (accrual basis), not only if/when it's later collected via a payout
+      // deduction. In-transaction dual-write ensures atomicity (Task S4.1, B6).
+      await ledgerService.postDoubleEntry(
+        {
+          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:stylist:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'STYLIST',
+          accountId: (booking.stylistId._id || booking.stylistId).toString(),
+          amountMinor: egpToPiastres(outcome.penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `Stylist cancellation penalty (${penaltyPct}%) for booking #${bookingId}`,
+        },
+        {
+          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:platform:${bookingId}`,
+          entryType: 'PENALTY_ASSESSMENT',
+          accountType: 'PLATFORM',
+          amountMinor: egpToPiastres(outcome.penaltyAmount),
+          bookingId,
+          correlationId: `booking_${bookingId}`,
+          notes: `Stylist cancellation penalty (${penaltyPct}%) recognised against booking #${bookingId}`,
         },
         session
       );
@@ -741,45 +772,6 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
         refundFailedAt: new Date(),
       });
       logger.error(`Refund failed after cancellation for booking ${bookingId}: ${refundErr.message}`);
-    }
-  }
-
-  // Dual-write penalty to ledger if assessed.
-  // entryType must be 'PENALTY_ASSESSMENT' — 'PENALTY' is not in the LedgerEntry enum,
-  // so it failed validation and was swallowed by this catch on every cancellation.
-  if (outcome.penaltyAmount > 0) {
-    const isEarlyCancel = outcome.tier === 'EARLY_STYLIST_CANCEL';
-    const penaltyPct = isEarlyCancel
-      ? CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE
-      : CANCELLATION_POLICY.LATE_STYLIST_PENALTY_PERCENTAGE;
-    try {
-      // Paired: the platform recognises this as revenue from the moment the penalty is
-      // assessed (accrual basis), not only if/when it's later collected via a payout
-      // deduction. Previously single-sided (DEBIT STYLIST only), which permanently
-      // unbalanced this booking's ledger entries in the nightly reconciliation sweep.
-      await ledgerService.postDoubleEntry(
-        {
-          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:stylist:${bookingId}`,
-          entryType: 'PENALTY_ASSESSMENT',
-          accountType: 'STYLIST',
-          accountId: (booking.stylistId._id || booking.stylistId).toString(),
-          amountMinor: egpToPiastres(outcome.penaltyAmount),
-          bookingId,
-          correlationId: `booking_${bookingId}`,
-          notes: `Stylist cancellation penalty (${penaltyPct}%) for booking #${bookingId}`,
-        },
-        {
-          idempotencyKey: `penalty:${isEarlyCancel ? 'early' : 'late'}_cancel:platform:${bookingId}`,
-          entryType: 'PENALTY_ASSESSMENT',
-          accountType: 'PLATFORM',
-          amountMinor: egpToPiastres(outcome.penaltyAmount),
-          bookingId,
-          correlationId: `booking_${bookingId}`,
-          notes: `Stylist cancellation penalty (${penaltyPct}%) recognised against booking #${bookingId}`,
-        }
-      );
-    } catch (ledgerErr) {
-      logger.error(`[Ledger Dual-Write Warning] ${ledgerErr.message}`);
     }
   }
 
