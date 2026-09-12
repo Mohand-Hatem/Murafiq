@@ -16,6 +16,7 @@
     "seed:admin": "cross-env NODE_ENV=development node scripts/seed-admin.js",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",
     "validate:openapi": "cross-env NODE_ENV=development node scripts/validate-openapi.js",
+    "predeploy": "node scripts/check-duplicate-active-subscriptions.js",
     "verify": "npm run lint && npm run validate:openapi && npm test"
   },
   "keywords": [],

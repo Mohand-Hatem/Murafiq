@@ -67,12 +67,15 @@ Before switching traffic to production, verify every item on this checklist:
 - [ ] **Seed Initial Admin:** Run `npm run seed:admin` once to bootstrap the platform superuser.
 - [ ] **Seed Subscription Plan Catalogue:** Run `node scripts/seed-plans.js` once per database to populate canonical client and stylist plans. Without this step, `GET /subscriptions/plans` returns empty and every checkout 404s.
 - [ ] **Verify Reverse Proxy Configuration:** Ensure `app.set('trust proxy', 1)` is enabled (default in `src/app.js`) and Nginx passes `X-Forwarded-For` and `X-Forwarded-Proto` for accurate rate limiting.
-- [ ] **Protect Swagger Documentation:** In production (`NODE_ENV=production`), `/api/docs` automatically requires admin authentication via `authMiddleware` + `restrictTo('admin')`.
+- [ ] **Run Predeploy Checks:** Execute `npm run predeploy` (`scripts/check-duplicate-active-subscriptions.js`) to verify no user holds duplicate active subscriptions before index creation.
 - [ ] **Ensure MongoDB Replica Set:** Ensure production MongoDB is deployed as a replica set with oplog enabled for multi-document transaction support.
 
 ---
 
 ## 4. Maintenance & Seeding Scripts
+
+- **`npm run predeploy` / `node scripts/check-duplicate-active-subscriptions.js` (Required Deploy Gate):**
+  Pre-flight check for the partial unique index on Subscription `{ userId }` where `status: 'active'`. Confirms zero users have duplicate active subscriptions before deployment. Fails with exit code 1 if duplicates exist.
 
 - **`node scripts/seed-plans.js` (Required / Production-Safe):**
   Seeds and updates canonical subscription tiers (client and stylist) and entitlements. Also safely migrates legacy `.yearly` rows to the unified pricing schema. Idempotent and safe to run on live environments.
@@ -83,6 +86,11 @@ Before switching traffic to production, verify every item on this checklist:
 ---
 
 ## 5. Background Jobs & Database Invariants
+
+### Pre-Sweep Indexes (Task S6.4)
+- `Booking`: `{ 'noShowDetails.reportedAt': 1, 'noShowDetails.respondedAt': 1, status: 1 }` with `{ background: true }` to eliminate COLLSCAN during the 15-minute `no-show-resolution` sweep.
+- `Offer`: `{ status: 1, expiresAt: 1 }` with `{ background: true }` to index the 5-minute `offer-expiry` sweep.
+- `Request`: `{ status: 1, autoPauseAt: 1 }` already indexes the 5-minute `request-autopause` sweep.
 
 ### OTP Expiry Safety Invariant (CRITICAL)
 - **NEVER add a MongoDB TTL index on `User.otpExpiresAt`.** In MongoDB, a TTL index deletes the **entire containing document**. Adding a TTL index to `otpExpiresAt` on the `User` collection would delete user accounts 10 minutes after receiving an OTP.

@@ -186,6 +186,33 @@ describe('Cron jobs are safe under the documented deployment model', () => {
   });
 });
 
+describe('Sweep indexes are declared for background creation (Task S6.4)', () => {
+  it('Booking schema defines background index for no-show sweep', async () => {
+    const { default: Booking } = await import('../../src/modules/bookings/booking.model.js');
+    const indexes = Booking.schema.indexes();
+    const match = indexes.find(
+      ([fields, options]) =>
+        fields['noShowDetails.reportedAt'] === 1 &&
+        fields['noShowDetails.respondedAt'] === 1 &&
+        fields.status === 1 &&
+        options?.background === true
+    );
+    expect(match).toBeDefined();
+  });
+
+  it('Offer schema defines background index for offer-expiry sweep', async () => {
+    const { default: Offer } = await import('../../src/modules/offers/offer.model.js');
+    const indexes = Offer.schema.indexes();
+    const match = indexes.find(
+      ([fields, options]) =>
+        fields.status === 1 &&
+        fields.expiresAt === 1 &&
+        options?.background === true
+    );
+    expect(match).toBeDefined();
+  });
+});
+
 describe('Booking participant checks state admin policy explicitly', () => {
   it('every participant check states its admin policy explicitly', () => {
     const files = [

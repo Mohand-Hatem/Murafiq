@@ -131,6 +131,10 @@ bookingSchema.index({
   'noShowDetails.isResuming': 1,
 });
 bookingSchema.index({ 'noShowDetails.settlementExhausted': 1 }, { sparse: true });
+bookingSchema.index(
+  { 'noShowDetails.reportedAt': 1, 'noShowDetails.respondedAt': 1, status: 1 },
+  { background: true }
+);
 
 const Booking = mongoose.model('Booking', bookingSchema);
 
