@@ -80,3 +80,12 @@ Before switching traffic to production, verify every item on this checklist:
 - **`node scripts/reset-subscription-test-data.js` (DEVELOPMENT / TEST ONLY):**
   Cleans up unbacked subscription test data, reverts unpaid test accounts to free tier, and clears test checkout orders and ledger dual-writes. **Hard-refuses to run** when `NODE_ENV=production` (throws immediately to protect immutable accounting records). In production, accounting errors must be corrected with offsetting journal entries, never deletions.
 
+---
+
+## 5. Background Jobs & Database Invariants
+
+### OTP Expiry Safety Invariant (CRITICAL)
+- **NEVER add a MongoDB TTL index on `User.otpExpiresAt`.** In MongoDB, a TTL index deletes the **entire containing document**. Adding a TTL index to `otpExpiresAt` on the `User` collection would delete user accounts 10 minutes after receiving an OTP.
+- OTP expiration is enforced strictly at point of use (`auth.service.js:132`, `:403` checks `user.otpExpiresAt.getTime() < Date.now()`), and attempts are reset on every reissue (`:106`, `:168`, `:391`). The legacy `otp-cleanup.cron.js` sweep has been removed (Task S6.2) with no replacement needed.
+
+
