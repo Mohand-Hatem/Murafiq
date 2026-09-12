@@ -234,17 +234,21 @@ const PAYOUT_ELIGIBILITY = (cutoffDate) => ({
   ],
 });
 
-export const findEligibleForPayout = async (stylistId, cutoffDate) => {
-  return Booking.find({ stylistId, ...PAYOUT_ELIGIBILITY(cutoffDate) }).select(
+export const findEligibleForPayout = async (stylistId, cutoffDate, session = null) => {
+  const query = Booking.find({ stylistId, ...PAYOUT_ELIGIBILITY(cutoffDate) }).select(
     '_id price scheduledDate'
   );
+  if (session) query.session(session);
+  return query.exec();
 };
 
 // Same eligibility rule as above, across all stylists — backs the admin pending-balances
 // summary. Shares PAYOUT_ELIGIBILITY deliberately: if these two ever diverge, the admin
 // dashboard shows a balance that the batch job will not actually pay.
-export const findCompletedUnpaidBefore = async (cutoffDate) => {
-  return Booking.find(PAYOUT_ELIGIBILITY(cutoffDate)).select('_id stylistId');
+export const findCompletedUnpaidBefore = async (cutoffDate, session = null) => {
+  const query = Booking.find(PAYOUT_ELIGIBILITY(cutoffDate)).select('_id stylistId');
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const updateManyPayoutStatus = async (bookingIds, data, session = null) => {

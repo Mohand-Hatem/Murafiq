@@ -82,11 +82,13 @@ export const findClientHistory = async (clientId, queryString = {}) => {
 // Used by payouts (cross-module): payments backing a set of bookings, restricted to statuses that
 // still carry a payable stylistPayoutAmount (paid / partially_refunded). Keeps the payouts module
 // off the raw Payment model.
-export const findByBookingIds = async (bookingIds, statuses) => {
-  return Payment.find({
+export const findByBookingIds = async (bookingIds, statuses, session = null) => {
+  const query = Payment.find({
     bookingId: { $in: bookingIds },
     status: { $in: statuses },
   });
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const getRevenueStatsThisMonth = async (startDate, endDate) => {

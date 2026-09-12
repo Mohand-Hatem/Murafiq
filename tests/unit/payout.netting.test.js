@@ -8,6 +8,11 @@ const mockStylistFindByUserId = jest.fn();
 const mockBookingUpdateManyPayoutStatus = jest.fn();
 const mockLedgerPostEntry = jest.fn();
 
+jest.unstable_mockModule('../../src/common/transaction.util.js', () => ({
+  default: async (fn) => fn(null),
+  withTransaction: async (fn) => fn(null),
+}));
+
 jest.unstable_mockModule('../../src/modules/payouts/payout.repository.js', () => ({
   default: {
     create: mockPayoutCreate,

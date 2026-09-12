@@ -161,18 +161,9 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
     // succeed or all roll back together -- previously three independent, un-sessioned
     // writes, so a failure after redemption (e.g. the fee-validation crash this comment
     // used to sit next to) burned the coupon with no discount ever applied.
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await applyCoupon(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await applyCoupon(null);
-    }
+    await withTransaction(async (session) => {
+      await applyCoupon(session);
+    });
   }
 
   const provider = getProvider();

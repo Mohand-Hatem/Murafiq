@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import payoutRepository, { PAYABLE_PAYMENT_STATUSES } from './payout.repository.js';
+import { withTransaction } from '../../common/transaction.util.js';
 import stylistRepository from '../stylists/stylist.repository.js';
 import bookingRepository from '../bookings/booking.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
@@ -79,18 +80,21 @@ class PayoutService {
 
   async createBatchPayouts(adminUserId, { stylistIds, holdWindowHours = DISPUTE_WINDOW_HOURS }) {
     const cutoffDate = new Date(Date.now() - holdWindowHours * 3600 * 1000);
-    const createdPayouts = [];
+    let createdPayouts = [];
 
-    const work = async (session) => {
+    await withTransaction(async (session) => {
+      // M5: reset accumulator inside work callback on any transaction retry
+      createdPayouts = [];
       for (const stylistId of stylistIds) {
-        const profile = await stylistRepository.findByUserId(stylistId);
+        const profile = await stylistRepository.findByUserId(stylistId, session);
         if (!profile || !profile.payoutAccount || !profile.payoutAccount.method) {
           throw new ApiError(400, `Stylist ${stylistId} has no configured payout account`);
         }
 
         const { bookings, totalPayoutAmount } = await payoutRepository.getEligibleBookingsForStylist(
           stylistId,
-          cutoffDate
+          cutoffDate,
+          session
         );
 
         if (bookings.length === 0 || totalPayoutAmount <= 0) {
@@ -161,20 +165,7 @@ class PayoutService {
 
         createdPayouts.push(payout);
       }
-    };
-
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    });
 
     for (const payout of createdPayouts) {
       eventBus.emit(EVENTS.PAYOUT_CREATED, {
@@ -258,7 +249,8 @@ class PayoutService {
 
       const payments = await paymentRepository.findByBookingIds(
         payout.bookingIds,
-        PAYABLE_PAYMENT_STATUSES
+        PAYABLE_PAYMENT_STATUSES,
+        session
       );
       const paymentByBookingId = new Map(
         payments.map((p) => [(p.bookingId._id || p.bookingId).toString(), p])
@@ -369,18 +361,9 @@ class PayoutService {
       // / .status), together with `payout.deductions[]` -- both untouched by this change.
     };
 
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    await withTransaction(async (session) => {
+      await work(session);
+    });
 
     eventBus.emit(EVENTS.PAYOUT_PAID, {
       payoutId: payout._id.toString(),
@@ -434,18 +417,9 @@ class PayoutService {
       }
     };
 
-    if (mongoose.connection?.readyState === 1) {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await work(session);
-        });
-      } finally {
-        session.endSession();
-      }
-    } else {
-      await work(null);
-    }
+    await withTransaction(async (session) => {
+      await work(session);
+    });
 
     eventBus.emit(EVENTS.PAYOUT_FAILED, {
       payoutId: payout._id.toString(),

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import offerRepository from './offer.repository.js';
+import { withTransaction } from '../../common/transaction.util.js';
 import requestRepository from '../requests/request.repository.js';
 import userRepository from '../users/user.repository.js';
 import bookingService from '../bookings/booking.service.js';
@@ -166,30 +167,9 @@ const acceptOfferOnce = async (clientUser, offerId) => {
     throw new ApiError(400, 'Offer has expired');
   }
 
-  let session;
-  try {
-    if (mongoose.connection?.readyState === 1) {
-      session = await mongoose.startSession();
-      session.startTransaction();
-      const bookingDoc = await bookingService.createBookingFromOffer(offerId, session);
-      await session.commitTransaction();
-      return bookingDoc;
-    }
-    return await bookingService.createBookingFromOffer(offerId, null);
-  } catch (err) {
-    if (session) {
-      try {
-        await session.abortTransaction();
-      } catch (_) {}
-    }
-    throw err;
-  } finally {
-    if (session) {
-      try {
-        session.endSession();
-      } catch (_) {}
-    }
-  }
+  return await withTransaction(async (session) => {
+    return await bookingService.createBookingFromOffer(offerId, session);
+  });
 };
 
 export const acceptOffer = async (clientUser, offerId) => {

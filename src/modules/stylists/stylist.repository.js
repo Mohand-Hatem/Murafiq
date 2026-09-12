@@ -5,17 +5,19 @@ export const create = async (data) => {
   return profile.populate('userId', 'name profileImage verification accountStatus');
 };
 
-export const findByUserId = async (userId) => {
+export const findByUserId = async (userId, session = null) => {
   // Guard against an unscoped query: a falsy userId must never be silently
   // dropped into an empty Mongoose filter (findOne({userId: undefined}) => {}),
   // which would match an arbitrary document instead of failing closed.
   if (!userId) {
     throw new Error('findByUserId requires a userId');
   }
-  return StylistProfile.findOne({ userId }).populate(
+  const query = StylistProfile.findOne({ userId }).populate(
     'userId',
     'name profileImage verification accountStatus'
   );
+  if (session) query.session(session);
+  return query.exec();
 };
 
 export const findById = async (id) => {

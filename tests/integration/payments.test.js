@@ -65,6 +65,11 @@ const mockFindClientHistory = jest.fn().mockResolvedValue({
   meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
 });
 
+jest.unstable_mockModule('../../src/common/transaction.util.js', () => ({
+  default: async (fn) => fn(null),
+  withTransaction: async (fn) => fn(null),
+}));
+
 jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
   default: {
     findById: jest.fn().mockResolvedValue({

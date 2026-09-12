@@ -767,18 +767,9 @@ export const adminGrantSubscription = async (
   // replacement invents a transition that never happened, and a replacement without the
   // snapshot destroys the plan it overwrote.
   let subscription;
-  if (mongoose.connection?.readyState === 1) {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        subscription = await applyPlanGrant(grantArgs, session);
-      });
-    } finally {
-      session.endSession();
-    }
-  } else {
-    subscription = await applyPlanGrant(grantArgs, null);
-  }
+  await withTransaction(async (session) => {
+    subscription = await applyPlanGrant(grantArgs, session);
+  });
 
   // Deliberately NOT SUBSCRIPTION_ACTIVATED: that event means a customer paid, and the audit
   // trail must keep a comp distinguishable from revenue.

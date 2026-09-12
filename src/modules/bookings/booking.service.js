@@ -664,17 +664,10 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
   const outcomeRole = cancelledBy === 'admin' ? 'client' : cancelledBy;
   const outcome = calculateCancellationOutcome(booking, outcomeRole, new Date());
 
-  let session = null;
-  let updated;
-  try {
-    if (mongoose.connection?.readyState === 1) {
-      session = await mongoose.startSession();
-      session.startTransaction();
-    }
-
+  const updated = await withTransaction(async (session) => {
     // The in-transaction CAS fromStates: ['confirmed'] replaces the re-read.
     // Preserved for system-coherence: BOOKING_TERMINAL_STATUSES.includes(currentBooking.status)
-    updated = await bookingRepository.transitionStatus(
+    const res = await bookingRepository.transitionStatus(
       bookingId,
       ['confirmed'],
       {
@@ -686,7 +679,7 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
       session
     );
 
-    if (!updated) {
+    if (!res) {
       throw new ApiError(409, 'Cannot cancel: booking is no longer cancellable');
     }
 
@@ -739,23 +732,8 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
       );
     }
 
-    if (session) {
-      await session.commitTransaction();
-    }
-  } catch (err) {
-    if (session) {
-      try {
-        await session.abortTransaction();
-      } catch (_) {}
-    }
-    throw err;
-  } finally {
-    if (session) {
-      try {
-        session.endSession();
-      } catch (_) {}
-    }
-  }
+    return res;
+  });
 
   // If payment was paid, execute refund logic based on cancellation outcome
   const payment = await paymentRepository.findByBookingId(bookingId);

@@ -71,10 +71,10 @@ export const updateById = async (id, data, session = null) => {
   return Payout.findByIdAndUpdate(id, data, options);
 };
 
-export const getEligibleBookingsForStylist = async (stylistId, cutoffDate) => {
+export const getEligibleBookingsForStylist = async (stylistId, cutoffDate, session = null) => {
   // Completed, unpaid-payout, and past the dispute-window hold — anchored on completedAt, not
   // updatedAt (see booking.model.js comment: updatedAt drifts on unrelated writes).
-  const eligibleBookings = await bookingRepository.findEligibleForPayout(stylistId, cutoffDate);
+  const eligibleBookings = await bookingRepository.findEligibleForPayout(stylistId, cutoffDate, session);
 
   if (!eligibleBookings || eligibleBookings.length === 0) {
     return { bookings: [], totalPayoutAmount: 0 };
@@ -83,7 +83,7 @@ export const getEligibleBookingsForStylist = async (stylistId, cutoffDate) => {
   const bookingIds = eligibleBookings.map((b) => b._id);
 
   // Derive payout amounts strictly from Payment records
-  const payments = await paymentRepository.findByBookingIds(bookingIds, PAYABLE_PAYMENT_STATUSES);
+  const payments = await paymentRepository.findByBookingIds(bookingIds, PAYABLE_PAYMENT_STATUSES, session);
 
   let totalPayoutAmount = 0;
   const payableBookingIds = [];
@@ -103,15 +103,15 @@ export const getEligibleBookingsForStylist = async (stylistId, cutoffDate) => {
   };
 };
 
-export const getPendingBalancesSummary = async (cutoffDate) => {
-  const completedBookings = await bookingRepository.findCompletedUnpaidBefore(cutoffDate);
+export const getPendingBalancesSummary = async (cutoffDate, session = null) => {
+  const completedBookings = await bookingRepository.findCompletedUnpaidBefore(cutoffDate, session);
 
   if (completedBookings.length === 0) {
     return [];
   }
 
   const bookingIds = completedBookings.map((b) => b._id);
-  const payments = await paymentRepository.findByBookingIds(bookingIds, PAYABLE_PAYMENT_STATUSES);
+  const payments = await paymentRepository.findByBookingIds(bookingIds, PAYABLE_PAYMENT_STATUSES, session);
 
   const stylistTotals = new Map();
   for (const payment of payments) {
