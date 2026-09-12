@@ -67,9 +67,9 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - Payments: provider is env-switched (`PAYMENT_PROVIDER=mock|paymob`) — never assume
   which is active without checking.
 - Subscriptions (`src/modules/subscriptions/`): Fully built, tested, and live. Checkout via Paymob (`POST /checkout`), free-tier switch/downgrade via `POST /subscribe` (returns 402 on paid plans), order polling via `GET /orders/:orderId`, verified Paymob webhook grants plans, no auto-renewal. **Admin manual grants** (`POST /admin/users/:userId/subscription`) are a SEPARATE, non-payment path: they share the grant primitive `applyPlanGrant()` so entitlements are identical, but create no Payment, no SubscriptionOrder and no ledger entry. Never add a ledger write there. One active Subscription per user is enforced by a partial unique index — write plan changes through `replaceActivePlanCAS`, not `updateById`.
-- Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push), *not*
-  Socket.io/MongoDB. Socket.io (from Phase 0) is used only for the separate Mongo-
-  backed Notification system's realtime delivery — don't conflate the two.
+- Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push). Notifications
+  are persisted in MongoDB and pushed via FCM. There is no Socket.io server layer in
+  this project (Decision P7).
 - AI module (`src/modules/ai/`): **empty except `.gitkeep`.** There is no `/api/v1/ai`
   route at all — it returns `404`, not `501`. The design is specified in
   `docs/PHASE_15_AI_SKELETON.md` (overview) and built via `PHASE_15A`–`PHASE_15E`.

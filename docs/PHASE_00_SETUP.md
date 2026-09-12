@@ -125,7 +125,7 @@ Mount this before `routes` so it's live even with zero business routes yet (the 
 Separate transports: console (dev), `logs/error.log` (error level), `logs/combined.log` (all levels). Morgan streams HTTP logs into Winston.
 
 ### 12. `server.js`
-Connects DB → starts HTTP server → attaches Socket.io (bootstrap only, no handler logic yet — this instance is used for the Phase 7 **notifications** system only; chat realtime runs on Firebase, not this socket server) → graceful shutdown handlers (`SIGTERM`, `unhandledRejection`).
+Connects DB → starts HTTP server (chat realtime runs on Firebase Firestore; push notifications delivered via FCM and persisted in MongoDB — no Socket.io server layer per Product Decision P7) → graceful shutdown handlers (`SIGTERM`, `unhandledRejection`).
 
 ### 13. Admin Bootstrap & MongoDB Replica Set for Local Dev
 For local development with MongoDB transactions (used in Phase 5 and Phase 4 offer acceptance), run a single-node replica set:

@@ -26,7 +26,7 @@ const safetyReportSchema = new Schema({
 - `POST /safety/sos` — body: `{ bookingId, location }`. Fires immediately: creates the report **and** emits a high-priority notification straight to admin (bypass the normal notification queue — this should be near-instant).
 - `POST /safety/report` — non-urgent report with `description`, reviewed by admin later (surfaced in Phase 10's admin module).
 - `PATCH /bookings/:id/live-tracking` — toggles `liveTrackingEnabled` on the booking. This field is defined in Phase 5's `booking.model.js` (`liveTrackingEnabled: { type: Boolean, default: false }`) and is only activatable for bookings with status `in-progress`.
-- Live location updates while tracking is enabled: piggyback on the same Firestore conversation document from Phase 7's chat system — write to `conversations/{bookingId}/liveLocation` (`{ lat, lng, updatedAt }`), scoped to the same participants and enforced by the same Security Rules already protecting that conversation. No separate infrastructure — reuses the chat module's Firestore setup instead of a Socket.io namespace.
+- Live location updates while tracking is enabled: piggyback on the same Firestore conversation document from Phase 7's chat system — write to `conversations/{bookingId}/liveLocation` (`{ lat, lng, updatedAt }`), scoped to the same participants and enforced by the same Security Rules already protecting that conversation. No separate infrastructure — reuses the chat module's Firestore setup (no Socket.io server layer).
 
 ### 3. Admin surface
 Add to `admin.controller.js` (Phase 10): `GET /admin/safety-reports?status=open`, `PATCH /admin/safety-reports/:id/resolve`.

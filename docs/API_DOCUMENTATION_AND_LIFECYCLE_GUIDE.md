@@ -263,7 +263,7 @@ This document breaks down:
 
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| POST | /chat/token | Authenticated | Mint secure Firebase / WebSocket authentication token for real-time messaging. |
+| POST | /chat/token | Authenticated | Mint secure Firebase authentication token for real-time messaging. |
 | GET | /chat/:conversationId/messages | Authenticated | Fetch paginated chat history for an active booking/request conversation. |
 | POST | /chat/:conversationId/messages | Authenticated | Send message (automatically passed through real-time safety scanner). |
 | POST | /chat/:conversationId/report | Authenticated | Report an abusive message for operator/admin review. |

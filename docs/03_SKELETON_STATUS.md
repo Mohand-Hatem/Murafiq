@@ -333,7 +333,7 @@ key above). All are now present in `.env.example`.
 | FCM push (`notification.service.js`) | ✅ Active | Multicast with stale-token pruning. |
 | In-app feed (`notification.model.js`) | ✅ Active | Read/unread tracking. |
 | Notification correctness | ✅ Active | All 31 `EVENTS.*` keys are defined; verified zero undefined-collision usages repo-wide (`HARDENING_02` Step 1 fix confirmed). |
-| Socket.io | ⛔ Effectively unused | Server boots in `server.js` but `sockets/index.js` registers **zero handlers**. Chat went to Firebase instead. → `HARDENING_04` Step 2. |
+| Socket.io | ❌ Deleted / Not used | Removed per Product Decision P7. Chat is handled by Firebase Firestore; push notifications by FCM and persisted in MongoDB. No Socket.io dependency or server exists. |
 
 ---
 

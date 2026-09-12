@@ -61,11 +61,8 @@ Verified unreferenced — each confirmed with a repo-wide grep:
 **Changes.**
 
 1. Delete `redis.config.js`. Re-add it in the phase that actually installs BullMQ.
-2. Decide on Socket.io: `01_PROJECT_STRUCTURE.md` §2 still says notifications use it, but
-   `notification.service.js` dispatches via **FCM**, and `sockets/index.js` registers no handlers.
-   Either implement the notification socket namespace (`01_PROJECT_STRUCTURE.md` §4 specifies
-   `notifications/sockets/notification.socket.js`) or **remove Socket.io entirely** and stop booting it.
-   Right now it's a running server with zero handlers. Raise as a decision.
+2. Decide on Socket.io: Resolved via Product Decision P7 (DELETE THE CLAIMS). Socket.io is
+   completely removed; chat runs on Firebase Firestore and notifications are delivered via FCM.
 3. Fix the `populate` field list in `payment.repository.js:52` to real field names.
 4. Note: `PARTIAL_PLATFORM_FEE_PERCENTAGE` was also dead — `HARDENING_02` Step 4 puts it to use. Don't
    delete it here.
@@ -217,7 +214,7 @@ It currently works, but it's load-bearing security code held together by a worka
 - [ ] `npm run lint` exits 0 with zero errors and zero warnings.
 - [ ] CI runs `npm run lint` and `npm test` on push and PR, and fails the build on either.
 - [ ] `redis.config.js` deleted; `cloudinary.config.js` genuinely imported and used.
-- [ ] Socket.io decision recorded and acted on — either handlers exist, or it's removed from `server.js` and from `01_PROJECT_STRUCTURE.md` §2.
+- [x] Socket.io decision recorded and acted on — removed entirely per Product Decision P7.
 - [ ] `payment.repository.js` populates only fields that exist on `booking.model.js`.
 - [ ] No `console.log`/`console.error` remains in `src/` (`grep -rn "console\." src/` returns nothing).
 - [ ] All event listeners register through one explicit, idempotent pattern invoked from `app.js`.

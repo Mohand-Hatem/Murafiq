@@ -77,8 +77,8 @@ the failure mode here was a status file drifting from reality with nothing forci
   (fixed by `HARDENING_03` Step 1; update the row to match what ships).
 - **"Queue/Jobs: BullMQ + Redis — Active (limited job set)"** — `bullmq` is not installed, no Redis
   client is installed, `jobs/queues/` and `jobs/workers/` are empty. Mark as **not built**.
-- **"Realtime (chat & notifications) … Active from Phase 7"** — chat is real; the Socket.io half is
-  not (see `HARDENING_04` Step 2).
+- **"Realtime (chat & notifications) … Active from Phase 7"** — chat is real (Firebase Firestore);
+  push notifications use FCM. Socket.io removed entirely per Decision P7.
 - **"Testing: Jest + Supertest (unit + integration) — Active from Phase 1"** — until `HARDENING_02`
   Step 9, the integration suites mock every repository and touch no database.
 
@@ -134,7 +134,7 @@ Comments that assert behaviour the code doesn't have — each one has misled at 
 | `booking.service.js:108` | "Non-fatal if firestore is offline during creation; **service listeners will retry/sync**" | No retry or sync mechanism exists anywhere. The error is swallowed and the conversation is simply never created. |
 | `businessDay.util.js:4` | "Returns start and end Date objects for the current calendar day **in BUSINESS_TIMEZONE ('Africa/Cairo')**" | Returns **UTC** midnight bounds. Fixed by `HARDENING_02` Step 6 — update the comment to match the fix. |
 | `firestore.rules:44` | "Participants can update message **read receipts (deliveredAt / seenAt)**" | The rule permits updating *any* field including `content` and `senderId`. Fixed by `HARDENING_02` Step 7. |
-| `sockets/index.js:3` | "Socket events will be wired in **Phase 7**" | Phase 7 shipped chat on Firebase instead. Never wired. |
+| `sockets/index.js:3` | "Socket events will be wired in **Phase 7**" | Obsolete stub deleted. Decision P7 formalized Firebase Firestore + FCM with no Socket.io layer. |
 | `03_SKELETON_STATUS.md` §2 warning block | `MAIL_TO_ADDRESS` sandbox redirect "remove before go-live" | Still active. Add it to the go-live checklist so it isn't forgotten. |
 
 ---

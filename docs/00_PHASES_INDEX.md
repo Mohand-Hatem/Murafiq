@@ -13,7 +13,7 @@ Rule for every phase: **do not start writing code for a phase until the previous
 | 4 | `PHASE_04_REQUESTS_OFFERS.md` | Requests + Offers (accept/reject/expiry) | 3 |
 | 5 | `PHASE_05_BOOKINGS_SCHEDULING.md` | Bookings (transactions) + Scheduling | 4 |
 | 6 | `PHASE_06_PAYMENTS.md` | Payments (provider pattern, mock now) | 5 |
-| 7 | `PHASE_07_CHAT_NOTIFICATIONS.md` | Realtime Chat (Firebase) + Notifications (Mongo/Socket.io) | 5 |
+| 7 | `PHASE_07_CHAT_NOTIFICATIONS.md` | Realtime Chat (Firebase Firestore) + Notifications (Mongo/FCM) | 5 |
 | 8 | `PHASE_08_REVIEWS.md` | Reviews & Ratings | 5 |
 | 9 | `PHASE_09_UPLOADS_MAIL.md` | Cloudinary Uploads + Mail (Resend) | 0 (see note ↓) |
 | 10 | `PHASE_10_AUDIT_ADMIN.md` | Audit Log + Admin module | 6, 7 |
@@ -80,7 +80,7 @@ Rule for every phase: **do not start writing code for a phase until the previous
 >
 > **Phase 0 Note (Swagger):** `swagger-jsdoc`/`swagger-ui-express` are installed and mounted at `/api/docs` in Phase 0. Phase 1's auth routes were retroactively backfilled with `@swagger` blocks in Round 2, and every phase from Phase 2 onward carries a mandatory Definition-of-Done requirement to include complete `@swagger` annotations as new routes are written. Phase 13's docs step is an audit/gap-fill pass, not the initial build.
 >
-> **Phase 7 Note (Chat):** Chat realtime runs on Firebase (Firestore + FCM via `firebase-admin`), not Socket.io/MongoDB — see `PHASE_07_CHAT_NOTIFICATIONS.md`. The Socket.io server bootstrapped in Phase 0 is used only for the separate Notifications system within the same phase file.
+> **Phase 7 Note (Chat & Notifications):** Chat realtime runs on Firebase Firestore, and push notifications are delivered via Firebase Cloud Messaging (FCM) and persisted in MongoDB. There is no Socket.io layer in this project (Product Decision P7).
 
 ## How to use this with an AI coding assistant
 
