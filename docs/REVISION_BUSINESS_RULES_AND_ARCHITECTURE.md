@@ -478,7 +478,7 @@ Counters drift the moment any status transition happens outside the increment pa
 
 ## E.5 Upgrade / downgrade
 
-- **Upgrade:** effective immediately. Charge the prorated difference for the remainder of the period. New entitlements apply on the next `consume()` call — **already-consumed usage is not refunded**, so a client who used their 1 Free request and upgrades to Pro (4/day) gets 3 more today, not 4.
+- **Upgrade:** **[Product Decision P3 — 2026-09] No proration.** Moving to a higher tier applies immediately, charges the full plan price at checkout, and resets the period start to now (`currentPeriodStart = now`, `currentPeriodEnd = now + periodDays`), matching the shipped code and `docs/MURAFIQ_PRODUCT_AND_BUSINESS_GUIDE.md:304` (resolving audit conflict M28). New entitlements apply immediately — already-consumed usage is not refunded. **Consequence:** a yearly subscriber who upgrades early forfeits the remaining paid time on the prior plan in exchange for immediate activation of the new tier for a full billing period.
 - **Downgrade:** **[REC] takes effect at `currentPeriodEnd`, never immediately.** The user paid for the higher tier through the end of the period. This also makes the over-capacity edge cases (§N) rare rather than routine.
 - **Over-capacity after downgrade** (more wardrobe photos / active requests / active offers than the new plan allows): **[REC] grandfather, block additions.** Never auto-delete user data or auto-close a live offer. The user sees `12 / 7 photos — remove 5 to add more`. Deleting a paying-customer's content on a billing event is the single fastest way to generate a chargeback.
 
