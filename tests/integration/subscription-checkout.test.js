@@ -347,6 +347,37 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
       );
     });
 
+    it('rejects the webhook when the provider-reported amount does not match the order', async () => {
+      const checkoutRes = await request(app)
+        .post('/api/v1/subscriptions/checkout')
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ planCode: 'client.pro' });
+
+      const specialReference = checkoutRes.body.data.specialReference;
+      expect(specialReference).toBeDefined();
+
+      // client.pro is 250 EGP = 25,000 piastres. Simulate provider capturing only 10,000 piastres.
+      const webhookRes = await request(app)
+        .post('/api/v1/subscriptions/webhook')
+        .send({
+          secret: 'dev_mock_webhook_secret',
+          special_reference: specialReference,
+          status: 'paid',
+          transactionId: 'tx_paymob_mismatch_1',
+          amountCents: 10000,
+        });
+
+      expect(webhookRes.status).toBe(400);
+      expect(webhookRes.body.message).toMatch(/amount mismatch/i);
+
+      // No plan grant executed
+      expect(mockReplaceActivePlanCAS).not.toHaveBeenCalled();
+      expect(mockCreateHistoryEntry).not.toHaveBeenCalled();
+
+      // Order must NOT be marked paid or processing
+      expect(mockOrderStore[specialReference].status).toBe('pending');
+    });
+
     // Regression test for docs/AUDIT_2026_09_FULL_SYSTEM.md finding X5: the order used
     // to be marked 'paid' BEFORE the grant was applied, so a grant failure left the
     // customer charged with no entitlement, and a provider retry of the same webhook hit

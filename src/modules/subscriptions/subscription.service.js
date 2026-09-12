@@ -616,6 +616,22 @@ export const handleSubscriptionWebhook = async (payload = {}, query = {}) => {
     return { order: failedOrder, success: false };
   }
 
+  // Verify captured amount matches expected order amount (mirroring payment.service.js:243-254).
+  // A mismatched webhook is logged and rejected with 400 before any CAS claim, so the order
+  // remains pending, no grant occurs, and no ledger entries are posted.
+  if (result.amountCents !== undefined && result.amountCents !== null) {
+    const expectedMinor = ledgerService.egpToPiastres(order.amountEgp);
+    if (Number(result.amountCents) !== expectedMinor) {
+      logger.error(
+        `[Subscription Webhook] Amount mismatch for order ${order._id}: expected ${expectedMinor} piastres, provider reported ${result.amountCents}.`
+      );
+      throw new ApiError(
+        400,
+        `Webhook amount mismatch: expected ${expectedMinor} piastres, received ${result.amountCents}.`
+      );
+    }
+  }
+
   const plan = await planRepository.findByCode(order.planCode);
   const userRole = plan ? plan.role : 'client';
 
