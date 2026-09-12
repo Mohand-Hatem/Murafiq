@@ -1,4 +1,4 @@
-﻿import { jest } from '@jest/globals';
+import { jest } from '@jest/globals';
 import mongoose from 'mongoose';
 import { withTransaction } from '../../src/common/transaction.util.js';
 
@@ -30,5 +30,13 @@ describe('withTransaction', () => {
     await expect(withTransaction(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
     expect(fakeSession.endSession).toHaveBeenCalledTimes(1);
     mongoose.startSession.mockRestore();
+  });
+
+  it('runs callback with null session when disconnected and not mocked', async () => {
+    const result = await withTransaction(async (session) => {
+      expect(session).toBeNull();
+      return 'fallback';
+    });
+    expect(result).toBe('fallback');
   });
 });
