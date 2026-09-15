@@ -6,45 +6,52 @@ import {
 
 describe('Wardrobe Validator Unit Tests', () => {
   describe('createWardrobeItemSchema', () => {
-    it('should validate a valid image URL', () => {
+    it('should validate a valid namespaced uploadRef', () => {
       const result = createWardrobeItemSchema.body.safeParse({
-        imageUrl: 'https://res.cloudinary.com/murafiq/image/upload/v1/wardrobe/shirt.jpg',
+        uploadRef: 'murafiq/wardrobe/507f1f77bcf86cd799439011/abc-123_uuid',
       });
       expect(result.success).toBe(true);
     });
 
-    it('should reject invalid or missing image URL', () => {
+    it('should reject missing uploadRef', () => {
       const missing = createWardrobeItemSchema.body.safeParse({});
       expect(missing.success).toBe(false);
+    });
 
-      const invalidUrl = createWardrobeItemSchema.body.safeParse({
-        imageUrl: 'not-a-valid-url',
-      });
-      expect(invalidUrl.success).toBe(false);
+    it('should reject invalid or non-namespaced uploadRef', () => {
+      const invalid = [
+        'invalid-ref',
+        'murafiq/wardrobe/not-an-objectid/item',
+        'murafiq/kyc-documents/507f1f77bcf86cd799439011/item',
+        'random/path/image.jpg',
+      ];
+
+      for (const uploadRef of invalid) {
+        const result = createWardrobeItemSchema.body.safeParse({ uploadRef });
+        expect(result.success).toBe(false);
+      }
     });
 
     it('should reject unexpected extra fields (strict mode)', () => {
       const result = createWardrobeItemSchema.body.safeParse({
-        imageUrl: 'https://res.cloudinary.com/murafiq/image/upload/v1/wardrobe/shirt.jpg',
+        uploadRef: 'murafiq/wardrobe/507f1f77bcf86cd799439011/abc-123_uuid',
         extraField: 'not allowed',
       });
       expect(result.success).toBe(false);
     });
 
-    // Regression test for the SSRF finding: the classification worker fetches this URL
-    // server-side (gemini.config.js), so any non-Cloudinary host must be rejected here,
-    // before it ever reaches the worker.
-    it('should reject non-Cloudinary URLs (SSRF guard)', () => {
+    // Regression test for SSRF: raw URLs must be rejected outright
+    it('should reject raw URLs instead of uploadRef (SSRF guard)', () => {
       const attempts = [
+        'https://res.cloudinary.com/murafiq/image/upload/v1/wardrobe/shirt.jpg',
         'http://169.254.169.254/latest/meta-data/',
         'http://localhost:6379/',
         'http://127.0.0.1:27017/',
         'https://evil.example.com/fake.jpg',
-        'https://res.cloudinary.com.evil.com/fake.jpg',
       ];
 
-      for (const imageUrl of attempts) {
-        const result = createWardrobeItemSchema.body.safeParse({ imageUrl });
+      for (const uploadRef of attempts) {
+        const result = createWardrobeItemSchema.body.safeParse({ uploadRef });
         expect(result.success).toBe(false);
       }
     });

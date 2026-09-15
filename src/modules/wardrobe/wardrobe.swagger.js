@@ -22,12 +22,12 @@
  *           schema:
  *             type: object
  *             required:
- *               - imageUrl
+ *               - uploadRef
  *             properties:
- *               imageUrl:
+ *               uploadRef:
  *                 type: string
- *                 format: uri
- *                 example: https://res.cloudinary.com/murafiq/image/upload/v1/wardrobe/my-shirt.jpg
+ *                 example: murafiq/wardrobe/507f1f77bcf86cd799439011/my-shirt-uuid
+ *                 description: Internal namespaced Cloudinary public ID obtained via POST /api/v1/uploads/wardrobe
  *     responses:
  *       201:
  *         description: Wardrobe item created and classification job queued
@@ -37,6 +37,44 @@
  *         description: Unauthorized
  *       403:
  *         description: Forbidden (client role required)
+ */
+
+/**
+ * @swagger
+ * /wardrobe/from-chat:
+ *   post:
+ *     summary: Save an uploaded garment from AI chat into the client's wardrobe
+ *     description: Promotes a temporary ai-chat garment image to the permanent wardrobe namespace, reuses classification attributes without extra vision calls, indexes into vector DB, and marks the chat message as saved.
+ *     tags: [Wardrobe]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - messageId
+ *             properties:
+ *               messageId:
+ *                 type: string
+ *                 example: 650000000000000000000001
+ *                 description: ID of the AiMessage containing the garment image to save
+ *     responses:
+ *       201:
+ *         description: Wardrobe item created from chat message
+ *       400:
+ *         description: Invalid input or message has no analyzed garment
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (client role required)
+ *       404:
+ *         description: Message not found
+ *       429:
+ *         description: Wardrobe storage limit exceeded
  */
 
 /**
@@ -69,7 +107,26 @@
  *         name: formality
  *         schema:
  *           type: string
+ *           enum: [casual, smart_casual, business, formal, loungewear, sportswear]
  *           example: casual
+ *       - in: query
+ *         name: genderPresentation
+ *         schema:
+ *           type: string
+ *           enum: [masculine, feminine, unisex]
+ *           example: unisex
+ *       - in: query
+ *         name: subcategory
+ *         schema:
+ *           type: string
+ *           example: t-shirt
+ *       - in: query
+ *         name: isArchived
+ *         schema:
+ *           type: string
+ *           enum: [true, false, all]
+ *           default: false
+ *           description: Filter archived items (default excludes archived items)
  *       - in: query
  *         name: season
  *         schema:
@@ -138,6 +195,9 @@
  *               category:
  *                 type: string
  *                 enum: [top, bottom, shoes, outerwear, accessory, dress]
+ *               subcategory:
+ *                 type: string
+ *                 example: oxford-shirt
  *               primaryColor:
  *                 type: string
  *               secondaryColors:
@@ -146,14 +206,34 @@
  *                   type: string
  *               pattern:
  *                 type: string
+ *                 enum: [solid, striped, plaid, floral, graphic, checkered, polka_dot, animal_print, other]
  *               formality:
  *                 type: string
+ *                 enum: [casual, smart_casual, business, formal, loungewear, sportswear]
  *               season:
  *                 type: array
  *                 items:
  *                   type: string
+ *                   enum: [spring, summer, fall, winter, all_season]
  *               material:
  *                 type: string
+ *                 enum: [cotton, denim, leather, wool, silk, linen, synthetic, knitwear, other]
+ *               fit:
+ *                 type: string
+ *                 enum: [slim, regular, relaxed, oversized]
+ *               colorFamily:
+ *                 type: string
+ *                 enum: [black, white, grey, navy, blue, brown, beige, green, red, pink, purple, yellow, orange, metallic, multicolor]
+ *               genderPresentation:
+ *                 type: string
+ *                 enum: [masculine, feminine, unisex]
+ *               isArchived:
+ *                 type: boolean
+ *               lastWornAt:
+ *                 type: string
+ *                 format: date-time
+ *               wearCount:
+ *                 type: integer
  *               styleTags:
  *                 type: array
  *                 items:

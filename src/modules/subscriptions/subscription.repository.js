@@ -4,6 +4,9 @@ import SubscriptionHistory from './subscription-history.model.js';
 import QueryBuilder from '../../common/query-builder/QueryBuilder.js';
 
 export const findActiveByUserId = async (userId, session = null) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return null;
+  }
   const query = Subscription.findOne({
     userId,
     status: 'active',
@@ -12,6 +15,9 @@ export const findActiveByUserId = async (userId, session = null) => {
 };
 
 export const findByUserId = async (userId) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return null;
+  }
   return await Subscription.findOne({ userId }).sort({ createdAt: -1 });
 };
 

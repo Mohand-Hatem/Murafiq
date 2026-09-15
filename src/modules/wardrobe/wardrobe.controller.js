@@ -41,3 +41,25 @@ export const deleteWardrobeItem = asyncHandler(async (req, res) => {
     data: null,
   });
 });
+
+export const saveFromChat = asyncHandler(async (req, res) => {
+  const { messageId } = req.body;
+  const userId = req.user.id || req.user._id;
+
+  const item = await wardrobeService.saveWardrobeItemFromChat(userId, messageId);
+
+  return ApiResponse.success(res, {
+    statusCode: 201,
+    message: 'Wardrobe item saved from chat successfully',
+    data: formatWardrobeItemDto(item),
+  });
+});
+
+export default {
+  createWardrobeItem,
+  getMyWardrobe,
+  getWardrobeItemById,
+  updateWardrobeItem,
+  deleteWardrobeItem,
+  saveFromChat,
+};

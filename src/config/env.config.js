@@ -72,10 +72,23 @@ const envSchema = z.object({
   // Phase 14 & 15: Upstash Vector DB REST credentials (namespaced per client)
   UPSTASH_VECTOR_REST_URL: secret('https://dev-vector.upstash.io'),
   UPSTASH_VECTOR_REST_TOKEN: secret('dev_upstash_vector_token_placeholder'),
-  // Backward compatibility forward references
-  OPENAI_API_KEY: z.string().optional(),
-  VECTOR_DB_URL: z.string().optional(),
-  VECTOR_DB_API_KEY: z.string().optional(),
+  // Phase 15D: Upstash Knowledge Vector Index (isolated from wardrobe closet index)
+  UPSTASH_KB_VECTOR_REST_URL: secret('https://dev-kb-vector.upstash.io'),
+  UPSTASH_KB_VECTOR_REST_TOKEN: secret('dev_upstash_kb_vector_token_placeholder'),
+  // Phase 15: Configurable model IDs (defaults to gemini-3.1-flash-lite for all tasks)
+  AI_MODEL_VISION: z.string().default('gemini-3.1-flash-lite'),
+  AI_MODEL_REASONING: z.string().default('gemini-3.1-flash-lite'),
+  // Phase 15F: Virtual Try-On experimental subsystem
+  AI_TRY_ON_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  AI_IMAGE_PROVIDER: z.enum(['gemini', 'mock', 'openrouter']).default('gemini'),
+  AI_MODEL_IMAGE: z.string().default('gemini-3.1-flash-lite-image'),
+  AI_IMAGE_RESOLUTION: z.enum(['512x512', '1024x1024']).default('1024x1024'),
+  OPENROUTER_API_KEY: z.string().optional(),
+  AI_TRY_ON_MODEL: z.string().default('google/gemini-3.1-flash-lite-image'),
+  AI_TRY_ON_TIMEOUT_MS: z.coerce.number().default(60000),
   // Moderation enforcement switch (see moderation.service.js scanAndEnforce). This field
   // was previously read from `env.MODERATION_MODE` with no schema entry -- Zod's default
   // object parsing strips any key not declared here, so the read was permanently
@@ -100,6 +113,14 @@ if (parsed.data.NODE_ENV === 'production') {
   const placeholders = {
     JWT_ACCESS_SECRET: 'dev_access_secret_change_me_in_prod',
     JWT_REFRESH_SECRET: 'dev_refresh_secret_change_me_in_prod',
+    FIREBASE_PRIVATE_KEY: 'dev_firebase_private_key_change_me_in_prod',
+    GEMINI_API_KEY: 'dev_gemini_api_key_placeholder',
+    UPSTASH_VECTOR_REST_URL: 'https://dev-vector.upstash.io',
+    UPSTASH_VECTOR_REST_TOKEN: 'dev_upstash_vector_token_placeholder',
+    PAYMOB_API_KEY: 'paymob_legacy_api_key_placeholder',
+    PAYMOB_SECRET_KEY: 'sk_test_placeholder',
+    PAYMOB_PUBLIC_KEY: 'pk_test_placeholder',
+    PAYMOB_HMAC_SECRET: 'dev_hmac_placeholder',
   };
   const stillPlaceholder = Object.entries(placeholders).filter(
     ([key, value]) => parsed.data[key] === value
@@ -108,7 +129,7 @@ if (parsed.data.NODE_ENV === 'production') {
     console.error(
       `❌ Refusing to start in production with placeholder value(s) for: ${stillPlaceholder
         .map(([key]) => key)
-        .join(', ')}. Set a real secret before deploying.`
+        .join(', ')}. Set real secrets in your production environment before deploying.`
     );
     process.exit(1);
   }

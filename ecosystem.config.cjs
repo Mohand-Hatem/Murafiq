@@ -37,5 +37,39 @@ module.exports = {
       // it escalates to SIGKILL.
       kill_timeout: 12000,
     },
+    {
+      name: 'murafiq-worker-wardrobe',
+      script: 'src/jobs/workers/wardrobe-worker.runner.js',
+      exec_mode: 'fork',
+      instances: 1,
+      env: {
+        NODE_ENV: 'development',
+      },
+      env_production: {
+        NODE_ENV: 'production',
+      },
+      max_memory_restart: '512M',
+      error_file: 'logs/pm2-wardrobe-worker-error.log',
+      out_file: 'logs/pm2-wardrobe-worker-out.log',
+      time: true,
+      kill_timeout: 12000,
+    },
+    {
+      name: 'murafiq-worker-tryon',
+      script: 'src/jobs/workers/tryon-worker.runner.js',
+      exec_mode: 'fork',
+      instances: 1,
+      env: {
+        NODE_ENV: 'development',
+      },
+      env_production: {
+        NODE_ENV: 'production',
+      },
+      max_memory_restart: '512M',
+      error_file: 'logs/pm2-tryon-worker-error.log',
+      out_file: 'logs/pm2-tryon-worker-out.log',
+      time: true,
+      kill_timeout: 12000,
+    },
   ],
 };

@@ -201,15 +201,15 @@
 
 ---
 
-## Wardrobe (`/wardrobe`) — 🔲 Planned (Phase 14)
+## Wardrobe (`/wardrobe`) — ✅ Built (Phase 14 + HARDENING_08)
 
 | Method | Route | Auth | Status | Description |
 |---|---|---|---|---|
-| POST | `/wardrobe` | 👤 | 🔲 Planned | Add closet photo with async AI embedding |
-| GET | `/wardrobe/mine` | 👤 | 🔲 Planned | Client's wardrobe catalog with filters |
-| GET | `/wardrobe/:id` | 👤 | 🔲 Planned | Wardrobe item detail |
-| PATCH | `/wardrobe/:id` | 👤 | 🔲 Planned | Edit item category, color, style tags |
-| DELETE | `/wardrobe/:id` | 👤 | 🔲 Planned | Delete wardrobe item and vector embedding |
+| POST | `/wardrobe` | 👤 | ✅ Built | Add closet photo with `{ uploadRef }` and async AI classification & embedding |
+| GET | `/wardrobe/mine` | 👤 | ✅ Built | Client's wardrobe catalog with filters (`category`, `formality`, `genderPresentation`, `isArchived`, etc.) |
+| GET | `/wardrobe/:id` | 👤 | ✅ Built | Wardrobe item detail |
+| PATCH | `/wardrobe/:id` | 👤 | ✅ Built | Edit item category, color, subcategory, fit, formality, tags, archive status |
+| DELETE | `/wardrobe/:id` | 👤 | ✅ Built | Delete wardrobe item and vector embedding |
 
 ---
 

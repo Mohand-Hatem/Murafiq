@@ -5,6 +5,7 @@ import geminiService from '../../config/gemini.config.js';
 import vectorConfig from '../../config/vector.config.js';
 import wardrobeRepo from '../../modules/wardrobe/wardrobe.repository.js';
 import { CLASSIFICATION_STATUS } from '../../modules/wardrobe/wardrobe-item.model.js';
+import { normalizeGarmentAttributes } from '../../modules/wardrobe/wardrobe-attribute.normalizer.js';
 import { logger } from '../../config/logger.config.js';
 
 let wardrobeWorker = null;
@@ -18,38 +19,52 @@ export const processWardrobeJob = async (job) => {
 
   try {
     // 1. Call Gemini Flash Vision model
-    const classified = await geminiService.classifyClothingImage(imageUrl);
+    const rawClassified = await geminiService.classifyClothingImage(imageUrl);
+    const { normalized, needsReview } = normalizeGarmentAttributes(rawClassified);
 
     // 2. Build semantic description and upsert into Upstash Vector namespace
-    const aiDescription = classified.aiDescription ||
-      `${classified.primaryColor || ''} ${classified.material || ''} ${classified.category || 'clothing'}`.trim();
+    const aiDescription = normalized.aiDescription ||
+      `${normalized.primaryColor || ''} ${normalized.material || ''} ${normalized.category || 'clothing'}`.trim();
 
     const vectorNs = vectorConfig.getUserVectorNamespace(userId);
     await vectorNs.upsert({
       id: itemId.toString(),
       data: aiDescription,
       metadata: {
-        category: classified.category,
-        formality: classified.formality,
-        season: classified.season,
-        material: classified.material,
-        primaryColor: classified.primaryColor,
+        category: normalized.category,
+        subcategory: normalized.subcategory,
+        formality: normalized.formality,
+        season: normalized.season,
+        material: normalized.material,
+        fit: normalized.fit,
+        colorFamily: normalized.colorFamily,
+        genderPresentation: normalized.genderPresentation,
+        primaryColor: normalized.primaryColor,
       },
     });
 
-    // 3. Update database record with classified attributes
+    // 3. Update database record with normalized attributes and metadata stamps
     const updated = await wardrobeRepo.updateWardrobeItemById(itemId, {
-      category: classified.category,
-      primaryColor: classified.primaryColor,
-      secondaryColors: classified.secondaryColors || [],
-      pattern: classified.pattern,
-      formality: classified.formality,
-      season: classified.season || [],
-      material: classified.material,
-      styleTags: classified.styleTags || [],
+      category: normalized.category,
+      subcategory: normalized.subcategory,
+      primaryColor: normalized.primaryColor,
+      secondaryColors: normalized.secondaryColors,
+      pattern: normalized.pattern,
+      formality: normalized.formality,
+      season: normalized.season,
+      material: normalized.material,
+      fit: normalized.fit,
+      colorFamily: normalized.colorFamily,
+      isNeutral: normalized.isNeutral,
+      genderPresentation: normalized.genderPresentation,
+      printedText: normalized.printedText,
+      aiConfidence: normalized.aiConfidence,
+      aiModel: env.AI_MODEL_VISION || 'gemini-3.1-flash-lite',
+      aiPromptVersion: 'v1.0.0',
+      styleTags: normalized.styleTags,
       aiDescription,
       embeddingId: itemId.toString(),
-      classificationStatus: CLASSIFICATION_STATUS.DONE,
+      classificationStatus: needsReview ? CLASSIFICATION_STATUS.NEEDS_REVIEW : CLASSIFICATION_STATUS.DONE,
       classificationError: null,
     });
 

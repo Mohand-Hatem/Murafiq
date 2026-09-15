@@ -25,14 +25,20 @@ describe('Wardrobe Classification Worker Unit Tests', () => {
 
     const mockClassified = {
       category: 'shoes',
+      subcategory: 'sneakers',
       primaryColor: 'White',
       secondaryColors: ['Green'],
       pattern: 'solid',
       formality: 'casual',
       season: ['all_season'],
       material: 'leather',
+      fit: 'regular',
+      colorFamily: 'white',
+      genderPresentation: 'unisex',
+      printedText: '',
       styleTags: ['streetwear', 'classic'],
       aiDescription: 'Classic white leather tennis sneakers with subtle green heel accents.',
+      aiConfidence: 0.95,
     };
 
     jest.spyOn(geminiService, 'classifyClothingImage').mockResolvedValue(mockClassified);
@@ -52,16 +58,21 @@ describe('Wardrobe Classification Worker Unit Tests', () => {
     expect(mockUpsert).toHaveBeenCalledWith({
       id: mockItemId,
       data: mockClassified.aiDescription,
-      metadata: {
+      metadata: expect.objectContaining({
         category: 'shoes',
+        subcategory: 'sneakers',
         formality: 'casual',
         season: ['all_season'],
         material: 'leather',
+        genderPresentation: 'unisex',
         primaryColor: 'White',
-      },
+      }),
     });
     expect(updateSpy).toHaveBeenCalledWith(mockItemId, expect.objectContaining({
       category: 'shoes',
+      subcategory: 'sneakers',
+      genderPresentation: 'unisex',
+      isNeutral: true,
       classificationStatus: CLASSIFICATION_STATUS.DONE,
       embeddingId: mockItemId,
     }));

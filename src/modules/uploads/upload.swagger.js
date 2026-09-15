@@ -58,7 +58,7 @@
  *         required: true
  *         schema:
  *           type: string
- *           enum: [avatars, kyc-documents, portfolio, request-images, wardrobe]
+ *           enum: [avatars, kyc-documents, portfolio, request-images, wardrobe, ai-chat, shape-models, try-on-results]
  *         description: Destination upload folder category
  *     requestBody:
  *       required: true

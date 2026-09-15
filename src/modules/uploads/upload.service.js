@@ -9,6 +9,9 @@ const ALLOWED_FOLDERS = new Set([
   'portfolio',
   'request-images',
   'wardrobe',
+  'ai-chat',
+  'shape-models',
+  'try-on-results',
 ]);
 
 export const FOLDER_ROLES = Object.freeze({
@@ -17,14 +20,29 @@ export const FOLDER_ROLES = Object.freeze({
   portfolio: ['stylist', 'admin'],
   'request-images': ['client', 'admin'],
   wardrobe: ['client', 'admin'],
+  'ai-chat': ['client', 'admin'],
+  'shape-models': ['client', 'admin'],
+  'try-on-results': ['client', 'admin'],
 });
+
+export const PRIVATE_FOLDERS = Object.freeze(
+  new Set(['kyc-documents', 'shape-models', 'try-on-results'])
+);
+
+// Folder-specific max image dimension:
+// ai-chat uses 768px to minimise vision-API token cost (Phase 15C Step 9).
+const FOLDER_MAX_DIM = Object.freeze({
+  'ai-chat': 768,
+});
+const DEFAULT_MAX_DIM = 1920;
 
 /**
  * Compresses an image buffer in-memory using Sharp.
- * Capped at 1920x1920 (no upscaling) with format-appropriate compression.
+ * Dimension cap is folder-aware: ai-chat → 768px, all others → 1920px.
  */
-export const compressImage = async (buffer, mimeType) => {
-  let pipeline = sharp(buffer).resize(1920, 1920, { fit: 'inside', withoutEnlargement: true });
+export const compressImage = async (buffer, mimeType, folder = null) => {
+  const maxDim = (folder && FOLDER_MAX_DIM[folder]) || DEFAULT_MAX_DIM;
+  let pipeline = sharp(buffer).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true });
 
   if (mimeType === 'image/webp') {
     pipeline = pipeline.webp({ quality: 82 });
@@ -52,22 +70,28 @@ export const uploadFile = async (user, folder, file) => {
     throw new ApiError(400, 'No file provided for upload');
   }
 
-  // Compress image buffers prior to upload
+  // Compress image buffers prior to upload (folder-aware dimension cap)
   let bufferToUpload = file.buffer;
   if (file.mimetype && file.mimetype.startsWith('image/')) {
     try {
-      bufferToUpload = await compressImage(file.buffer, file.mimetype);
+      bufferToUpload = await compressImage(file.buffer, file.mimetype, folder);
     } catch (_err) {
       // Fallback to original buffer if Sharp cannot decode or non-standard image
       bufferToUpload = file.buffer;
     }
   }
 
-  const isKyc = folder === 'kyc-documents';
+  const isPrivate = PRIVATE_FOLDERS.has(folder);
+  // User-scoped folders get per-user subfolders for ownership validation
+  const userScopedFolders = new Set(['wardrobe', 'ai-chat', 'shape-models', 'try-on-results']);
+  const folderPath = userScopedFolders.has(folder)
+    ? `murafiq/${folder}/${user._id || user.id}`
+    : `murafiq/${folder}`;
+
   const uploadOptions = {
-    folder: `murafiq/${folder}`,
-    type: isKyc ? 'authenticated' : 'upload',
-    access_mode: isKyc ? 'authenticated' : 'public',
+    folder: folderPath,
+    type: isPrivate ? 'authenticated' : 'upload',
+    access_mode: isPrivate ? 'authenticated' : 'public',
     resource_type: 'auto',
   };
 
@@ -82,7 +106,7 @@ export const uploadFile = async (user, folder, file) => {
         format: result.format,
         bytes: result.bytes,
         url: result.secure_url,
-        isPrivate: isKyc,
+        isPrivate,
       });
     });
 
@@ -90,16 +114,73 @@ export const uploadFile = async (user, folder, file) => {
   });
 };
 
-export const getSignedKycUrl = (publicId) => {
+export const getSignedUrl = (publicId, ttlSeconds = 3600) => {
   return cloudinary.url(publicId, {
     type: 'authenticated',
     sign_url: true,
-    expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour signed link
+    expires_at: Math.floor(Date.now() / 1000) + ttlSeconds,
   });
+};
+
+export const getSignedKycUrl = (publicId) => {
+  return getSignedUrl(publicId, 3600);
+};
+
+/**
+ * Checks whether a given Cloudinary publicId belongs to a private folder.
+ * Matches patterns like 'murafiq/<folder>/...' where folder is in PRIVATE_FOLDERS.
+ *
+ * @param {string} publicId
+ * @returns {boolean}
+ */
+export const isPrivateAsset = (publicId) => {
+  if (!publicId || typeof publicId !== 'string') return false;
+  return Array.from(PRIVATE_FOLDERS).some(
+    (folder) =>
+      publicId.startsWith(`murafiq/${folder}/`) ||
+      publicId.startsWith(`${folder}/`) ||
+      publicId === folder
+  );
+};
+
+/**
+ * Resolves the appropriate download/delivery URL for an asset based on its folder privacy.
+ * - If already an HTTP/HTTPS URL, returns it as-is.
+ * - If in PRIVATE_FOLDERS ('kyc-documents', 'shape-models', 'try-on-results'), generates a signed authenticated URL.
+ * - If in public folders ('wardrobe', 'ai-chat', 'avatars', 'portfolio', 'request-images'), generates a public upload URL.
+ *
+ * @param {string} publicId
+ * @param {number} [ttlSeconds=3600]
+ * @returns {string}
+ */
+export const getAssetUrl = (publicId, ttlSeconds = 3600) => {
+  if (!publicId || typeof publicId !== 'string') return '';
+  if (publicId.startsWith('http://') || publicId.startsWith('https://')) {
+    return publicId;
+  }
+
+  if (isPrivateAsset(publicId)) {
+    return getSignedUrl(publicId, ttlSeconds);
+  }
+
+  return cloudinary.url(publicId, {
+    type: 'upload',
+    secure: true,
+  });
+};
+
+export const deleteFile = async (publicId, options = {}) => {
+  return cloudinary.uploader.destroy(publicId, options);
 };
 
 export default {
   compressImage,
   uploadFile,
+  getSignedUrl,
   getSignedKycUrl,
+  isPrivateAsset,
+  getAssetUrl,
+  deleteFile,
+  PRIVATE_FOLDERS,
+  FOLDER_ROLES,
 };
