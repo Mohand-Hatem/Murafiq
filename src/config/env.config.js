@@ -24,8 +24,9 @@ const envSchema = z.object({
   // Token lifetimes, previously hardcoded in generateTokens.js. Any `ms`-style string
   // jsonwebtoken accepts ('15m', '30d', '2h'). The access token is deliberately short:
   // it is the only credential that cannot be revoked without the tokenVersion check.
-  ACCESS_TOKEN_EXPIRES_IN: z.string().default('15m'),
+  ACCESS_TOKEN_EXPIRES_IN: z.string().default('1h'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('30d'),
+  OTP_EXPIRY_MINUTES: z.string().default('10').transform(Number),
   // Hard ceiling on simultaneous signed-in devices. The oldest session is evicted past
   // this, so a user cannot accumulate credentials indefinitely.
   MAX_SESSIONS_PER_USER: z.string().default('10').transform(Number),

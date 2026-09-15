@@ -106,7 +106,6 @@ describe('Paymob HMAC-SHA512 Verification', () => {
       dataObj.order.id,
       dataObj.owner,
       dataObj.pending,
-      dataObj.refunded_amount_cents,
       dataObj.source_data.pan,
       dataObj.source_data.sub_type,
       dataObj.source_data.type,

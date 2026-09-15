@@ -117,7 +117,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
   verifyHmac(dataObj, receivedHmac) {
     if (!receivedHmac || !this.hmacSecret) return false;
 
-    // Standard Paymob 21 transaction fields in exact lexicographical order
+    // Standard Paymob 20 transaction fields in exact lexicographical order
     const fields = [
       dataObj.amount_cents,
       dataObj.created_at,
@@ -135,7 +135,6 @@ export default class PaymobProvider extends PaymentProviderInterface {
       dataObj.order?.id || dataObj.order,
       dataObj.owner,
       dataObj.pending,
-      dataObj.refunded_amount_cents,
       dataObj.source_data?.pan,
       dataObj.source_data?.sub_type,
       dataObj.source_data?.type,

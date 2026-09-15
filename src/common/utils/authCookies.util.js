@@ -1,7 +1,14 @@
 import env from '../../config/env.config.js';
 
-const ACCESS_TOKEN_MAX_AGE_MS = 15 * 60 * 1000; // 15m — mirrors JWT_ACCESS_SECRET expiry
-const REFRESH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30d — mirrors JWT_REFRESH_SECRET expiry
+const parseTtlMs = (raw, fallbackMs) => {
+  const m = String(raw || '').trim().match(/^(\d+)\s*([smhd])$/i);
+  if (!m) return fallbackMs;
+  const unit = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2].toLowerCase()];
+  return Number(m[1]) * unit;
+};
+
+const ACCESS_TOKEN_MAX_AGE_MS = parseTtlMs(env.ACCESS_TOKEN_EXPIRES_IN, 60 * 60 * 1000); // mirrors ACCESS_TOKEN_EXPIRES_IN
+const REFRESH_TOKEN_MAX_AGE_MS = parseTtlMs(env.REFRESH_TOKEN_EXPIRES_IN, 30 * 24 * 60 * 60 * 1000); // mirrors REFRESH_TOKEN_EXPIRES_IN
 
 const cookieOptions = (maxAge) => ({
   httpOnly: true,

@@ -23,7 +23,7 @@ import { ensureUserSubscription } from '../subscriptions/subscription.service.js
 import { invalidate as invalidateSessionCache } from '../../common/utils/tokenVersionCache.js';
 
 const SALT_ROUNDS = 12;
-const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const OTP_TTL_MS = (env.OTP_EXPIRY_MINUTES || 10) * 60 * 1000;
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 
 /**
