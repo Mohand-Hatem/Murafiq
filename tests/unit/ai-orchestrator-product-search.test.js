@@ -261,4 +261,194 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     expect(result.suggestedToAcquire).toHaveLength(1);
     expect(result.suggestedToAcquire[0].isGrounded).toBe(false);
   });
+
+  it('6. Explicit Shopping Request with Sufficient Wardrobe: executes external product search and returns suggestedToAcquire', async () => {
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      refusalCategory: null,
+      language: 'ar',
+      eventType: 'casual',
+      occasion: 'casual gathering',
+      retrievalQueryEn: 'casual jacket and sneakers outfit',
+      confidence: 0.95,
+      isShoppingRequest: true,
+      usage: { inputTokens: 50, outputTokens: 25 },
+      latencyMs: 100,
+    });
+
+    jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [
+        {
+          itemIds: ['item_top_1', 'item_bot_1', 'item_shoe_1'],
+          rationale: 'Complete casual look from your wardrobe.',
+          score: 95,
+        },
+      ],
+      sufficiency: 'good',
+      missingSlots: [],
+      gapDescriptions: [],
+      usage: { inputTokens: 100, outputTokens: 40 },
+    });
+
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValueOnce([
+      {
+        slot: 'top',
+        itemType: 't-shirt',
+        title: 'White Crewneck Tee',
+        outfitIndex: 1,
+        outfitTitle: 'الإطلالة الأولى (كاجوال يومي)',
+        isGrounded: true,
+        estimatedPriceEgp: 450,
+        retailer: 'Defacto',
+      },
+      {
+        slot: 'bottom',
+        itemType: 'jeans',
+        title: 'Slim Fit Blue Jeans',
+        outfitIndex: 1,
+        outfitTitle: 'الإطلالة الأولى (كاجوال يومي)',
+        isGrounded: true,
+        estimatedPriceEgp: 1100,
+        retailer: 'LC Waikiki',
+      },
+      {
+        slot: 'shoes',
+        itemType: 'sneakers',
+        title: 'White Leather Sneakers',
+        outfitIndex: 1,
+        outfitTitle: 'الإطلالة الأولى (كاجوال يومي)',
+        isGrounded: true,
+        estimatedPriceEgp: 1500,
+        retailer: 'Amazon Egypt',
+      },
+      {
+        slot: 'top',
+        itemType: 'shirt',
+        title: 'Oxford Button-Down Shirt',
+        outfitIndex: 2,
+        outfitTitle: 'الإطلالة الثانية (سمارت كاجوال)',
+        isGrounded: true,
+        estimatedPriceEgp: 1200,
+        retailer: 'Town Team',
+      },
+      {
+        slot: 'bottom',
+        itemType: 'chinos',
+        title: 'Beige Chino Pants',
+        outfitIndex: 2,
+        outfitTitle: 'الإطلالة الثانية (سمارت كاجوال)',
+        isGrounded: true,
+        estimatedPriceEgp: 1300,
+        retailer: 'Mobaco Cottons',
+      },
+      {
+        slot: 'shoes',
+        itemType: 'loafers',
+        title: 'Suede Penny Loafers',
+        outfitIndex: 2,
+        outfitTitle: 'الإطلالة الثانية (سمارت كاجوال)',
+        isGrounded: true,
+        estimatedPriceEgp: 2200,
+        retailer: 'Dalydress',
+      },
+    ]);
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'شوفلى طقم من الانترنيت',
+    });
+
+    expect(result.sufficiency).toBe('good');
+    expect(result.fromYourWardrobe).toHaveLength(0);
+    expect(result.outfits).toHaveLength(0);
+    expect(result.suggestedToAcquire).toHaveLength(6);
+
+    const outfit1 = result.suggestedToAcquire.filter((item) => item.outfitIndex === 1);
+    const outfit2 = result.suggestedToAcquire.filter((item) => item.outfitIndex === 2);
+    expect(outfit1).toHaveLength(3);
+    expect(outfit2).toHaveLength(3);
+    expect(outfit1[0].outfitTitle).toBe('الإطلالة الأولى (كاجوال يومي)');
+    expect(outfit2[0].outfitTitle).toBe('الإطلالة الثانية (سمارت كاجوال)');
+
+    expect(entitlementService.checkQuota).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
+    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
+    expect(productSearchService.searchExternalProducts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isShoppingRequest: true,
+      })
+    );
+    expect(outfitService.recordOutfit).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'wardrobe' }));
+    expect(outfitService.recordOutfit).toHaveBeenCalledWith(expect.objectContaining({ source: 'external' }));
+  });
+
+  it('7. Image anchor: garmentAnalysis is threaded as anchor to composeStep and included in response', async () => {
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      refusalCategory: null,
+      imageIsGarment: true,
+      garmentAnalysis: {
+        category: 'top',
+        subcategory: 'quarter-zip sweater',
+        colors: ['beige'],
+        colorFamily: 'beige',
+        formality: 'smart_casual',
+        material: 'knit',
+        pattern: 'solid',
+        confidence: 0.95,
+      },
+      language: 'ar',
+      eventType: 'casual',
+      retrievalQueryEn: 'beige quarter-zip knit sweater',
+      confidence: 0.95,
+      isShoppingRequest: false,
+      usage: { inputTokens: 50, outputTokens: 25 },
+      latencyMs: 100,
+    });
+
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [
+        {
+          itemIds: ['anchor_item', 'item_bot_1', 'item_shoe_1'],
+          rationale: 'إطلالة شتوية أنيقة مبنية حول البلوفر البيج',
+          score: 92,
+        },
+      ],
+      sufficiency: 'good',
+      missingSlots: [],
+      gapDescriptions: [],
+      usage: { inputTokens: 100, outputTokens: 40 },
+    });
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'عايز حاجه تليق مع البلوفر ده',
+      imageRef: `murafiq/ai-chat/${userId}/sample-uuid-123`,
+    });
+
+    expect(result.sufficiency).toBe('good');
+    expect(composeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor: expect.objectContaining({
+          category: 'top',
+          subcategory: 'quarter-zip sweater',
+          colorFamily: 'beige',
+        }),
+      })
+    );
+    expect(result.anchor).toEqual(
+      expect.objectContaining({
+        category: 'top',
+        subcategory: 'quarter-zip sweater',
+        colorFamily: 'beige',
+        isAnchor: true,
+      })
+    );
+    expect(result.fromYourWardrobe).toHaveLength(1);
+    expect(result.fromYourWardrobe[0].anchor).toEqual(
+      expect.objectContaining({
+        category: 'top',
+        colorFamily: 'beige',
+      })
+    );
+  });
 });

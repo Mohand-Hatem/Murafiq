@@ -493,5 +493,45 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results[0].sourceUrl).toBe('https://zara.com/eg/en/oxford-shoes-p12345.html');
       expect(results[0].imageUrl).toBe('https://static.zara.net/photos/2026/oxford-shoes-captoe.jpg');
     });
+
+    it('13. Shopping Request: applies TWO-OUTFIT prompt and returns up to 6 grouped items with outfitIndex and outfitTitle', async () => {
+      const mockSixSuggestions = [
+        { slot: 'top', itemType: 't-shirt', title: 'White Tee', estimatedPriceEgp: 450, retailer: 'Defacto', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'bottom', itemType: 'jeans', title: 'Blue Jeans', estimatedPriceEgp: 1100, retailer: 'LC Waikiki', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'shoes', itemType: 'sneakers', title: 'White Sneakers', estimatedPriceEgp: 1500, retailer: 'Amazon Egypt', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'top', itemType: 'shirt', title: 'Oxford Shirt', estimatedPriceEgp: 1200, retailer: 'Town Team', outfitIndex: 2, outfitTitle: 'Look 2' },
+        { slot: 'bottom', itemType: 'chinos', title: 'Beige Chinos', estimatedPriceEgp: 1300, retailer: 'Mobaco', outfitIndex: 2, outfitTitle: 'Look 2' },
+        { slot: 'shoes', itemType: 'loafers', title: 'Penny Loafers', estimatedPriceEgp: 2200, retailer: 'Dalydress', outfitIndex: 2, outfitTitle: 'Look 2' },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: mockSixSuggestions,
+        }),
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [{ web: { uri: 'https://defacto.com/eg/tee', title: 'Defacto Tee' } }],
+            },
+          },
+        ],
+        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 180 },
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'casual outfit',
+        isShoppingRequest: true,
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0][0];
+      expect(callArgs.config.systemInstruction).toContain('TWO-OUTFIT RULE (COMPLETE LOOK MODE)');
+
+      expect(results).toHaveLength(6);
+      expect(results.filter((r) => r.outfitIndex === 1)).toHaveLength(3);
+      expect(results.filter((r) => r.outfitIndex === 2)).toHaveLength(3);
+      expect(results[0].outfitTitle).toBe('Look 1');
+      expect(results[3].outfitTitle).toBe('Look 2');
+    });
   });
 });

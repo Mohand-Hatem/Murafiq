@@ -34,6 +34,8 @@ import shapeModelService from '../../src/modules/ai/shape-model/shape-model.serv
 import wardrobeService from '../../src/modules/wardrobe/wardrobe.service.js';
 import entitlementService from '../../src/modules/subscriptions/entitlement.service.js';
 import uploadService from '../../src/modules/uploads/upload.service.js';
+import outfitService from '../../src/modules/ai/outfits/outfit.service.js';
+import { createTryOnSchema } from '../../src/modules/ai/try-on/try-on.validator.js';
 
 describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
   const userId = new mongoose.Types.ObjectId().toString();
@@ -304,6 +306,160 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
           generationId: newGenDoc._id,
         })
       );
+    });
+
+    it('resolves garments and links outfitId when outfitId is provided', async () => {
+      const mockOutfitId = new mongoose.Types.ObjectId().toString();
+      const mockOutfit = {
+        _id: new mongoose.Types.ObjectId(mockOutfitId),
+        userId,
+        items: [
+          new mongoose.Types.ObjectId(wardrobeItemId1),
+          new mongoose.Types.ObjectId(wardrobeItemId2),
+        ],
+      };
+
+      jest.spyOn(outfitService, 'getOutfitById').mockResolvedValue(mockOutfit);
+      jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValue([
+        {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+          category: 'top',
+          title: 'Blue Oxford',
+          sourceUploadRef: 'murafiq/wardrobe/user/oxford',
+        },
+        {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId2),
+          category: 'bottom',
+          title: 'Navy Chinos',
+          sourceUploadRef: 'murafiq/wardrobe/user/chinos',
+        },
+      ]);
+      jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
+      jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
+      jest.spyOn(entitlementService, 'consumeTryOnQuota').mockResolvedValue({ success: true, quotaSource: 'monthly' });
+
+      const newGenDoc = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        shapeModelId,
+        outfitId: mockOutfit._id,
+        status: 'pending',
+        garments: resolvedGarments,
+        resolution: '1024x1024',
+        promptVersion: 'v1',
+      };
+      jest.spyOn(tryOnRepository, 'create').mockResolvedValue(newGenDoc);
+
+      const res = await createTryOnRequest(userId, {
+        shapeModelId,
+        outfitId: mockOutfitId,
+      });
+
+      expect(res.isDuplicate).toBe(false);
+      expect(res.statusCode).toBe(202);
+      expect(outfitService.getOutfitById).toHaveBeenCalledWith(mockOutfitId, userId);
+      expect(wardrobeService.getWardrobeItemsByIds).toHaveBeenCalledWith(userId, [wardrobeItemId1, wardrobeItemId2]);
+      expect(tryOnRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outfitId: mockOutfit._id,
+        })
+      );
+    });
+
+    it('throws ApiError 404 when outfitId does not exist or user does not own it', async () => {
+      const mockOutfitId = new mongoose.Types.ObjectId().toString();
+      jest.spyOn(outfitService, 'getOutfitById').mockResolvedValue(null);
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          outfitId: mockOutfitId,
+        })
+      ).rejects.toThrow(/Outfit not found or access denied/i);
+    });
+
+    it('throws ApiError 400 when outfit contains no wardrobe items', async () => {
+      const mockOutfitId = new mongoose.Types.ObjectId().toString();
+      jest.spyOn(outfitService, 'getOutfitById').mockResolvedValue({
+        _id: new mongoose.Types.ObjectId(mockOutfitId),
+        userId,
+        items: [],
+      });
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          outfitId: mockOutfitId,
+        })
+      ).rejects.toThrow(/Selected outfit contains no wardrobe items to try on/i);
+    });
+
+    it('resolves single wardrobe item when itemId is provided', async () => {
+      jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
+      jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
+      jest.spyOn(entitlementService, 'consumeTryOnQuota').mockResolvedValue({ success: true, quotaSource: 'monthly' });
+
+      const newGenDoc = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        shapeModelId,
+        status: 'pending',
+        garments: [resolvedGarments[0]],
+        resolution: '1024x1024',
+        promptVersion: 'v1',
+      };
+      jest.spyOn(tryOnRepository, 'create').mockResolvedValue(newGenDoc);
+
+      const res = await createTryOnRequest(userId, {
+        shapeModelId,
+        itemId: wardrobeItemId1,
+      });
+
+      expect(res.isDuplicate).toBe(false);
+      expect(res.statusCode).toBe(202);
+      expect(wardrobeService.getWardrobeItemById).toHaveBeenCalledWith(userId, wardrobeItemId1);
+    });
+  });
+
+  describe('createTryOnSchema Validation', () => {
+    it('accepts request with outfitId without garments', () => {
+      const valid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        outfitId: new mongoose.Types.ObjectId().toString(),
+      });
+      expect(valid.success).toBe(true);
+    });
+
+    it('accepts request with itemId without garments', () => {
+      const valid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        itemId: new mongoose.Types.ObjectId().toString(),
+      });
+      expect(valid.success).toBe(true);
+    });
+
+    it('accepts request with garments array without outfitId or itemId', () => {
+      const valid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        garments: [{ source: 'wardrobe', itemId: new mongoose.Types.ObjectId().toString() }],
+      });
+      expect(valid.success).toBe(true);
+    });
+
+    it('rejects request when none of outfitId, itemId, or garments is provided', () => {
+      const invalid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+      });
+      expect(invalid.success).toBe(false);
+      expect(invalid.error.issues[0].message).toMatch(/Must provide at least one of outfitId, itemId, or garments/i);
+    });
+
+    it('rejects invalid ObjectId for outfitId', () => {
+      const invalid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        outfitId: 'not-an-objectid',
+      });
+      expect(invalid.success).toBe(false);
     });
   });
 

@@ -160,4 +160,55 @@ describe('Unit — AI Stylist Intent Step & Layer 2 Scope Gate (intent.step.js)'
     expect(result.explicitConstraints).toEqual([]);
     expect(result.confidence).toBe(1.0);
   });
+
+  it('enforces required garmentAnalysis in schema when image is provided', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        inDomain: true,
+        imageIsGarment: true,
+        garmentAnalysis: {
+          category: 'top',
+          subcategory: 'quarter-zip sweater',
+          colorFamily: 'beige',
+          colors: ['cream', 'beige'],
+          formality: 'smart_casual',
+          material: 'knit',
+          pattern: 'solid',
+          confidence: 0.95,
+        },
+        language: 'ar',
+        eventType: 'casual',
+        retrievalQueryEn: 'cream knit quarter-zip pullover',
+        confidence: 0.95,
+      }),
+      usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 60 },
+    });
+
+    const result = await classifyAndExtract('عايز حاجه تليق مع البلوفر ده', {
+      imageData: {
+        mimeType: 'image/jpeg',
+        data: 'base64encodedimagedata...',
+      },
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+
+    // Schema must require garmentAnalysis and its key properties
+    expect(callArgs.config.responseSchema.required).toContain('garmentAnalysis');
+    expect(callArgs.config.responseSchema.required).toContain('imageIsGarment');
+    expect(callArgs.config.responseSchema.properties.garmentAnalysis.required).toEqual(
+      expect.arrayContaining(['category', 'subcategory', 'colorFamily', 'colors', 'formality', 'material', 'pattern', 'confidence'])
+    );
+
+    expect(result.inDomain).toBe(true);
+    expect(result.imageIsGarment).toBe(true);
+    expect(result.garmentAnalysis).toEqual(
+      expect.objectContaining({
+        category: 'top',
+        subcategory: 'quarter-zip sweater',
+        colorFamily: 'beige',
+      })
+    );
+  });
 });

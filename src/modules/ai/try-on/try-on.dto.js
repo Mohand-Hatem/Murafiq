@@ -13,6 +13,7 @@ export const toTryOnDto = (doc, signedUrlTtl = 3600) => {
 
   const id = doc._id ? doc._id.toString() : doc.id;
   const shapeModelId = doc.shapeModelId ? doc.shapeModelId.toString() : null;
+  const outfitId = doc.outfitId ? doc.outfitId.toString() : null;
 
   const garments = Array.isArray(doc.garments)
     ? doc.garments.map((g) => ({
@@ -44,6 +45,7 @@ export const toTryOnDto = (doc, signedUrlTtl = 3600) => {
   return {
     id,
     shapeModelId,
+    outfitId,
     garments,
     status: doc.status,
     resolution: doc.resolution,

@@ -109,6 +109,9 @@ export const INTENT_RESPONSE_SCHEMA = Object.freeze({
     clarificationQuestion: {
       type: 'STRING',
     },
+    isShoppingRequest: {
+      type: 'BOOLEAN',
+    },
   },
   required: ['inDomain', 'language', 'retrievalQueryEn', 'confidence'],
 });
@@ -161,7 +164,9 @@ ${EVENT_TYPES.map((t) => `   - ${t}`).join('\n')}
 7. "explicitConstraints": List specific user constraints (e.g., "no polyester", "prefer navy or charcoal", "modest long sleeves").
 8. "retrievalQueryEn": A concise, descriptive English search phrase representing the key clothing items and style attributes needed for wardrobe retrieval (e.g., "navy blue formal evening gown", "charcoal two piece business suit oxford shoes"). This is mandatory for both Arabic and English requests.
 9. "confidence": Confidence score between 0.0 and 1.0.
-10. "clarificationQuestion": If confidence is below 0.4 on an ambiguous request, formulate one polite clarifying question in the user's language. Otherwise null.`;
+10. "clarificationQuestion": If confidence is below 0.4 on an ambiguous request, formulate one polite clarifying question in the user's language. Otherwise null.
+11. "isShoppingRequest": Set to true ONLY if the user explicitly mentions purchasing, buying, or searching external/online stores or the internet (e.g., "من النت", "من الانترنت", "اونلاين", "مواقع", "عايز اشتري", "تسوق لي", "shop online", "from the web", "buy an outfit", "search the internet for an outfit").
+    CRITICAL ARABIC COLLOQUIAL RULE: Everyday styling requests like "شوفلي طقم", "نسق لي طقم", "اقترح لي", "رشح لي", "عايز البس", "عندي مناسبة", "شوفلي حاجة كلاسيك" mean "style an outfit for me from my wardrobe" — you MUST set "isShoppingRequest": false unless external purchase or online shopping terms ("من النت", "من الانترنت", "شراء", "اشتري", "اونلاين") are explicitly present.`;
 
 /**
  * Classifies the incoming message for domain compliance and extracts structured styling intent.
@@ -222,11 +227,26 @@ export const classifyAndExtract = async (message, options = {}) => {
   const hasImage = userParts.length > 1;
   const task = hasImage ? 'vision' : 'reasoning';
 
+  // When an image is present, force Gemini to populate garmentAnalysis by marking it
+  // and its key inner fields as required in the schema. Without this, Flash Lite
+  // silently skips optional nested objects to minimise output tokens.
+  let activeSchema = INTENT_RESPONSE_SCHEMA;
+  if (hasImage) {
+    activeSchema = JSON.parse(JSON.stringify(INTENT_RESPONSE_SCHEMA));
+    if (!activeSchema.required.includes('garmentAnalysis')) {
+      activeSchema.required = [...activeSchema.required, 'imageIsGarment', 'garmentAnalysis'];
+    }
+    activeSchema.properties.garmentAnalysis.required = [
+      'category', 'subcategory', 'colorFamily', 'colors',
+      'formality', 'material', 'pattern', 'confidence',
+    ];
+  }
+
   const result = await llmProvider.complete({
     task,
     systemPrompt: SYSTEM_PROMPT,
     userParts,
-    responseSchema: INTENT_RESPONSE_SCHEMA,
+    responseSchema: activeSchema,
     temperature,
     timeoutMs,
   });
@@ -263,6 +283,7 @@ export const classifyAndExtract = async (message, options = {}) => {
     retrievalQueryEn: parsed.retrievalQueryEn ? String(parsed.retrievalQueryEn).trim() : '',
     confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 1.0,
     clarificationQuestion: parsed.clarificationQuestion || null,
+    isShoppingRequest: Boolean(parsed.isShoppingRequest),
     usage: result.usage,
     latencyMs: result.latencyMs,
   };

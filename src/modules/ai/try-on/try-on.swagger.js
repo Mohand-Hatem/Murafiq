@@ -23,16 +23,24 @@
  *             type: object
  *             required:
  *               - shapeModelId
- *               - garments
  *             properties:
  *               shapeModelId:
  *                 type: string
  *                 example: 66e5f32b842345001a123456
  *                 description: ObjectId of client's active Shape Model
+ *               outfitId:
+ *                 type: string
+ *                 example: 66e5f32b842345001a123458
+ *                 description: ObjectId of a saved or AI-generated outfit to try on in full (resolves its wardrobe items automatically)
+ *               itemId:
+ *                 type: string
+ *                 example: 66e5f32b842345001a123457
+ *                 description: ObjectId of a single wardrobe item to try on
  *               garments:
  *                 type: array
  *                 minItems: 1
  *                 maxItems: 4
+ *                 description: Optional explicit list of 1 to 4 garments (when not providing outfitId or itemId)
  *                 items:
  *                   type: object
  *                   required:
@@ -81,6 +89,13 @@
  *                   properties:
  *                     id:
  *                       type: string
+ *                     shapeModelId:
+ *                       type: string
+ *                       example: 66e5f32b842345001a123456
+ *                     outfitId:
+ *                       type: string
+ *                       nullable: true
+ *                       example: 66e5f32b842345001a123458
  *                     status:
  *                       type: string
  *                       example: pending
@@ -162,6 +177,13 @@
  *                   properties:
  *                     id:
  *                       type: string
+ *                     shapeModelId:
+ *                       type: string
+ *                       example: 66e5f32b842345001a123456
+ *                     outfitId:
+ *                       type: string
+ *                       nullable: true
+ *                       example: 66e5f32b842345001a123458
  *                     status:
  *                       type: string
  *                       enum: [pending, processing, completed, failed]

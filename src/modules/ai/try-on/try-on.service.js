@@ -5,6 +5,8 @@ import garmentResolver from './garment-resolver.js';
 import { toTryOnDto } from './try-on.dto.js';
 import entitlementService from '../../subscriptions/entitlement.service.js';
 import uploadService from '../../uploads/upload.service.js';
+import outfitService from '../outfits/outfit.service.js';
+import wardrobeService from '../../wardrobe/wardrobe.service.js';
 import { logger } from '../../../config/logger.config.js';
 import tryonQueue from '../../../jobs/queues/tryon.queue.js';
 
@@ -60,13 +62,53 @@ export const computeJobId = (userId, shapeModelId, garments, promptVersion = 'v1
  */
 export const createTryOnRequest = async (
   userId,
-  { shapeModelId, garments, resolution = '1024x1024', promptVersion = 'v1' }
+  { shapeModelId, garments, outfitId, itemId, resolution = '1024x1024', promptVersion = 'v1' }
 ) => {
+  let inputGarments = garments;
+  let resolvedOutfitId = null;
+
+  if (outfitId) {
+    const outfit = await outfitService.getOutfitById(outfitId, userId);
+    if (!outfit) {
+      throw new ApiError(404, 'Outfit not found or access denied');
+    }
+
+    if (!Array.isArray(outfit.items) || outfit.items.length === 0) {
+      throw new ApiError(400, 'Selected outfit contains no wardrobe items to try on');
+    }
+
+    const itemIds = outfit.items.map((it) => (it._id ? it._id.toString() : it.toString()));
+    const wardrobeItems = await wardrobeService.getWardrobeItemsByIds(userId, itemIds);
+
+    if (!wardrobeItems || wardrobeItems.length === 0) {
+      throw new ApiError(400, 'None of the wardrobe items in this outfit could be found');
+    }
+
+    inputGarments = wardrobeItems.slice(0, 4).map((item) => ({
+      source: 'wardrobe',
+      itemId: item._id.toString(),
+      slot: item.category,
+      label: item.title || item.aiDescription || item.category || 'Wardrobe item',
+    }));
+    resolvedOutfitId = outfit._id;
+  } else if (itemId && (!Array.isArray(inputGarments) || inputGarments.length === 0)) {
+    inputGarments = [
+      {
+        source: 'wardrobe',
+        itemId: itemId.toString(),
+      },
+    ];
+  }
+
+  if (!Array.isArray(inputGarments) || inputGarments.length === 0) {
+    throw new ApiError(400, 'At least one garment is required for Virtual Try-On');
+  }
+
   // 1. Validate Shape Model belongs to user and is currently active
   const shapeModel = await shapeModelService.getShapeModelById(userId, shapeModelId);
 
   // 2. Resolve garments and verify ownership (wardrobe / uploads)
-  const resolvedGarments = await garmentResolver.resolveGarments(userId, garments);
+  const resolvedGarments = await garmentResolver.resolveGarments(userId, inputGarments);
 
   // 3. Compute deterministic jobId
   const jobId = computeJobId(userId, shapeModel._id, resolvedGarments, promptVersion);
@@ -101,6 +143,7 @@ export const createTryOnRequest = async (
     generation = await tryOnRepository.create({
       userId,
       shapeModelId: shapeModel._id,
+      outfitId: resolvedOutfitId,
       garments: resolvedGarments,
       status: 'pending',
       jobId,

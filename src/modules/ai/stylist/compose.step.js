@@ -130,6 +130,7 @@ export const composeAndRankOutfits = async ({
 
   const dressCodeRules = [
     `Event Type: ${resolvedDressCode.eventType || eventContext.eventType || 'General Occasion'}`,
+    `Target Gender Presentation: ${eventContext.genderPresentation || 'unisex'}`,
     `Allowed Formalities: ${(resolvedDressCode.formality || ['casual', 'smart_casual']).join(', ')}`,
     `Required Slots: ${(resolvedDressCode.requiredSlots || ['top', 'bottom', 'shoes']).join(', ')}`,
     `Optional Slots: ${(resolvedDressCode.optionalSlots || ['outerwear', 'accessory']).join(', ')}`,

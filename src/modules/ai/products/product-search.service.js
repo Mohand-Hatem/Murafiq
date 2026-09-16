@@ -34,6 +34,8 @@ export const PRODUCT_SEARCH_RESPONSE_SCHEMA = Object.freeze({
           sourceTitle: { type: 'STRING' },
           imageUrl: { type: 'STRING' },
           searchQueryUsed: { type: 'STRING' },
+          outfitIndex: { type: 'NUMBER' },
+          outfitTitle: { type: 'STRING' },
         },
         required: ['title', 'itemType', 'slot', 'description'],
       },
@@ -48,11 +50,21 @@ const KNOWN_RETAILERS = [
   { match: /massimo\s*dutti/i, title: 'Massimo Dutti Egypt' },
   { match: /h&m|h\s*and\s*m/i, title: 'H&M Egypt' },
   { match: /amazon/i, title: 'Amazon Egypt' },
+  { match: /jumia/i, title: 'Jumia Egypt' },
+  { match: /noon/i, title: 'Noon Egypt' },
+  { match: /asos/i, title: 'ASOS' },
+  { match: /namshi/i, title: 'Namshi' },
   { match: /mango/i, title: 'Mango Egypt' },
   { match: /defacto/i, title: 'DeFacto Egypt' },
+  { match: /lc\s*waikiki/i, title: 'LC Waikiki' },
+  { match: /pull\s*(&|and)?\s*bear/i, title: 'Pull&Bear' },
+  { match: /bershka/i, title: 'Bershka' },
+  { match: /stradivarius/i, title: 'Stradivarius' },
   { match: /town\s*team/i, title: 'Town Team' },
   { match: /tie\s*house/i, title: 'Tie House' },
   { match: /concrete/i, title: 'Concrete Egypt' },
+  { match: /mobaco/i, title: 'Mobaco Cottons' },
+  { match: /dalydress/i, title: 'Dalydress' },
 ];
 
 export const getKnownRetailerInfo = (retailerName = '') => {
@@ -364,6 +376,7 @@ export const searchExternalProducts = async ({
   genderPresentation = 'unisex',
   locale = 'en',
   budget,
+  isShoppingRequest = false,
 } = {}) => {
   const query = String(gapDescription || '').trim();
   if (!query) {
@@ -397,14 +410,7 @@ export const searchExternalProducts = async ({
       ? 'CRITICAL ARABIC REQUIREMENT: The user speaks Arabic. You MUST formulate the response entirely in elegant, modern Arabic (العربية). All product titles (title), item types (itemType), detailed styling descriptions (description), and retailer names or translations MUST be in Arabic. Do not output English words unless referring to international brand names.'
       : 'Write product titles, descriptions, and rationales in fluent, elegant English.';
 
-  const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper and Acquisition Assistant.
-Your duty is to recommend real, purchasable clothing and footwear pieces available for the Egyptian market (Cairo, Alexandria, online retail in Egypt) to close specific wardrobe gaps for clients.
-Focus on prominent retailers and brands in Egypt (e.g. Zara Egypt, Amazon Egypt, H&M Egypt, Massimo Dutti Egypt, localized luxury boutiques).
-
-TWO-SUGGESTION RULE:
-- Generate up to 2 distinct acquisition suggestions representing different aesthetic choices or price alternatives.
-- Each suggestion must specify:
-  * slot: garment category (top, bottom, shoes, outerwear, accessory, dress)
+  const itemFields = `  * slot: garment category (top, bottom, shoes, outerwear, accessory, dress)
   * itemType: specific fashion garment type
   * title: exact descriptive title
   * retailer: retailer name in Egypt
@@ -412,8 +418,29 @@ TWO-SUGGESTION RULE:
   * sourceUrl: exact verified direct product page/purchase URL found in search results (e.g. https://www.zara.com/eg/en/wool-trousers-p12345.html). Return null if no exact direct product page is found. NEVER provide a retailer homepage, category page, or search page.
   * sourceTitle: store product title
   * imageUrl: exact verified product image URL found in search results or metadata. Return null if no exact verified product image is found. NEVER invent an image URL, never use Unsplash/stock photography, and never use placeholder images.
-  * description: detailed styling description.
-- Never duplicate products or suggest identical items under different names.
+  * description: detailed styling description.`;
+
+  const suggestionRule = isShoppingRequest
+    ? `TWO-OUTFIT RULE (COMPLETE LOOK MODE):
+- The user explicitly asked to shop for a COMPLETE outfit from the internet.
+- Generate exactly 2 COMPLETE coordinated outfits. Each outfit MUST contain 3 items: one top, one bottom, and one pair of shoes.
+- Total: 6 items. Outfit 1 and Outfit 2 must represent DIFFERENT styling directions (e.g. casual vs smart casual, streetwear vs classic, sporty vs elegant).
+- Each item must specify:
+${itemFields}
+  * outfitIndex: outfit group number (1 or 2)
+  * outfitTitle: localized outfit name describing the style direction (e.g. "الإطلالة الأولى (كاجوال يومي)" or "Look 1 (Casual Daily)").
+- Never duplicate products or suggest identical items under different names.`
+    : `TWO-SUGGESTION RULE:
+- Generate up to 2 distinct acquisition suggestions representing different aesthetic choices or price alternatives.
+- Each suggestion must specify:
+${itemFields}
+- Never duplicate products or suggest identical items under different names.`;
+
+  const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper and Acquisition Assistant.
+Your duty is to recommend real, purchasable clothing and footwear pieces available for the Egyptian market (Cairo, Alexandria, online retail in Egypt) to close specific wardrobe gaps for clients.
+Search across ANY legitimate fashion retailer, marketplace, or brand delivering in Egypt (including but not limited to Amazon Egypt, Jumia, Noon, ASOS, Zara, H&M, Mango, DeFacto, LC Waikiki, Massimo Dutti, Pull&Bear, Bershka, Stradivarius, Max, and Egyptian brands like Concrete, Town Team, Mobaco Cottons, Dalydress, Tie House, local boutiques, etc.). DO NOT restrict recommendations to only Zara or H&M; explore diverse online stores and find the exact piece the user needs wherever it is purchasable online.
+
+${suggestionRule}
 
 ${langPrompt}`;
 
@@ -483,8 +510,9 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
     })
     .filter(Boolean);
 
+  const maxSuggestions = isShoppingRequest ? 6 : 2;
   const rawSuggestions = Array.isArray(result?.data?.suggestions)
-    ? result.data.suggestions.slice(0, 2)
+    ? result.data.suggestions.slice(0, maxSuggestions)
     : [];
 
   const suggestions = rawSuggestions.map((s, index) => {
@@ -528,6 +556,8 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       imageUrl: resolvedImageUrl,
       citations: itemCitations,
       isGrounded: Boolean(isGrounded && primaryCitation?.url && resolvedUrl),
+      outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
+      outfitTitle: s.outfitTitle || null,
       cacheHit: false,
     };
   });

@@ -13,6 +13,7 @@ import outfitService from '../outfits/outfit.service.js';
 import conversationService from '../conversation/ai-conversation.service.js';
 import knowledgeService from '../knowledge/knowledge.service.js';
 import productSearchService from '../products/product-search.service.js';
+import userService from '../../users/user.service.js';
 import {
   resolveDressCode,
   deriveSeason,
@@ -125,12 +126,15 @@ export const runStylistPipeline = async ({
     }
   }
 
-  // 1. Intent Classification & Layer 2 Scope Gate (multimodal when image is attached)
-  const intent = await intentStep.classifyAndExtract(message, {
-    ...options,
-    imageData,
-    imageRef,
-  });
+  // 1. Intent Classification & User Profile Retrieval in parallel (multimodal when image is attached)
+  const [intent, userProfile] = await Promise.all([
+    intentStep.classifyAndExtract(message, {
+      ...options,
+      imageData,
+      imageRef,
+    }),
+    userService.getProfile(userId).catch(() => null),
+  ]);
 
   traceLogger.logTraceStep({
     traceId,
@@ -192,6 +196,19 @@ export const runStylistPipeline = async ({
     };
   }
 
+  // Resolve unified gender presentation:
+  // Explicit message intent takes priority; fallback to registered account gender, then 'unisex'
+  const userGender = userProfile?.gender;
+  const userGenderPresentation =
+    userGender === 'male'
+      ? 'masculine'
+      : userGender === 'female'
+      ? 'feminine'
+      : null;
+
+  const resolvedGenderPresentation =
+    intent.genderPresentation || userGenderPresentation || 'unisex';
+
   const resolvedDressCode = resolveDressCode(intent.eventType);
   const season = intent.season || (intent.context && intent.context.season) || deriveSeason(new Date(), BUSINESS_TIMEZONE);
 
@@ -200,7 +217,7 @@ export const runStylistPipeline = async ({
     season,
     timeOfDay: intent.timeOfDay,
     setting: intent.setting,
-    genderPresentation: intent.genderPresentation,
+    genderPresentation: resolvedGenderPresentation,
   };
 
   // 3. Parallel Retrieval: Candidate garments & client style preferences
@@ -229,7 +246,7 @@ export const runStylistPipeline = async ({
       slots: candidateSlots,
       formality: resolvedDressCode.resolved ? resolvedDressCode.formality : intent.formality,
       season,
-      genderPresentation: intent.genderPresentation,
+      genderPresentation: resolvedGenderPresentation,
     }),
     stylePreferenceService.getPreferences(userId),
   ]);
@@ -241,12 +258,15 @@ export const runStylistPipeline = async ({
   let activeConversationId = conversationId;
   let userMessageRecord = null;
 
-  if (!activeConversationId && hasImage) {
+  if (!activeConversationId) {
     try {
-      const newConv = await conversationService.createConversation(userId, 'Image Styling');
+      const convTitle = hasImage
+        ? 'Image Styling'
+        : (intent.occasion || intent.eventType || 'Stylist Consultation');
+      const newConv = await conversationService.createConversation(userId, convTitle);
       activeConversationId = newConv._id ? newConv._id.toString() : String(newConv.id);
     } catch (convErr) {
-      logger.warn('Failed to auto-create conversation for image styling:', convErr.message);
+      logger.warn('Failed to auto-create conversation for stylist session:', convErr.message);
     }
   }
 
@@ -278,20 +298,30 @@ export const runStylistPipeline = async ({
       try {
         await entitlementService.consume(userId, 'ai.productSearch.daily', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
-        const gapDescriptions = capacity.missingSlots.map((s) =>
-          renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
-        );
-        const gapQuery = gapDescriptions.join(', ') || intent.occasion || 'formal attire';
+
+        let gapQuery;
+        let gapItems;
+        if (intent.isShoppingRequest) {
+          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+        } else {
+          const gapDescriptions = capacity.missingSlots.map((s) =>
+            renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
+          );
+          gapQuery = gapDescriptions.join(', ') || intent.occasion || 'formal attire';
+          gapItems = capacity.missingSlots.map((s, idx) => ({ slot: s, description: gapDescriptions[idx] }));
+        }
 
         externalSuggestions = await productSearchService.searchExternalProducts({
           gapDescription: gapQuery,
-          gapItems: capacity.missingSlots.map((s, idx) => ({ slot: s, description: gapDescriptions[idx] })),
+          gapItems,
           occasion: intent.occasion || resolvedDressCode.eventType || 'formal',
           formality: primaryFormality,
           season: eventContext.season || 'all',
-          genderPresentation: preferences.genderPresentation || 'unisex',
+          genderPresentation: resolvedGenderPresentation,
           locale: intent.language,
           budget: intent.budget || undefined,
+          isShoppingRequest: Boolean(intent.isShoppingRequest),
         });
 
         traceLogger.logTraceStep({
@@ -362,6 +392,7 @@ export const runStylistPipeline = async ({
       anchor,
       matchResult,
       messageId,
+      isShoppingRequest: intent.isShoppingRequest,
     });
 
     if (activeConversationId) {
@@ -484,7 +515,7 @@ export const runStylistPipeline = async ({
   const hydratedMap = new Map(hydratedItems.map((item) => [item._id.toString(), item]));
 
   const persistedOutfits = [];
-  if (compResult.sufficiency === 'good' || compResult.sufficiency === 'partial') {
+  if (!intent.isShoppingRequest && (compResult.sufficiency === 'good' || compResult.sufficiency === 'partial')) {
     for (const outfit of compResult.outfits) {
       try {
         const validItemIds = outfit.itemIds.filter((id) => {
@@ -510,9 +541,14 @@ export const runStylistPipeline = async ({
     }
   }
 
-  // 7b. External Product Search Gate (Gap Closing)
+  // 7b. External Product Search Gate (Gap Closing & Explicit Shopping Requests)
   let externalSuggestions = [];
-  if (compResult.sufficiency === 'partial' || compResult.sufficiency === 'none') {
+  const shouldSearchExternal =
+    compResult.sufficiency === 'partial' ||
+    compResult.sufficiency === 'none' ||
+    Boolean(intent.isShoppingRequest);
+
+  if (shouldSearchExternal) {
     const quotaCheck = await entitlementService.checkQuota(userId, 'ai.productSearch.daily', 1, 'client');
     if (quotaCheck.allowed) {
       try {
@@ -521,23 +557,36 @@ export const runStylistPipeline = async ({
         const fallbackGaps = (compResult.missingSlots || []).map((s) =>
           renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
         );
-        const gapQuery =
-          compResult.gapDescriptions?.length > 0
-            ? compResult.gapDescriptions.join(', ')
-            : fallbackGaps.join(', ') || intent.occasion || 'formal attire';
+
+        // For explicit shopping requests with a sufficient wardrobe, the user wants
+        // complete outfits from the internet — not gap-closing pieces. Construct the
+        // query and gap items for full outfit search.
+        let gapQuery;
+        let gapItems;
+        if (intent.isShoppingRequest && compResult.sufficiency === 'good') {
+          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+        } else {
+          gapQuery =
+            compResult.gapDescriptions?.length > 0
+              ? compResult.gapDescriptions.join(', ')
+              : fallbackGaps.join(', ') || intent.retrievalQueryEn || intent.occasion || `${primaryFormality} attire`;
+          gapItems = (compResult.missingSlots || []).map((s, idx) => ({
+            slot: s,
+            description: compResult.gapDescriptions?.[idx] || fallbackGaps[idx] || `${primaryFormality} ${s}`,
+          }));
+        }
 
         externalSuggestions = await productSearchService.searchExternalProducts({
           gapDescription: gapQuery,
-          gapItems: (compResult.missingSlots || []).map((s, idx) => ({
-            slot: s,
-            description: compResult.gapDescriptions?.[idx] || fallbackGaps[idx] || `${primaryFormality} ${s}`,
-          })),
+          gapItems,
           occasion: intent.occasion || resolvedDressCode.eventType || 'formal',
           formality: primaryFormality,
           season: eventContext.season || 'all',
-          genderPresentation: preferences.genderPresentation || 'unisex',
+          genderPresentation: resolvedGenderPresentation,
           locale: intent.language,
           budget: intent.budget || undefined,
+          isShoppingRequest: Boolean(intent.isShoppingRequest),
         });
 
         traceLogger.logTraceStep({
@@ -600,13 +649,20 @@ export const runStylistPipeline = async ({
     anchor,
     matchResult,
     messageId,
+    isShoppingRequest: intent.isShoppingRequest,
   });
 
   if (activeConversationId) {
     try {
+      const assistantRationale = intent.isShoppingRequest
+        ? (intent.language === 'ar'
+            ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
+            : 'Here are clothing pieces suggested from online retailers for you.')
+        : (compResult.outfits[0]?.rationale || 'Stylist recommendations generated');
+
       await conversationService.addMessage(activeConversationId, userId, {
         role: 'assistant',
-        content: compResult.outfits[0]?.rationale || 'Stylist recommendations generated',
+        content: assistantRationale,
         structuredResult: rendered,
         traceId,
       });

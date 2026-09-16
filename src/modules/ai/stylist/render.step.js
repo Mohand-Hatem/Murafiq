@@ -159,6 +159,7 @@ export const renderStylistResponse = ({
   anchor = null,
   matchResult = null,
   messageId = null,
+  isShoppingRequest = false,
 }) => {
   const langKey = language === 'ar' ? 'ar' : 'en';
   const primaryFormality = resolvedDressCode.formality?.[0] || 'casual';
@@ -178,7 +179,11 @@ export const renderStylistResponse = ({
     : null;
 
   // Hydrate outfits with real item attributes and Cloudinary URLs
-  const renderedOutfits = outfits.map((outfit, index) => {
+  // For explicit shopping requests, personal wardrobe outfits are suppressed (empty array)
+  // so the client renders exclusively external acquisition cards without duplicate suggestions.
+  const renderedOutfits = isShoppingRequest
+    ? []
+    : outfits.map((outfit, index) => {
     const itemIds = Array.isArray(outfit.itemIds) ? outfit.itemIds : [];
     const persisted = persistedOutfits[index];
 
@@ -224,8 +229,13 @@ export const renderStylistResponse = ({
       imageUrl: s.imageUrl || null,
       citations: Array.isArray(s.citations) ? s.citations : [],
       isGrounded: Boolean(s.isGrounded),
+      outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
+      outfitTitle: s.outfitTitle || null,
     }));
-  } else if (sufficiency !== 'good' && (missingSlots.length > 0 || gapDescriptions.length > 0)) {
+  } else if (
+    (sufficiency !== 'good' && (missingSlots.length > 0 || gapDescriptions.length > 0)) ||
+    Boolean(isShoppingRequest)
+  ) {
     // Ungrounded fallback template shopping list when search is not performed or quota is blocked
     if (Array.isArray(gapDescriptions) && gapDescriptions.length > 0) {
       suggestedToAcquire = gapDescriptions.map((desc, idx) => ({
@@ -242,7 +252,8 @@ export const renderStylistResponse = ({
         isGrounded: false,
       }));
     } else {
-      const templateSuggestions = generateAcquisitionSuggestions(missingSlots, primaryFormality, langKey);
+      const fallbackSlots = missingSlots.length > 0 ? missingSlots : ['top', 'bottom', 'shoes'];
+      const templateSuggestions = generateAcquisitionSuggestions(fallbackSlots, primaryFormality, langKey);
       suggestedToAcquire = templateSuggestions.map((ts) => ({
         slot: ts.slot,
         itemType: ts.description,
@@ -259,7 +270,7 @@ export const renderStylistResponse = ({
     }
   }
 
-  const suggestBookStylist = sufficiency === 'none' || sufficiency === 'partial';
+  const suggestBookStylist = sufficiency === 'none' || sufficiency === 'partial' || Boolean(isShoppingRequest);
 
   const softMatchHint = matchResult?.matched
     ? (langKey === 'ar'

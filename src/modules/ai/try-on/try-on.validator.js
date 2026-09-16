@@ -25,11 +25,21 @@ export const createTryOnSchema = {
       garments: z
         .array(garmentInputSchema)
         .min(1, 'At least 1 garment is required')
-        .max(4, 'At most 4 garments can be tried on simultaneously'),
+        .max(4, 'At most 4 garments can be tried on simultaneously')
+        .optional(),
+      outfitId: z.string().regex(objectIdRegex, 'Invalid outfitId ObjectId').optional(),
+      itemId: z.string().regex(objectIdRegex, 'Invalid itemId ObjectId').optional(),
       promptVersion: z.string().trim().default('v1').optional(),
       resolution: z.enum(['512x512', '1024x1024']).default('1024x1024').optional(),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (data) => Boolean(data.outfitId || data.itemId || (Array.isArray(data.garments) && data.garments.length > 0)),
+      {
+        message: 'Must provide at least one of outfitId, itemId, or garments',
+        path: ['garments'],
+      }
+    ),
 };
 
 export const tryOnIdParamSchema = {

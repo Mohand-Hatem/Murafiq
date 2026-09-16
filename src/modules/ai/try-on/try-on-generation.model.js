@@ -49,6 +49,12 @@ const tryOnGenerationSchema = new mongoose.Schema(
       ref: 'ShapeModel',
       required: true,
     },
+    outfitId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Outfit',
+      default: null,
+      index: true,
+    },
     garments: {
       type: [garmentItemSchema],
       required: true,

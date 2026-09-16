@@ -9,6 +9,7 @@ import wardrobeService from '../../src/modules/wardrobe/wardrobe.service.js';
 import stylePreferenceService from '../../src/modules/ai/preferences/style-preference.service.js';
 import outfitService from '../../src/modules/ai/outfits/outfit.service.js';
 import knowledgeService from '../../src/modules/ai/knowledge/knowledge.service.js';
+import userService from '../../src/modules/users/user.service.js';
 import { REFUSAL_CATEGORIES } from '../../src/modules/ai/prompts/refusal.templates.js';
 
 describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', () => {
@@ -262,5 +263,88 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
         message: 'wedding outfit',
       })
     ).rejects.toThrow(ApiError);
+  });
+
+  it('resolves genderPresentation from user profile when message intent is neutral', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({ success: true });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce({ gender: 'male' });
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'en',
+      eventType: 'business_meeting',
+      genderPresentation: null,
+      retrievalQueryEn: 'business suit',
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates').mockResolvedValueOnce({
+      top: [{ _id: 'top_1' }],
+      bottom: [{ _id: 'bottom_1' }],
+      shoes: [{ _id: 'shoes_1' }],
+    });
+    jest.spyOn(stylePreferenceService, 'getPreferences').mockResolvedValueOnce({});
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [{ itemIds: ['top_1', 'bottom_1', 'shoes_1'], score: 90 }],
+      sufficiency: 'good',
+      missingSlots: [],
+    });
+    jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValueOnce([
+      { _id: 'top_1', category: 'top' },
+      { _id: 'bottom_1', category: 'bottom' },
+      { _id: 'shoes_1', category: 'shoes' },
+    ]);
+    jest.spyOn(outfitService, 'recordOutfit').mockResolvedValueOnce({ _id: 'persisted_1' });
+
+    await runStylistPipeline({
+      userId,
+      message: 'outfit for interview',
+    });
+
+    expect(getCandidatesSpy).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ genderPresentation: 'masculine' })
+    );
+    expect(composeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventContext: expect.objectContaining({ genderPresentation: 'masculine' }),
+      })
+    );
+  });
+
+  it('allows explicit message intent gender to override user profile gender', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({ success: true });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce({ gender: 'male' });
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'en',
+      eventType: 'evening_gala',
+      genderPresentation: 'feminine',
+      retrievalQueryEn: 'evening gown',
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates').mockResolvedValueOnce({
+      dress: [{ _id: 'dress_1' }],
+      shoes: [{ _id: 'shoes_1' }],
+    });
+    jest.spyOn(stylePreferenceService, 'getPreferences').mockResolvedValueOnce({});
+    jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [{ itemIds: ['dress_1', 'shoes_1'], score: 95 }],
+      sufficiency: 'good',
+      missingSlots: [],
+    });
+    jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValueOnce([
+      { _id: 'dress_1', category: 'dress' },
+      { _id: 'shoes_1', category: 'shoes' },
+    ]);
+    jest.spyOn(outfitService, 'recordOutfit').mockResolvedValueOnce({ _id: 'persisted_2' });
+
+    await runStylistPipeline({
+      userId,
+      message: 'gift outfit for her gala',
+    });
+
+    expect(getCandidatesSpy).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ genderPresentation: 'feminine' })
+    );
   });
 });

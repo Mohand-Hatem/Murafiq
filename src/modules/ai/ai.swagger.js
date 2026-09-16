@@ -175,6 +175,16 @@
  *                           isGrounded:
  *                             type: boolean
  *                             example: true
+ *                           outfitIndex:
+ *                             type: integer
+ *                             nullable: true
+ *                             example: 1
+ *                             description: Coordinated outfit grouping index (1 or 2) when returning complete looks
+ *                           outfitTitle:
+ *                             type: string
+ *                             nullable: true
+ *                             example: "الإطلالة الأولى (كاجوال يومي)"
+ *                             description: Localized style direction or title for this coordinated outfit
  *                     suggestBookStylist:
  *                       type: boolean
  *                     stylistBookingCta:
