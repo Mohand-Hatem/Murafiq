@@ -118,6 +118,8 @@ if (parsed.data.NODE_ENV === 'production') {
     GEMINI_API_KEY: 'dev_gemini_api_key_placeholder',
     UPSTASH_VECTOR_REST_URL: 'https://dev-vector.upstash.io',
     UPSTASH_VECTOR_REST_TOKEN: 'dev_upstash_vector_token_placeholder',
+    UPSTASH_KB_VECTOR_REST_URL: 'https://dev-kb-vector.upstash.io',
+    UPSTASH_KB_VECTOR_REST_TOKEN: 'dev_upstash_kb_vector_token_placeholder',
     PAYMOB_API_KEY: 'paymob_legacy_api_key_placeholder',
     PAYMOB_SECRET_KEY: 'sk_test_placeholder',
     PAYMOB_PUBLIC_KEY: 'pk_test_placeholder',

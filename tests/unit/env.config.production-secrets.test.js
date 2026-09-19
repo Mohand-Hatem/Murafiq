@@ -38,6 +38,8 @@ const OTHER_REQUIRED_PROD_SECRETS = {
   GEMINI_API_KEY: 'real-gemini-key',
   UPSTASH_VECTOR_REST_URL: 'https://real-vector.upstash.io',
   UPSTASH_VECTOR_REST_TOKEN: 'real-upstash-token',
+  UPSTASH_KB_VECTOR_REST_URL: 'https://real-kb-vector.upstash.io',
+  UPSTASH_KB_VECTOR_REST_TOKEN: 'real-upstash-kb-token',
 };
 
 describe('env.config.js — production secret hardening', () => {
