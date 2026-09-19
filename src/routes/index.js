@@ -18,6 +18,7 @@ import subscriptionRoutes from '../modules/subscriptions/subscription.routes.js'
 import moderationRoutes from '../modules/moderation/moderation.routes.js';
 import locationRoutes from '../modules/users/location.routes.js';
 import wardrobeRoutes from '../modules/wardrobe/wardrobe.routes.js';
+import aiRoutes from '../modules/ai/ai.routes.js';
 import { isFirebaseConnected } from '../config/firebase.config.js';
 import { isRedisConnected } from '../config/redis.config.js';
 
@@ -41,6 +42,7 @@ router.use('/payouts', payoutRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/subscriptions', subscriptionRoutes);
 router.use('/wardrobe', wardrobeRoutes);
+router.use('/ai', aiRoutes);
 
 // Health check endpoint demonstrating global asyncHandler and ApiResponse without repetitive imports
 router.get(

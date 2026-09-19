@@ -55,17 +55,14 @@
 
 | Sub-phase | Status |
 |---|---|
-| 15A Data model & retrieval | ⛔ Not started |
-| 15B Stylist pipeline | ⛔ Not started |
-| 15C Image input | ⛔ Not started |
+| 15A Data model & retrieval | ✅ IMPLEMENTED |
+| 15B Stylist pipeline | ✅ IMPLEMENTED |
+| 15C Image input | 🟡 Ready to start |
 | 15D Fashion knowledge RAG | ⛔ Not started |
 | 15E External product search | ⛔ Not started |
 | 15F Virtual try-on | ⛔ Not started |
 
-**Prerequisites — all satisfied.** The upload folder-authorization gate that previously blocked
-15F (HARDEN-004) is closed; see [`next-phase/BACKLOG.md`](next-phase/BACKLOG.md). Gemini and
-vector configuration, the Redis/BullMQ worker, wardrobe embeddings and the entitlement/usage
-metering Phase 15 needs for quotas are all already in place.
+**Prerequisites — all satisfied.** `HARDENING_08` is completed and verified. `Phase 15A` and `Phase 15B` are fully implemented and verified (all 11 test suites / 115 tests passing, 42-case golden evaluation harness passing). Phase 15C is ready to begin.
 
 ## Phase 16 — Deployment · PARTIALLY IMPLEMENTED
 

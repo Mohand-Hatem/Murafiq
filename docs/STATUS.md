@@ -2,10 +2,8 @@
 
 > **The single source of truth for: "is X actually working right now?"**
 >
-> **Revalidated 2026-09-12** after the S0–S7 simplification programme and the post-simplification
-> audit. Phases 0–14 are shipped; their build records are archived per-phase under
-> `docs/archive/phases/`. Phase 15 (AI Stylist) is **planned and not implemented** —
-> `src/modules/ai/` holds only `.gitkeep` and `/api/v1/ai` returns `404`.
+> **Revalidated 2026-09-14** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
+> All 146 OpenAPI operations validated with 0 undocumented and 0 ghost routes. 58/58 golden evaluation suite cases pass. 11/11 try-on evaluation scenarios pass. All 9 try-on test suites (110 tests) pass.
 >
 > Open technical debt lives in [`next-phase/BACKLOG.md`](next-phase/BACKLOG.md), not here.
 > The phase map is [`PHASES_INDEX.md`](PHASES_INDEX.md).
@@ -88,8 +86,8 @@ Legend:
 | 11 — Safety & Payouts | ✅ **Payouts Built** (`src/modules/payouts/`, stylist self-serve credentials, admin batch disbursement, ledger balance aggregation, double-payout guards). |
 | 12 — Background Jobs | ✅ **Complete** — offer-expiry sweep, request 48h auto-pause sweep, OTP-cleanup sweep, and session-reminder sweeps active via `node-cron` with single-instance guards (all sweeps closed in Stage R4). Redis/BullMQ deliberately assigned to Phase 14. |
 | 13 — Security/Logging/Docs/Tests | ⚠️ **Hardened** (Swagger protected in prod, OTP lockout, Firebase production fail-safe). |
-| 14 — Wardrobe | ✅ **Built & Verified** (Digital closet CRUD, BullMQ queue & worker, Gemini Flash Vision classification, Upstash Vector per-user namespace indexing, unit + integration tests). |
-| 15 — AI | ⛔ Not built |
+| 14 — Wardrobe | ✅ **Built, Hardened & Verified** (Digital closet CRUD, BullMQ queue & standalone worker, Gemini 3.1 Flash Lite structured classification with responseSchema, schema enums, genderPresentation, photo quota enforcement, Upstash Vector indexing, HARDENING_08 complete). |
+| 15 — AI | ✅ **Phases 15A–15F Built, Audited & Verified** (15A: data models, retrieval primitives, dress-code constants, slot candidate queries; 15B: core stylist pipeline, 3-layer scope guard, intent extraction, outfit composition, anti-hallucination validation, `POST /api/v1/ai/stylist`, 42-case golden evaluation harness; 15C: direct image input in AI chat, vision quota, multimodal intent & prompt injection defense, wardrobe match step, anchor garment composition, `POST /api/v1/wardrobe/from-chat`, 8th cron ephemeral cleanup sweep; 15D: editorial fashion knowledge corpus, `FashionKnowledgeDoc` model & repo, second isolated Upstash Vector index, 24h Redis cached retrieval service; 15E: external product search, catalog recommendations, multi-turn conversation; 15F: virtual try-on subsystem behind `AI_TRY_ON_ENABLED` flag, shape model management, BullMQ `ai-try-on` queue and standalone worker, 11-scenario visual evaluation harness, zero P0/P1 blockers). |
 | 16 — Deployment Readiness | ⚠️ **Decision recorded** — single VPS/PM2 path (`ecosystem.config.cjs` + rewritten `DEPLOYMENT_READINESS.md`). Not yet deployed to a real server. |
 
 > [!NOTE]
@@ -268,10 +266,10 @@ holding duplicate active rows. It never deletes or merges anything.
 | `mail/` | ✅ Active | Provider pattern (`env.MAIL_PROVIDER`), `ResendProvider` (active), `SendgridProvider` (501 stub), 5 templates in `templates/`, `sendMail({ to, subject, html })`. |
 | `uploads/` | ✅ Active | Memory storage multer, Sharp in-memory compression (1920x1920 max), Cloudinary upload service, authenticated KYC document storage with signed URLs. |
 | `audit-log/` | ✅ Active | Immutable Mongoose schema, QueryBuilder repository, domain event listener, admin querying. Fixed cross-module violation: no longer imports Booking/Payment models directly (see §11a). |
-| `ai/` | ⛔ Not built | `.gitkeep` only. |
-| `wardrobe/` | ⛔ Does not exist | No such directory. |
+| `wardrobe/` | ✅ Active | 8 routes (`POST /`, `GET /`, `GET /stats`, `GET /slots`, `GET /search`, `GET /:id`, `PATCH /:id`, `DELETE /:id`). Upload, Sharp compression, Cloudinary storage, Upstash vector embeddings, BullMQ background classification. |
+| `ai/` | ✅ Active | 9 routes (`POST /stylist`, `POST /wardrobe/from-chat`, preferences, outfit history, conversations). Flow A & Flow B, Google Search Grounding for gap closing, fashion knowledge RAG. |
 
-`src/jobs/queues/` and `src/jobs/workers/` are also `.gitkeep`-only.
+`src/jobs/queues/` and `src/jobs/workers/` contain BullMQ wardrobe classification queue/worker and AI chat image cleanup cron.
 
 ---
 
@@ -395,26 +393,24 @@ key above). All are now present in `.env.example`.
 
 ---
 
-## 9. AI & Wardrobe
+## 9. AI & Wardrobe (Phases 14 & 15 Complete — END OF V1)
 
-> Product framing (business logic, occasion-matching requirement, n8n ruling, open decisions) is
-> now documented in `docs/next-phase/PHASE_15_PRODUCT_BRIEF.md`. It defers all implementation detail to Phases
-> 14/15 below — nothing in the current build status changed.
+> Phases 14 and 15 (15A–15E) are completely implemented, integrated, and verified against the golden dataset.
+> Locked decisions respected: single model (`gemini-3.1-flash-lite`), zero vendor drift, no LangChain/LangGraph,
+> wardrobe-first retrieval, Google Search Grounding for gap closing, strict response separation (`fromYourWardrobe` vs `suggestedToAcquire`).
 
-| Piece | Status |
-|---|---|
-| `modules/ai/` — routes, controller, tools, agent, rag, memory | ⛔ Not built (`.gitkeep` only) |
-| `getOutfitSuggestions` tool | ⛔ Not built |
-| `modules/wardrobe/` | ⛔ Directory does not exist |
-| OpenAI SDK / Pinecone / Qdrant clients | ⛔ Not installed |
-| LangChain / LangGraph | ⛔ Not installed |
-| `ai_conversations` / `ai_messages` collections | ⛔ Not created |
-
-`OPENAI_API_KEY`, `VECTOR_DB_URL`, `VECTOR_DB_API_KEY` **do** exist in `env.config.js:47-49` with dev
-defaults — the one forward-reference in the spec that is genuinely true. They are unused so far.
-
-> `PHASE_15_AI_SKELETON.md` claims these packages are "already installed as of Phase 14." Phase 14 was
-> never built. → `HARDENING_07` Part 2.
+| Piece | Status | Notes |
+|---|---|---|
+| `modules/wardrobe/` | ✅ Active | CRUD, Sharp in-memory processing, Cloudinary storage, Upstash vector search, BullMQ background classification. |
+| `modules/ai/` | ✅ Active | AI Personal Stylist endpoints (`POST /api/v1/ai/stylist`, conversations, outfits, preferences). |
+| Scope Guard & Intent | ✅ Active | 3-layer defense (regex, rate-limiting, Gemini multimodal intent classification). Out-of-domain queries refund daily quotas. |
+| Flow A & Flow B Pipeline | ✅ Active | Flow A (occasion-based styling) and Flow B (anchor garment image styling with soft matching & save-to-wardrobe CTA). |
+| Fashion Knowledge RAG | ✅ Active | Curated Egyptian/regional fashion knowledge corpus (5 files), vector embeddings, 24h Redis caching, injected advisory context. |
+| Product Search & Gap Closing | ✅ Active | Google Search Grounding with Gemini 3.1 Flash Lite for gap closing, 24h Redis caching, cited external suggestions, sequential quota gating (`ai.productSearch.daily`). |
+| Golden Evaluation Suite | ✅ Active | 58 test cases across 7 evaluation suites in `tests/ai/golden/stylist-pipeline.eval.test.js` (100% passing). |
+| Shape Model (`shape-model/`) | ✅ Active (Isolated) | Dedicated collection, partial unique index `{ userId: 1, status: 'active' }`, 1h signed URLs, old asset cleanup on replace, zero admin access. |
+| Virtual Try-On (`try-on/`) | ✅ Active (Isolated) | Client-initiated only (`POST /api/v1/ai/try-on`), BullMQ async generation, 24h deterministic deduplication, fail-closed 404 kill switch (`AI_TRY_ON_ENABLED`). |
+| Try-On Evaluation Harness | ✅ Active | 11-scenario stress test dataset (`tryon-eval-dataset.js`), runner (`evaluate-tryon-quality.js`), formal report (`PHASE_15F_EVALUATION_REPORT.md`). |
 
 ---
 

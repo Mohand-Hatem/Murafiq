@@ -10,7 +10,7 @@ import { startSubscriptionRenewalCron } from './jobs/subscription-renewal.cron.j
 import { startRequestAutoPauseCron } from './jobs/request-autopause.cron.js';
 import { startSessionReminderCron } from './jobs/session-reminder.cron.js';
 import { startNoShowResolutionCron } from './jobs/no-show-resolution.cron.js';
-import { startWardrobeWorker, stopWardrobeWorker } from './jobs/workers/wardrobe-classification.worker.js';
+import { startAiChatCleanupCron } from './jobs/ai-chat-cleanup.cron.js';
 import { closeRedisConnection } from './config/redis.config.js';
 
 const PORT = env.PORT || 4000;
@@ -24,7 +24,7 @@ const startServer = async () => {
   startRequestAutoPauseCron();
   startNoShowResolutionCron();
   startSessionReminderCron();
-  startWardrobeWorker();
+  startAiChatCleanupCron();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${PORT}`);
   });
@@ -40,7 +40,6 @@ const gracefulShutdown = (signal) => {
   server.close(async () => {
     logger.info('HTTP server closed.');
     try {
-      await stopWardrobeWorker();
       await closeRedisConnection();
       if (mongoose.connection.readyState !== 0) {
         await mongoose.connection.close();

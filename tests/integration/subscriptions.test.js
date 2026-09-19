@@ -140,7 +140,15 @@ jest.unstable_mockModule('../../src/modules/wardrobe/wardrobe-item.model.js', ()
     countDocuments: jest.fn().mockResolvedValue(0),
   },
   WARDROBE_CATEGORIES: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress'],
-  CLASSIFICATION_STATUS: { PENDING: 'pending', DONE: 'done', FAILED: 'failed' },
+  WARDROBE_PATTERNS: ['solid', 'striped', 'plaid', 'floral', 'graphic', 'checkered', 'polka_dot', 'animal_print', 'other'],
+  WARDROBE_FORMALITIES: ['casual', 'smart_casual', 'business', 'formal', 'loungewear', 'sportswear'],
+  WARDROBE_SEASONS: ['spring', 'summer', 'fall', 'winter', 'all_season'],
+  WARDROBE_MATERIALS: ['cotton', 'denim', 'leather', 'wool', 'silk', 'linen', 'synthetic', 'knitwear', 'other'],
+  WARDROBE_FITS: ['slim', 'regular', 'relaxed', 'oversized'],
+  WARDROBE_COLOR_FAMILIES: ['black', 'white', 'grey', 'navy', 'blue', 'brown', 'beige', 'green', 'red', 'pink', 'purple', 'yellow', 'orange', 'metallic', 'multicolor'],
+  WARDROBE_GENDER_PRESENTATIONS: ['masculine', 'feminine', 'unisex'],
+  WARDROBE_ORIGINS: ['upload', 'chat_save'],
+  CLASSIFICATION_STATUS: { PENDING: 'pending', DONE: 'done', FAILED: 'failed', NEEDS_REVIEW: 'needs_review' },
 }));
 
 jest.unstable_mockModule('../../src/modules/ledger/ledger.service.js', () => ({

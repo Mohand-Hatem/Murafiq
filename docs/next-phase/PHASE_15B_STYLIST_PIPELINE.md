@@ -245,18 +245,18 @@ This harness is the merge gate from here on. It is worth more than any tracing U
 
 ## Definition of Done
 
-- [ ] `POST /api/v1/ai/stylist` returns ranked outfits whose item IDs all exist in the caller's wardrobe.
-- [ ] `llm.provider.js` is the only file importing `@google/genai` in `src/modules/ai/`.
-- [ ] **No LangChain, LangGraph, OpenAI, Anthropic or new vector package in `package.json`.**
-- [ ] All six unsupported example questions return a templated refusal, in the user's language, with **zero** downstream calls in the trace log.
-- [ ] All nine supported example questions are answered, not refused.
-- [ ] Injection attempts stay in domain.
-- [ ] A forged `itemId` injected into a mocked model response causes retry-then-fail-closed — never a response.
-- [ ] `ai.messages.daily` returns `429` at the boundary, and quota is **refunded** after a refusal.
-- [ ] Pre-flight guard: a client with an empty wardrobe gets the insufficiency path with **no** composition call in the trace.
-- [ ] Arabic and English both verified end to end.
-- [ ] Cross-user isolation: a request never surfaces another client's items.
-- [ ] Trace logs contain no raw messages, images or Cloudinary URLs.
-- [ ] `@swagger` block renders cleanly at `/api/docs`.
-- [ ] Golden-set harness passes and runs in CI.
+- [x] `POST /api/v1/ai/stylist` returns ranked outfits whose item IDs all exist in the caller's wardrobe.
+- [x] `llm.provider.js` is the only file importing `@google/genai` in `src/modules/ai/`.
+- [x] **No LangChain, LangGraph, OpenAI, Anthropic or new vector package in `package.json`.**
+- [x] All six unsupported example questions return a templated refusal, in the user's language, with **zero** downstream calls in the trace log.
+- [x] All nine supported example questions are answered, not refused.
+- [x] Injection attempts stay in domain.
+- [x] A forged `itemId` injected into a mocked model response causes retry-then-fail-closed — never a response.
+- [x] `ai.messages.daily` returns `429` at the boundary, and quota is **refunded** after a refusal.
+- [x] Pre-flight guard: a client with an empty wardrobe gets the insufficiency path with **no** composition call in the trace.
+- [x] Arabic and English both verified end to end.
+- [x] Cross-user isolation: a request never surfaces another client's items.
+- [x] Trace logs contain no raw messages, images or Cloudinary URLs.
+- [x] `@swagger` block renders cleanly at `/api/docs`.
+- [x] Golden-set harness passes and runs in CI.
 - [ ] Full Jest suite green.

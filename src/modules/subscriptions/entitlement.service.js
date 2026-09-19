@@ -8,7 +8,7 @@ import WardrobeItem from '../wardrobe/wardrobe-item.model.js';
 import subscriptionRepository from './subscription.repository.js';
 import planRepository from './plan.repository.js';
 import { FALLBACK_FREE_ENTITLEMENTS } from './plan.constants.js';
-import { getBusinessDayRange } from '../../common/utils/businessDay.util.js';
+import { getBusinessDayRange, getBusinessMonthRange } from '../../common/utils/businessDay.util.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { REQUEST_STATUS, OFFER_STATUS } from '../../common/constants/statuses.constant.js';
 
@@ -62,11 +62,43 @@ export const getEntitlements = async (userId, role = 'client') => {
 };
 
 /**
- * Atomically consumes daily quota for a given metric.
- * Throws ApiError 429 if the daily quota is exceeded.
+ * Resolves periodKey and expiresAt for a given metric based on its suffix.
+ * - .monthly: "YYYY-MM" (Cairo calendar month), 400 days TTL
+ * - .lifetime: "lifetime", null (no TTL expiration)
+ * - default (.daily): "YYYY-MM-DD" (Cairo calendar day), 40 days TTL
+ *
+ * @param {string} metric
+ * @returns {{ periodKey: string, expiresAt: Date|null, granularity: 'monthly'|'lifetime'|'daily' }}
+ */
+export const resolvePeriodDetails = (metric) => {
+  if (typeof metric === 'string' && metric.endsWith('.monthly')) {
+    const { startOfMonth } = getBusinessMonthRange();
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric',
+      month: '2-digit',
+    });
+    const periodKey = formatter.format(startOfMonth); // "YYYY-MM" in Cairo time
+    const expiresAt = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000); // 400 days TTL
+    return { periodKey, expiresAt, granularity: 'monthly' };
+  }
+
+  if (typeof metric === 'string' && metric.endsWith('.lifetime')) {
+    return { periodKey: 'lifetime', expiresAt: null, granularity: 'lifetime' };
+  }
+
+  const { startOfDay } = getBusinessDayRange();
+  const periodKey = startOfDay.toISOString().split('T')[0]; // "YYYY-MM-DD"
+  const expiresAt = new Date(Date.now() + 40 * 24 * 60 * 60 * 1000); // 40 days TTL
+  return { periodKey, expiresAt, granularity: 'daily' };
+};
+
+/**
+ * Atomically consumes quota for a given metric (daily, monthly, or lifetime).
+ * Throws ApiError 429 if quota is exceeded.
  *
  * @param {string|import('mongoose').Types.ObjectId} userId
- * @param {'requests.daily'|'offers.daily'|'ai.messages.daily'} metric
+ * @param {string} metric
  * @param {number} [count=1]
  * @param {string} [role='client']
  * @returns {Promise<{ success: boolean, used: number, limit: number }>}
@@ -80,20 +112,30 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
     return { success: true, used: 0, limit: Infinity };
   }
 
-  // Guard the first-call-of-period bypass: `used: { $lte: limit - count }` below is a range
-  // predicate, so when no counter document exists yet for today Mongo's upsert does NOT copy
-  // it into the inserted document — the insert proceeds unconditionally regardless of `limit`.
-  // A `limit: 0` entitlement (or any `count > limit`) would otherwise grant exactly one free
-  // use per period before the unique-index guard ever gets a chance to fire.
+  const { periodKey, expiresAt, granularity } = resolvePeriodDetails(metric);
+
+  const quotaPrefix =
+    granularity === 'monthly'
+      ? 'Monthly quota'
+      : granularity === 'lifetime'
+        ? 'Lifetime trial'
+        : 'Daily quota';
+
+  const limitUnit =
+    granularity === 'monthly'
+      ? '/month'
+      : granularity === 'lifetime'
+        ? ' lifetime'
+        : '/day';
+
   if (count > limit) {
     throw new ApiError(
       429,
-      `Daily quota exceeded for ${metric}. Your limit is ${limit}/day on the ${planCode} plan. Upgrade your plan for higher limits.`
+      `${quotaPrefix} exceeded for ${metric}. Your limit is ${limit}${limitUnit} on the ${planCode} plan. Upgrade your plan for higher limits.`
     );
   }
 
-  const { startOfDay } = getBusinessDayRange();
-  const periodKey = startOfDay.toISOString().split('T')[0]; // "YYYY-MM-DD"
+  const setOnInsert = expiresAt ? { expiresAt } : {};
 
   try {
     const counter = await UsageCounter.findOneAndUpdate(
@@ -105,9 +147,7 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
       },
       {
         $inc: { used: count },
-        $setOnInsert: {
-          expiresAt: new Date(Date.now() + 40 * 24 * 60 * 60 * 1000), // 40 days TTL
-        },
+        ...(Object.keys(setOnInsert).length > 0 ? { $setOnInsert: setOnInsert } : {}),
       },
       {
         upsert: true,
@@ -121,11 +161,53 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
     if (error.code === 11000) {
       throw new ApiError(
         429,
-        `Daily quota exceeded for ${metric}. Your limit is ${limit}/day on the ${planCode} plan. Upgrade your plan for higher limits.`
+        `${quotaPrefix} exceeded for ${metric}. Your limit is ${limit}${limitUnit} on the ${planCode} plan. Upgrade your plan for higher limits.`
       );
     }
     throw error;
   }
+};
+
+/**
+ * Checks whether the user has available quota to consume for a given metric without mutating or throwing.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @param {string} metric
+ * @param {number} [count=1]
+ * @param {string} [role='client']
+ * @returns {Promise<{ allowed: boolean, limit: number, used: number, remaining: number, planCode: string }>}
+ */
+export const checkQuota = async (userId, metric, count = 1, role = 'client') => {
+  const { entitlements, planCode } = await getEntitlements(userId, role);
+  const limit = entitlements[metric];
+
+  if (limit === undefined || limit === null) {
+    return { allowed: true, limit: Infinity, used: 0, remaining: Infinity, planCode };
+  }
+
+  if (limit === 0 || count > limit) {
+    return { allowed: false, limit, used: 0, remaining: 0, planCode };
+  }
+
+  const { periodKey } = resolvePeriodDetails(metric);
+
+  const counter = await UsageCounter.findOne({
+    subjectId: userId,
+    metric,
+    periodKey,
+  });
+
+  const used = counter?.used || 0;
+  const remaining = Math.max(0, limit - used);
+  const allowed = remaining >= count;
+
+  return {
+    allowed,
+    limit,
+    used,
+    remaining,
+    planCode,
+  };
 };
 
 /**
@@ -191,8 +273,7 @@ export const hasFeature = async (userId, featureName, role = 'stylist') => {
  * @returns {Promise<void>}
  */
 export const refundQuota = async (userId, metric, count = 1) => {
-  const { startOfDay } = getBusinessDayRange();
-  const periodKey = startOfDay.toISOString().split('T')[0];
+  const { periodKey } = resolvePeriodDetails(metric);
 
   await UsageCounter.updateOne(
     {
@@ -206,10 +287,51 @@ export const refundQuota = async (userId, metric, count = 1) => {
   );
 };
 
+/**
+ * Pre-bills try-on requests with sequential fallback:
+ * 1. Checks and consumes ai.tryOn.monthly if available.
+ * 2. If monthly quota is exhausted or 0 (free tier), checks and consumes ai.tryOn.trial.lifetime.
+ * 3. If both are exhausted, throws ApiError 429.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @param {string} [role='client']
+ * @returns {Promise<{ success: boolean, quotaSource: 'monthly'|'lifetime' }>}
+ */
+export const consumeTryOnQuota = async (userId, role = 'client') => {
+  // 1. Attempt monthly quota first
+  const monthlyCheck = await checkQuota(userId, 'ai.tryOn.monthly', 1, role);
+  if (monthlyCheck.allowed) {
+    try {
+      await consume(userId, 'ai.tryOn.monthly', 1, role);
+      return { success: true, quotaSource: 'monthly' };
+    } catch (err) {
+      // If concurrent request consumed the last monthly slot, fall through to lifetime trial
+      if (err.statusCode !== 429) {
+        throw err;
+      }
+    }
+  }
+
+  // 2. Fall back to lifetime trial (e.g. for free tier or first-time try-on)
+  const lifetimeCheck = await checkQuota(userId, 'ai.tryOn.trial.lifetime', 1, role);
+  if (lifetimeCheck.allowed) {
+    await consume(userId, 'ai.tryOn.trial.lifetime', 1, role);
+    return { success: true, quotaSource: 'lifetime' };
+  }
+
+  throw new ApiError(
+    429,
+    `Virtual Try-On quota exceeded. Your try-on limit has been reached on the ${monthlyCheck.planCode} plan. Upgrade your plan for additional try-ons.`
+  );
+};
+
 export default {
   getEntitlements,
   consume,
+  checkQuota,
   capacity,
   hasFeature,
   refundQuota,
+  resolvePeriodDetails,
+  consumeTryOnQuota,
 };

@@ -17,11 +17,14 @@ describe('Wardrobe Service Unit Tests', () => {
   });
 
   describe('createWardrobeItem', () => {
-    it('should create a pending item and enqueue classification job', async () => {
+    it('should create a pending item and enqueue classification job with valid uploadRef', async () => {
+      const validUploadRef = `murafiq/wardrobe/${mockUserId}/item-uuid-123`;
+      const expectedCloudinaryUrl = `https://res.cloudinary.com/murafiq/image/upload/v1/${validUploadRef}`;
       const mockCreatedItem = {
         _id: mockItemId,
         userId: mockUserId,
-        imageUrl: 'https://example.com/item.jpg',
+        imageUrl: expectedCloudinaryUrl,
+        sourceUploadRef: validUploadRef,
         classificationStatus: CLASSIFICATION_STATUS.PENDING,
       };
 
@@ -32,24 +35,46 @@ describe('Wardrobe Service Unit Tests', () => {
       const queueSpy = jest.spyOn(queueModule, 'addWardrobeClassificationJob').mockResolvedValue({ id: 'job-1' });
 
       const result = await wardrobeService.createWardrobeItem(mockUserId, {
-        imageUrl: 'https://example.com/item.jpg',
+        uploadRef: validUploadRef,
       });
 
       expect(entitlementService.capacity).toHaveBeenCalledWith(mockUserId, 'wardrobe.photos.max', 'client');
-      expect(wardrobeRepo.createWardrobeItem).toHaveBeenCalledWith({
-        userId: mockUserId,
-        imageUrl: 'https://example.com/item.jpg',
-        classificationStatus: CLASSIFICATION_STATUS.PENDING,
-      });
-      expect(queueSpy).toHaveBeenCalledWith({
-        itemId: mockItemId,
-        userId: mockUserId,
-        imageUrl: 'https://example.com/item.jpg',
-      });
+      expect(wardrobeRepo.createWardrobeItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: mockUserId,
+          sourceUploadRef: validUploadRef,
+          classificationStatus: CLASSIFICATION_STATUS.PENDING,
+        })
+      );
+      expect(queueSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: mockItemId,
+          userId: mockUserId,
+        })
+      );
       expect(result).toEqual(mockCreatedItem);
     });
 
+    it('rejects with 400 when uploadRef belongs to another user', async () => {
+      const foreignUserId = new mongoose.Types.ObjectId().toString();
+      const foreignUploadRef = `murafiq/wardrobe/${foreignUserId}/item-uuid-456`;
+
+      const createSpy = jest.spyOn(wardrobeRepo, 'createWardrobeItem');
+      const queueSpy = jest.spyOn(queueModule, 'addWardrobeClassificationJob');
+
+      await expect(
+        wardrobeService.createWardrobeItem(mockUserId, { uploadRef: foreignUploadRef })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: 'uploadRef does not belong to the authenticated user',
+      });
+
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(queueSpy).not.toHaveBeenCalled();
+    });
+
     it('rejects with 429 when the wardrobe.photos.max cap is reached, before creating anything', async () => {
+      const validUploadRef = `murafiq/wardrobe/${mockUserId}/item-uuid-123`;
       jest
         .spyOn(entitlementService, 'capacity')
         .mockResolvedValue({ limit: 7, used: 7, available: 0, hasCapacity: false });
@@ -57,7 +82,7 @@ describe('Wardrobe Service Unit Tests', () => {
       const queueSpy = jest.spyOn(queueModule, 'addWardrobeClassificationJob');
 
       await expect(
-        wardrobeService.createWardrobeItem(mockUserId, { imageUrl: 'https://example.com/item.jpg' })
+        wardrobeService.createWardrobeItem(mockUserId, { uploadRef: validUploadRef })
       ).rejects.toMatchObject({ statusCode: 429 });
 
       expect(createSpy).not.toHaveBeenCalled();

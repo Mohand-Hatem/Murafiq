@@ -45,6 +45,52 @@ const fetchImageBounded = async (imageUrl) => {
   }
 };
 
+const garmentClassificationSchema = {
+  type: 'OBJECT',
+  properties: {
+    category: {
+      type: 'STRING',
+      enum: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress'],
+    },
+    subcategory: { type: 'STRING' },
+    primaryColor: { type: 'STRING' },
+    secondaryColors: { type: 'ARRAY', items: { type: 'STRING' } },
+    pattern: {
+      type: 'STRING',
+      enum: ['solid', 'striped', 'plaid', 'floral', 'graphic', 'checkered', 'polka_dot', 'animal_print', 'other'],
+    },
+    formality: {
+      type: 'STRING',
+      enum: ['casual', 'smart_casual', 'business', 'formal', 'loungewear', 'sportswear'],
+    },
+    season: {
+      type: 'ARRAY',
+      items: { type: 'STRING', enum: ['spring', 'summer', 'fall', 'winter', 'all_season'] },
+    },
+    material: {
+      type: 'STRING',
+      enum: ['cotton', 'denim', 'leather', 'wool', 'silk', 'linen', 'synthetic', 'knitwear', 'other'],
+    },
+    fit: {
+      type: 'STRING',
+      enum: ['slim', 'regular', 'relaxed', 'oversized'],
+    },
+    colorFamily: {
+      type: 'STRING',
+      enum: ['black', 'white', 'grey', 'navy', 'blue', 'brown', 'beige', 'green', 'red', 'pink', 'purple', 'yellow', 'orange', 'metallic', 'multicolor'],
+    },
+    genderPresentation: {
+      type: 'STRING',
+      enum: ['masculine', 'feminine', 'unisex'],
+    },
+    printedText: { type: 'STRING' },
+    styleTags: { type: 'ARRAY', items: { type: 'STRING' } },
+    aiDescription: { type: 'STRING' },
+    aiConfidence: { type: 'NUMBER' },
+  },
+  required: ['category', 'primaryColor', 'pattern', 'formality', 'season', 'material', 'genderPresentation', 'aiDescription'],
+};
+
 /**
  * Classify a clothing item image using Gemini Flash Vision
  * @param {string} imageUrl
@@ -55,37 +101,30 @@ export const classifyClothingImage = async (imageUrl) => {
   if (env.NODE_ENV === 'test' || env.GEMINI_API_KEY === 'dev_gemini_api_key_placeholder') {
     return {
       category: 'top',
+      subcategory: 't-shirt',
       primaryColor: 'White',
       secondaryColors: ['Blue'],
       pattern: 'solid',
       formality: 'casual',
       season: ['spring', 'summer'],
       material: 'cotton',
+      fit: 'regular',
+      colorFamily: 'white',
+      genderPresentation: 'unisex',
+      printedText: '',
       styleTags: ['minimalist', 'casual'],
       aiDescription: 'Classic white cotton short-sleeve crewneck t-shirt with minimal blue accents.',
+      aiConfidence: 0.95,
     };
   }
 
   try {
     const { buffer: imageBuffer, mimeType } = await fetchImageBounded(imageUrl);
     const ai = getGeminiClient();
-    const prompt = `You are an expert fashion stylist and clothing classifier.
-Analyze this garment image and return ONLY a valid JSON object matching this schema:
-{
-  "category": "top" | "bottom" | "shoes" | "outerwear" | "accessory" | "dress",
-  "primaryColor": "string",
-  "secondaryColors": ["string"],
-  "pattern": "solid" | "striped" | "plaid" | "floral" | "graphic" | "checkered" | "other",
-  "formality": "casual" | "smart_casual" | "business" | "formal" | "loungewear" | "sportswear",
-  "season": ["spring", "summer", "fall", "winter", "all_season"],
-  "material": "cotton" | "denim" | "leather" | "wool" | "silk" | "linen" | "synthetic" | "other",
-  "styleTags": ["string"],
-  "aiDescription": "A concise, descriptive summary of the item for styling and visual search (e.g. 'Classic white crewneck cotton t-shirt with subtle navy pocket trim')."
-}
-Ensure the JSON is strictly formatted with no surrounding markdown backticks or commentary.`;
+    const prompt = 'You are an expert fashion stylist and clothing classifier. Analyze this garment image and extract accurate clothing attributes according to the schema.';
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: env.AI_MODEL_VISION || 'gemini-3.1-flash-lite',
       contents: [
         {
           role: 'user',
@@ -100,11 +139,13 @@ Ensure the JSON is strictly formatted with no surrounding markdown backticks or 
           ],
         },
       ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: garmentClassificationSchema,
+      },
     });
 
-    const responseText = response.text ? response.text.trim() : '';
-    const cleanedJson = responseText.replace(/^[\s\S]*?({[\s\S]*})[\s\S]*$/, '$1');
-    const parsed = JSON.parse(cleanedJson);
+    const parsed = JSON.parse(response.text.trim());
     return parsed;
   } catch (error) {
     logger.error('Gemini vision classification error:', error);

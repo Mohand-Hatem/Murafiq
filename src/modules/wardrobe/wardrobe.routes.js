@@ -7,6 +7,7 @@ import {
   createWardrobeItemSchema,
   updateWardrobeItemSchema,
   wardrobeQuerySchema,
+  saveFromChatSchema,
 } from './wardrobe.validator.js';
 
 const router = express.Router();
@@ -19,6 +20,12 @@ router.post(
   '/',
   validate(createWardrobeItemSchema),
   wardrobeController.createWardrobeItem
+);
+
+router.post(
+  '/from-chat',
+  validate(saveFromChatSchema),
+  wardrobeController.saveFromChat
 );
 
 router.get(

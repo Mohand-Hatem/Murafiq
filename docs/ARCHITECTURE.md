@@ -23,7 +23,7 @@ Murafiq is a production-grade marketplace backend that connects **Clients** with
 | Payments | Custom provider interface → Mock provider (active) → Paymob (🔲 sandbox-untested) | Partial |
 | Payouts | Manual bank transfer / Vodafone Cash / Instapay ledger, 48h escrow hold, batch disbursement, double-payout guards | Active |
 | Realtime (chat & notifications) | Firebase (Firestore for Chat + FCM for Push & In-App Notifications, fail-closed in prod, in-memory mock in dev/test) | Active |
-| Queue / Jobs | BullMQ + Redis | 🔲 Planned (Phase 12) |
+| Queue / Jobs | BullMQ + Redis (standalone worker runner via PM2, connection pooling) | Active |
 | Mail | `mail.service.js` shim (Active) → Resend / SendGrid (🔲 Planned Phase 9) | Partial |
 | AI | **Google Gemini `gemini-3.1-flash-lite` (one model, all tasks) + Upstash Vector.** No LangChain, no LangGraph, no OpenAI, no Pinecone/Qdrant | 🔲 Planned (Phase 15 — see `PHASE_15_AI_SKELETON.md`) |
 | Logging | Winston (structured JSON + daily rotating files) + Morgan | Active |
