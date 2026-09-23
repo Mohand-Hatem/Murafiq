@@ -55,7 +55,7 @@
  *                 data:
  *                   type: object
  *                   properties:
- *                     fromYourWardrobe:
+ *                     outfits:
  *                       type: array
  *                       description: Outfits composed strictly from client-owned wardrobe pieces (strictly isolated from external recommendations)
  *                       items:
@@ -72,34 +72,7 @@
  *                             example: Classic formal navy suit paired with crisp white shirt.
  *                           fromYourWardrobe:
  *                             type: array
- *                             items:
- *                               type: object
- *                               properties:
- *                                 itemId:
- *                                   type: string
- *                                 name:
- *                                   type: string
- *                                 category:
- *                                   type: string
- *                                 imageUrl:
- *                                   type: string
- *                     outfits:
- *                       type: array
- *                       description: Alias to fromYourWardrobe for backwards compatibility
- *                       items:
- *                         type: object
- *                         properties:
- *                           outfitId:
- *                             type: string
- *                             nullable: true
- *                           score:
- *                             type: number
- *                             example: 95
- *                           rationale:
- *                             type: string
- *                             example: Classic formal navy suit paired with crisp white shirt.
- *                           fromYourWardrobe:
- *                             type: array
+ *                             description: Client-owned wardrobe garments composing this outfit
  *                             items:
  *                               type: object
  *                               properties:
@@ -221,5 +194,5 @@
  *       403:
  *         description: Forbidden - only client accounts may access the AI Stylist
  *       429:
- *         description: Daily quota exceeded for ai.messages.daily, ai.imageMessages.daily, or ai.productSearch.daily
+ *         description: Quota exceeded for ai.messages.daily/lifetime, ai.imageMessages.daily, or ai.productSearch.monthly
  */

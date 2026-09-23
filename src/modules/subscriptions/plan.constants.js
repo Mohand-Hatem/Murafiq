@@ -10,9 +10,8 @@ export const CANONICAL_PLANS = [
     entitlements: {
       'requests.daily': 1,
       'requests.active': 1,
-      'ai.messages.daily': 3,
-      'ai.imageMessages.daily': 1,
-      'ai.productSearch.daily': 0,
+      'ai.messages.lifetime': 10,
+      'ai.productSearch.monthly': 0,
       'ai.tryOn.monthly': 0,
       'ai.tryOn.trial.lifetime': 1,
       'wardrobe.photos.max': 7,
@@ -29,10 +28,10 @@ export const CANONICAL_PLANS = [
     entitlements: {
       'requests.daily': 2,
       'requests.active': 2,
-      'ai.messages.daily': 10,
+      'ai.messages.daily': 5,
       'ai.imageMessages.daily': 3,
-      'ai.productSearch.daily': 1,
-      'ai.tryOn.monthly': 5,
+      'ai.productSearch.monthly': 15,
+      'ai.tryOn.monthly': 4,
       'ai.tryOn.trial.lifetime': 0,
       'wardrobe.photos.max': 25,
     },
@@ -50,8 +49,8 @@ export const CANONICAL_PLANS = [
       'requests.active': 3,
       'ai.messages.daily': 35,
       'ai.imageMessages.daily': 10,
-      'ai.productSearch.daily': 3,
-      'ai.tryOn.monthly': 15,
+      'ai.productSearch.monthly': 30,
+      'ai.tryOn.monthly': 6,
       'ai.tryOn.trial.lifetime': 0,
       'wardrobe.photos.max': 45,
     },
@@ -69,8 +68,8 @@ export const CANONICAL_PLANS = [
       'requests.active': 4,
       'ai.messages.daily': 80,
       'ai.imageMessages.daily': 25,
-      'ai.productSearch.daily': 5,
-      'ai.tryOn.monthly': 30,
+      'ai.productSearch.monthly': 45,
+      'ai.tryOn.monthly': 8,
       'ai.tryOn.trial.lifetime': 0,
       'wardrobe.photos.max': 100,
     },
@@ -88,10 +87,10 @@ export const CANONICAL_PLANS = [
       'requests.active': 5,
       'ai.messages.daily': 150,
       'ai.imageMessages.daily': 60,
-      'ai.productSearch.daily': 10,
-      'ai.tryOn.monthly': 75,
+      'ai.productSearch.monthly': 60,
+      'ai.tryOn.monthly': 10,
       'ai.tryOn.trial.lifetime': 0,
-      'wardrobe.photos.max': 250,
+      'wardrobe.photos.max': 200,
     },
     isActive: true,
   },
@@ -158,7 +157,7 @@ export const CANONICAL_PLANS = [
 // USD figures in the product spec are display/marketing labels; EGP is the billing
 // currency (see the Decisions Log). Single point of change for the conversion.
 // TODO(§R item 6): move to an admin-editable config value rather than a constant.
-export const USD_TO_EGP_RATE = 50;
+export const USD_TO_EGP_RATE = 49;
 
 // Annual prices, in USD, per the Decisions Log. Deliberately 12 x monthly for the
 // stylist ladder -- the PO set Pro at $30 (12 x $2.50) and Enterprise at $60 (12 x $5),
@@ -196,9 +195,8 @@ export const FALLBACK_FREE_ENTITLEMENTS = {
   client: {
     'requests.daily': 1,
     'requests.active': 1,
-    'ai.messages.daily': 3,
-    'ai.imageMessages.daily': 1,
-    'ai.productSearch.daily': 0,
+    'ai.messages.lifetime': 10,
+    'ai.productSearch.monthly': 0,
     'ai.tryOn.monthly': 0,
     'ai.tryOn.trial.lifetime': 1,
     'wardrobe.photos.max': 7,

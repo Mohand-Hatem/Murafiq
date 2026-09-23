@@ -129,9 +129,9 @@ describe('Phase 15C Step 7 — Orchestrator Full Image Flow (Flow B)', () => {
       },
     });
 
-    // 1. Quota verification: both consumed
-    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.daily', 1, 'client');
-    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.imageMessages.daily', 1, 'client');
+    // 1. Quota verification: free user consumes only lifetime quota (no daily image restriction)
+    expect(consumeSpy).toHaveBeenCalledTimes(1);
+    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.lifetime', 1, 'client');
     expect(refundSpy).not.toHaveBeenCalled();
 
     // 2. Intent step called with image
@@ -288,14 +288,49 @@ describe('Phase 15C Step 7 — Orchestrator Full Image Flow (Flow B)', () => {
     expect(result.refusalCategory).toBe('non_garment_image');
     expect(result.message).toContain('clothing');
 
-    // Both quotas refunded
-    expect(refundSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.daily', 1);
-    expect(refundSpy).toHaveBeenCalledWith(mockUserId, 'ai.imageMessages.daily', 1);
+    // Lifetime quota refunded for free user
+    expect(refundSpy).toHaveBeenCalledTimes(1);
+    expect(refundSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.lifetime', 1);
 
     // Zero downstream calls
     expect(matchSpy).not.toHaveBeenCalled();
     expect(getCandidatesSpy).not.toHaveBeenCalled();
     expect(composeSpy).not.toHaveBeenCalled();
+  });
+
+  it('runs Flow B for paid subscriber: consumes and refunds both daily quotas on refusal', async () => {
+    jest.spyOn(entitlementService, 'getEntitlements').mockResolvedValueOnce({
+      planCode: 'client.basic',
+      tier: 'basic',
+      entitlements: {
+        'ai.messages.daily': 5,
+        'ai.imageMessages.daily': 3,
+      },
+    });
+
+    classifySpy = jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: false,
+      refusalCategory: 'non_garment_image',
+      imageIsGarment: false,
+      garmentAnalysis: null,
+      language: 'en',
+    });
+
+    const result = await orchestrator.runStylistPipeline({
+      userId: mockUserId,
+      message: 'What breed is this dog?',
+      imageRef: mockImageRef,
+      options: {
+        imageData: { mimeType: 'image/jpeg', data: 'mock-dog-base64' },
+      },
+    });
+
+    expect(result.refused).toBe(true);
+    // Both quotas consumed then refunded for paid tier
+    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.daily', 1, 'client');
+    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.imageMessages.daily', 1, 'client');
+    expect(refundSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.daily', 1);
+    expect(refundSpy).toHaveBeenCalledWith(mockUserId, 'ai.imageMessages.daily', 1);
   });
 
   it('runs standard Flow A when no imageRef is attached', async () => {
@@ -339,9 +374,9 @@ describe('Phase 15C Step 7 — Orchestrator Full Image Flow (Flow B)', () => {
       message: 'I have a wedding tomorrow evening',
     });
 
-    // Only 1 metric consumed (ai.messages.daily)
+    // Only 1 metric consumed (ai.messages.lifetime)
     expect(consumeSpy).toHaveBeenCalledTimes(1);
-    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.daily', 1, 'client');
+    expect(consumeSpy).toHaveBeenCalledWith(mockUserId, 'ai.messages.lifetime', 1, 'client');
 
     // matchWardrobeItem never called
     expect(matchSpy).not.toHaveBeenCalled();

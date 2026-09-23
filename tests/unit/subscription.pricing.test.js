@@ -39,9 +39,9 @@ describe('resolvePlanPricing', () => {
   });
 
   it('returns the YEARLY price and a 365-day period for a yearly cycle', () => {
-    // The regression that matters: 2900, never 250.
+    // The regression that matters: 2842 (58 * 49), never 250.
     expect(resolvePlanPricing(planFor('client.pro'), 'yearly')).toEqual({
-      priceEgp: 2900,
+      priceEgp: 2842,
       periodDays: 365,
     });
   });

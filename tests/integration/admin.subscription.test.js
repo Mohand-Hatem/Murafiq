@@ -26,7 +26,7 @@ const CLIENT_PRO = {
   role: 'client',
   tier: 'pro',
   priceEgp: 250,
-  priceYearlyEgp: 2900,
+  priceYearlyEgp: 2842,
   entitlements: {
     'requests.daily': 4,
     'requests.active': 4,
@@ -45,7 +45,7 @@ const CLIENT_FREE = {
   entitlements: {
     'requests.daily': 1,
     'requests.active': 1,
-    'ai.messages.daily': 3,
+    'ai.messages.lifetime': 10,
     'wardrobe.photos.max': 7,
   },
   isActive: true,

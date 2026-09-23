@@ -30,7 +30,7 @@ const mockProPlan = {
   role: 'client',
   tier: 'pro',
   priceEgp: 250,
-  priceYearlyEgp: 2900,
+  priceYearlyEgp: 2842,
   priceUsdDisplay: 5,
   priceUsdYearlyDisplay: 58,
   entitlements: {
@@ -519,9 +519,9 @@ describe('Subscription Checkout & Webhook Integration Tests', () => {
         .send({ planCode: 'client.pro', billingCycle: 'yearly' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.amountEgp).toBe(2900);
+      expect(res.body.data.amountEgp).toBe(2842);
       expect(mockCreateOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ amountEgp: 2900, billingCycle: 'yearly' })
+        expect.objectContaining({ amountEgp: 2842, billingCycle: 'yearly' })
       );
     });
 

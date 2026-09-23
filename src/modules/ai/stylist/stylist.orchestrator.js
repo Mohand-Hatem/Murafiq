@@ -57,24 +57,30 @@ export const runStylistPipeline = async ({
   const traceId = traceLogger.createTraceId();
   const hasImage = Boolean(imageRef);
 
+  // 0. Quota consumption:
+  // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
+  const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
+  const messageMetric =
+    userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+
+  const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+
   // Helper to refund all consumed quotas on validation/scope refusal
   const refundConsumedQuotas = async () => {
-    await entitlementService.refundQuota(userId, 'ai.messages.daily', 1);
-    if (hasImage) {
+    await entitlementService.refundQuota(userId, messageMetric, 1);
+    if (hasImageQuota) {
       await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
     }
   };
 
-  // 0. Quota consumption:
-  // Always consume 1 unit of 'ai.messages.daily'
-  await entitlementService.consume(userId, 'ai.messages.daily', 1, 'client');
+  await entitlementService.consume(userId, messageMetric, 1, 'client');
 
-  // If image is attached, consume vision quota; refund message quota on failure
-  if (hasImage) {
+  // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
+  if (hasImageQuota) {
     try {
       await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
     } catch (err) {
-      await entitlementService.refundQuota(userId, 'ai.messages.daily', 1);
+      await entitlementService.refundQuota(userId, messageMetric, 1);
       throw err;
     }
   }
@@ -241,10 +247,21 @@ export const runStylistPipeline = async ({
       : ['top', 'bottom', 'shoes'];
   }
 
+  let targetFormality = resolvedDressCode.resolved
+    ? [...resolvedDressCode.formality]
+    : (intent.formality ? [intent.formality] : null);
+
+  if (intent.formality && (!resolvedDressCode.resolved || !resolvedDressCode.highStakes)) {
+    const list = Array.isArray(targetFormality) ? targetFormality : [targetFormality].filter(Boolean);
+    if (!list.includes(intent.formality)) {
+      targetFormality = [...list, intent.formality];
+    }
+  }
+
   const [candidatesBySlot, preferences] = await Promise.all([
     wardrobeService.getWardrobeCandidates(userId, {
       slots: candidateSlots,
-      formality: resolvedDressCode.resolved ? resolvedDressCode.formality : intent.formality,
+      formality: targetFormality,
       season,
       genderPresentation: resolvedGenderPresentation,
     }),
@@ -292,11 +309,12 @@ export const runStylistPipeline = async ({
 
   if (!capacity.canCompose) {
     let externalSuggestions = [];
-    const quotaCheck = await entitlementService.checkQuota(userId, 'ai.productSearch.daily', 1, 'client');
+    const quotaCheck = await entitlementService.checkQuota(userId, 'ai.productSearch.monthly', 1, 'client');
+    const searchQuotaBlocked = !quotaCheck.allowed;
 
     if (quotaCheck.allowed) {
       try {
-        await entitlementService.consume(userId, 'ai.productSearch.daily', 1, 'client');
+        await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
 
         let gapQuery;
@@ -393,13 +411,20 @@ export const runStylistPipeline = async ({
       matchResult,
       messageId,
       isShoppingRequest: intent.isShoppingRequest,
+      searchQuotaBlocked,
     });
 
     if (activeConversationId) {
       try {
+        const assistantContent = intent.isShoppingRequest && searchQuotaBlocked
+          ? (intent.language === 'ar'
+              ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
+              : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.')
+          : (rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.');
+
         await conversationService.addMessage(activeConversationId, userId, {
           role: 'assistant',
-          content: rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.',
+          content: assistantContent,
           structuredResult: rendered,
           traceId,
         });
@@ -543,16 +568,19 @@ export const runStylistPipeline = async ({
 
   // 7b. External Product Search Gate (Gap Closing & Explicit Shopping Requests)
   let externalSuggestions = [];
+  let searchQuotaBlocked = false;
   const shouldSearchExternal =
     compResult.sufficiency === 'partial' ||
     compResult.sufficiency === 'none' ||
     Boolean(intent.isShoppingRequest);
 
   if (shouldSearchExternal) {
-    const quotaCheck = await entitlementService.checkQuota(userId, 'ai.productSearch.daily', 1, 'client');
+    const quotaCheck = await entitlementService.checkQuota(userId, 'ai.productSearch.monthly', 1, 'client');
+    searchQuotaBlocked = !quotaCheck.allowed;
+
     if (quotaCheck.allowed) {
       try {
-        await entitlementService.consume(userId, 'ai.productSearch.daily', 1, 'client');
+        await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
         const fallbackGaps = (compResult.missingSlots || []).map((s) =>
           renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
@@ -650,15 +678,23 @@ export const runStylistPipeline = async ({
     matchResult,
     messageId,
     isShoppingRequest: intent.isShoppingRequest,
+    searchQuotaBlocked,
   });
 
   if (activeConversationId) {
     try {
-      const assistantRationale = intent.isShoppingRequest
-        ? (intent.language === 'ar'
-            ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
-            : 'Here are clothing pieces suggested from online retailers for you.')
-        : (compResult.outfits[0]?.rationale || 'Stylist recommendations generated');
+      let assistantRationale;
+      if (intent.isShoppingRequest && searchQuotaBlocked) {
+        assistantRationale = intent.language === 'ar'
+          ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
+          : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.';
+      } else if (intent.isShoppingRequest) {
+        assistantRationale = intent.language === 'ar'
+          ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
+          : 'Here are clothing pieces suggested from online retailers for you.';
+      } else {
+        assistantRationale = compResult.outfits[0]?.rationale || 'Stylist recommendations generated';
+      }
 
       await conversationService.addMessage(activeConversationId, userId, {
         role: 'assistant',

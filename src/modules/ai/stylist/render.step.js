@@ -160,6 +160,7 @@ export const renderStylistResponse = ({
   matchResult = null,
   messageId = null,
   isShoppingRequest = false,
+  searchQuotaBlocked = false,
 }) => {
   const langKey = language === 'ar' ? 'ar' : 'en';
   const primaryFormality = resolvedDressCode.formality?.[0] || 'casual';
@@ -232,11 +233,15 @@ export const renderStylistResponse = ({
       outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
       outfitTitle: s.outfitTitle || null,
     }));
+  } else if (isShoppingRequest && searchQuotaBlocked) {
+    // For explicit shopping requests when quota is blocked, return empty suggestions rather than
+    // misleading ungrounded cards with null URLs/retailers, so the UI can clearly present the upgrade CTA.
+    suggestedToAcquire = [];
   } else if (
     (sufficiency !== 'good' && (missingSlots.length > 0 || gapDescriptions.length > 0)) ||
     Boolean(isShoppingRequest)
   ) {
-    // Ungrounded fallback template shopping list when search is not performed or quota is blocked
+    // Ungrounded fallback template shopping list when search is not performed
     if (Array.isArray(gapDescriptions) && gapDescriptions.length > 0) {
       suggestedToAcquire = gapDescriptions.map((desc, idx) => ({
         slot: missingSlots[idx] || 'item',
@@ -286,7 +291,6 @@ export const renderStylistResponse = ({
     : null;
 
   return {
-    fromYourWardrobe: renderedOutfits,
     outfits: renderedOutfits,
     sufficiency,
     missingSlots,
@@ -294,6 +298,12 @@ export const renderStylistResponse = ({
     suggestedToAcquire,
     suggestBookStylist,
     stylistBookingCta: suggestBookStylist ? getStylistBookingCta(langKey) : null,
+    searchQuotaBlocked: Boolean(searchQuotaBlocked),
+    productSearchUpgradeCta: searchQuotaBlocked
+      ? (langKey === 'ar'
+          ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. قم بترقية باقتك للبحث عن قطع حقيقية وروابط شراء من المتاجر.'
+          : 'Your current plan does not include online store product search. Upgrade your subscription to search real products and purchase links from online retailers.')
+      : null,
     anchor: anchorGarment,
     matchHint: softMatchHint,
     canSaveToWardrobe,

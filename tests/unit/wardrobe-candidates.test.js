@@ -256,4 +256,150 @@ describe('Wardrobe Slot Candidates Retrieval (Unit)', () => {
       expect(result.top.length).toBe(0);
     });
   });
+
+  describe('Progressive Formality Relaxation', () => {
+    it('returns strict matches when items of exact requested formality exist', async () => {
+      await WardrobeItem.create([
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/casual_top.jpg',
+          category: 'top',
+          subcategory: 't-shirt',
+          formality: 'casual',
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/smart_top.jpg',
+          category: 'top',
+          subcategory: 'polo',
+          formality: 'smart_casual',
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+      ]);
+
+      const result = await wardrobeService.getWardrobeCandidates(userA, {
+        slots: ['top'],
+        formality: ['casual'],
+      });
+
+      // Strict pass succeeds: only the 'casual' item is returned
+      expect(result.top.length).toBe(1);
+      expect(result.top[0].subcategory).toBe('t-shirt');
+      expect(result.top[0].formality).toBe('casual');
+    });
+
+    it('relaxes to adjacent formality when strict match yields 0 items for a slot', async () => {
+      // User only owns a smart_casual sweater and business shirts (no casual tops)
+      await WardrobeItem.create([
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/sweater.jpg',
+          category: 'top',
+          subcategory: 'knit sweater',
+          formality: 'smart_casual',
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/dress_shirt.jpg',
+          category: 'top',
+          subcategory: 'dress shirt',
+          formality: 'business',
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+      ]);
+
+      // Query asking for 'casual' tops
+      const result = await wardrobeService.getWardrobeCandidates(userA, {
+        slots: ['top'],
+        formality: ['casual'],
+      });
+
+      // Pass 1 (strict casual) finds 0 items. Pass 2 (casual + smart_casual) finds the knit sweater!
+      expect(result.top.length).toBe(1);
+      expect(result.top[0].subcategory).toBe('knit sweater');
+      expect(result.top[0].formality).toBe('smart_casual');
+    });
+
+    it('solves live-test scenario: casual request retrieves smart_casual top/bottom and casual shoes', async () => {
+      // User wardrobe: smart_casual top, smart_casual bottom, casual shoes
+      await WardrobeItem.create([
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/polo.jpg',
+          category: 'top',
+          subcategory: 'polo sweater',
+          formality: 'smart_casual',
+          season: ['fall', 'all_season'],
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/jeans.jpg',
+          category: 'bottom',
+          subcategory: 'jeans',
+          formality: 'smart_casual',
+          season: ['all_season'],
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/sneakers.jpg',
+          category: 'shoes',
+          subcategory: 'sneakers',
+          formality: 'casual',
+          season: ['all_season'],
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+      ]);
+
+      const result = await wardrobeService.getWardrobeCandidates(userA, {
+        slots: ['top', 'bottom', 'shoes'],
+        formality: ['casual'],
+        season: 'fall',
+      });
+
+      // Top: relaxed to smart_casual
+      expect(result.top.length).toBe(1);
+      expect(result.top[0].subcategory).toBe('polo sweater');
+
+      // Bottom: relaxed to smart_casual
+      expect(result.bottom.length).toBe(1);
+      expect(result.bottom[0].subcategory).toBe('jeans');
+
+      // Shoes: matched strictly in Pass 1 as casual
+      expect(result.shoes.length).toBe(1);
+      expect(result.shoes[0].subcategory).toBe('sneakers');
+    });
+
+    it('does not relax to non-adjacent formalities (e.g. sportswear is not returned for formal request)', async () => {
+      await WardrobeItem.create([
+        {
+          userId: userA,
+          imageUrl: 'https://cloudinary.com/sweatpants.jpg',
+          category: 'bottom',
+          subcategory: 'track pants',
+          formality: 'sportswear',
+          classificationStatus: 'done',
+          isArchived: false,
+        },
+      ]);
+
+      const result = await wardrobeService.getWardrobeCandidates(userA, {
+        slots: ['bottom'],
+        formality: ['formal'],
+      });
+
+      // Sportswear is NOT adjacent to formal -> 0 items returned
+      expect(result.bottom.length).toBe(0);
+    });
+  });
 });

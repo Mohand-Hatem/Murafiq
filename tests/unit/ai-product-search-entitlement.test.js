@@ -2,8 +2,8 @@
  * Phase 15E Step 1 — Product Search Entitlements & Subscription Configuration Tests.
  *
  * Covers:
- * 1. CANONICAL_PLANS tier configuration for ai.productSearch.daily (0, 1, 3, 5, 10).
- * 2. FALLBACK_FREE_ENTITLEMENTS includes ai.productSearch.daily: 0.
+ * 1. CANONICAL_PLANS tier configuration for ai.productSearch.monthly (0, 15, 30, 45, 60).
+ * 2. FALLBACK_FREE_ENTITLEMENTS includes ai.productSearch.monthly: 0.
  * 3. checkQuota returns allowed: false for free tier (0 limit) without throwing.
  * 4. checkQuota returns allowed: true for paid tier with remaining quota.
  * 5. checkQuota returns allowed: false when paid tier quota is exhausted.
@@ -31,38 +31,38 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
   });
 
   describe('Plan Constants Definition', () => {
-    it('defines ai.productSearch.daily: 0 for client.free', () => {
+    it('defines ai.productSearch.monthly: 0 for client.free', () => {
       const freePlan = CANONICAL_PLANS.find((p) => p.code === 'client.free');
       expect(freePlan).toBeDefined();
-      expect(freePlan.entitlements['ai.productSearch.daily']).toBe(0);
+      expect(freePlan.entitlements['ai.productSearch.monthly']).toBe(0);
     });
 
-    it('defines ai.productSearch.daily: 1 for client.basic', () => {
+    it('defines ai.productSearch.monthly: 15 for client.basic', () => {
       const basicPlan = CANONICAL_PLANS.find((p) => p.code === 'client.basic');
       expect(basicPlan).toBeDefined();
-      expect(basicPlan.entitlements['ai.productSearch.daily']).toBe(1);
+      expect(basicPlan.entitlements['ai.productSearch.monthly']).toBe(15);
     });
 
-    it('defines ai.productSearch.daily: 3 for client.mid', () => {
+    it('defines ai.productSearch.monthly: 30 for client.mid', () => {
       const midPlan = CANONICAL_PLANS.find((p) => p.code === 'client.mid');
       expect(midPlan).toBeDefined();
-      expect(midPlan.entitlements['ai.productSearch.daily']).toBe(3);
+      expect(midPlan.entitlements['ai.productSearch.monthly']).toBe(30);
     });
 
-    it('defines ai.productSearch.daily: 5 for client.pro', () => {
+    it('defines ai.productSearch.monthly: 45 for client.pro', () => {
       const proPlan = CANONICAL_PLANS.find((p) => p.code === 'client.pro');
       expect(proPlan).toBeDefined();
-      expect(proPlan.entitlements['ai.productSearch.daily']).toBe(5);
+      expect(proPlan.entitlements['ai.productSearch.monthly']).toBe(45);
     });
 
-    it('defines ai.productSearch.daily: 10 for client.enterprise', () => {
+    it('defines ai.productSearch.monthly: 60 for client.enterprise', () => {
       const entPlan = CANONICAL_PLANS.find((p) => p.code === 'client.enterprise');
       expect(entPlan).toBeDefined();
-      expect(entPlan.entitlements['ai.productSearch.daily']).toBe(10);
+      expect(entPlan.entitlements['ai.productSearch.monthly']).toBe(60);
     });
 
     it('defines fallback free client entitlement as 0', () => {
-      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.productSearch.daily']).toBe(0);
+      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.productSearch.monthly']).toBe(0);
     });
   });
 
@@ -70,7 +70,7 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
     it('returns allowed: false for free tier without throwing an error', async () => {
       jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue(null);
 
-      const result = await checkQuota('free_user_1', 'ai.productSearch.daily', 1, 'client');
+      const result = await checkQuota('free_user_1', 'ai.productSearch.monthly', 1, 'client');
       expect(result.allowed).toBe(false);
       expect(result.limit).toBe(0);
       expect(result.remaining).toBe(0);
@@ -86,19 +86,19 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
         code: 'client.mid',
         tier: 'basic',
         entitlements: {
-          'ai.productSearch.daily': 3,
+          'ai.productSearch.monthly': 30,
         },
       });
       jest.spyOn(UsageCounter, 'findOne').mockResolvedValue(null);
 
-      const result = await checkQuota('paid_user_1', 'ai.productSearch.daily', 1, 'client');
+      const result = await checkQuota('paid_user_1', 'ai.productSearch.monthly', 1, 'client');
       expect(result.allowed).toBe(true);
-      expect(result.limit).toBe(3);
+      expect(result.limit).toBe(30);
       expect(result.used).toBe(0);
-      expect(result.remaining).toBe(3);
+      expect(result.remaining).toBe(30);
     });
 
-    it('returns allowed: false when paid tier daily quota is exhausted', async () => {
+    it('returns allowed: false when paid tier monthly quota is exhausted', async () => {
       jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue({
         planCode: 'client.mid',
         currentPeriodEnd: null,
@@ -107,17 +107,17 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
         code: 'client.mid',
         tier: 'basic',
         entitlements: {
-          'ai.productSearch.daily': 3,
+          'ai.productSearch.monthly': 30,
         },
       });
       jest.spyOn(UsageCounter, 'findOne').mockResolvedValue({
-        used: 3,
+        used: 30,
       });
 
-      const result = await checkQuota('paid_user_1', 'ai.productSearch.daily', 1, 'client');
+      const result = await checkQuota('paid_user_1', 'ai.productSearch.monthly', 1, 'client');
       expect(result.allowed).toBe(false);
-      expect(result.limit).toBe(3);
-      expect(result.used).toBe(3);
+      expect(result.limit).toBe(30);
+      expect(result.used).toBe(30);
       expect(result.remaining).toBe(0);
     });
   });
@@ -127,7 +127,7 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
       jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue(null);
 
       await expect(
-        consume('free_user_1', 'ai.productSearch.daily', 1, 'client')
+        consume('free_user_1', 'ai.productSearch.monthly', 1, 'client')
       ).rejects.toThrow(ApiError);
     });
 
@@ -140,17 +140,17 @@ describe('Phase 15E Step 1 — Product Search Entitlements Configuration', () =>
         code: 'client.pro',
         tier: 'pro',
         entitlements: {
-          'ai.productSearch.daily': 5,
+          'ai.productSearch.monthly': 45,
         },
       });
       jest.spyOn(UsageCounter, 'findOneAndUpdate').mockResolvedValue({
         used: 1,
       });
 
-      const res = await consume('paid_user_pro', 'ai.productSearch.daily', 1, 'client');
+      const res = await consume('paid_user_pro', 'ai.productSearch.monthly', 1, 'client');
       expect(res.success).toBe(true);
       expect(res.used).toBe(1);
-      expect(res.limit).toBe(5);
+      expect(res.limit).toBe(45);
     });
   });
 });
