@@ -40,31 +40,31 @@ describe('Phase 15F Step 2 — Try-On Entitlements Configuration', () => {
       expect(freePlan.entitlements['ai.tryOn.trial.lifetime']).toBe(1);
     });
 
-    it('defines ai.tryOn.monthly: 5 and ai.tryOn.trial.lifetime: 0 for client.basic', () => {
+    it('defines ai.tryOn.monthly: 4 and ai.tryOn.trial.lifetime: 0 for client.basic', () => {
       const basicPlan = CANONICAL_PLANS.find((p) => p.code === 'client.basic');
       expect(basicPlan).toBeDefined();
-      expect(basicPlan.entitlements['ai.tryOn.monthly']).toBe(5);
+      expect(basicPlan.entitlements['ai.tryOn.monthly']).toBe(4);
       expect(basicPlan.entitlements['ai.tryOn.trial.lifetime']).toBe(0);
     });
 
-    it('defines ai.tryOn.monthly: 15 and ai.tryOn.trial.lifetime: 0 for client.mid', () => {
+    it('defines ai.tryOn.monthly: 6 and ai.tryOn.trial.lifetime: 0 for client.mid', () => {
       const midPlan = CANONICAL_PLANS.find((p) => p.code === 'client.mid');
       expect(midPlan).toBeDefined();
-      expect(midPlan.entitlements['ai.tryOn.monthly']).toBe(15);
+      expect(midPlan.entitlements['ai.tryOn.monthly']).toBe(6);
       expect(midPlan.entitlements['ai.tryOn.trial.lifetime']).toBe(0);
     });
 
-    it('defines ai.tryOn.monthly: 30 and ai.tryOn.trial.lifetime: 0 for client.pro', () => {
+    it('defines ai.tryOn.monthly: 8 and ai.tryOn.trial.lifetime: 0 for client.pro', () => {
       const proPlan = CANONICAL_PLANS.find((p) => p.code === 'client.pro');
       expect(proPlan).toBeDefined();
-      expect(proPlan.entitlements['ai.tryOn.monthly']).toBe(30);
+      expect(proPlan.entitlements['ai.tryOn.monthly']).toBe(8);
       expect(proPlan.entitlements['ai.tryOn.trial.lifetime']).toBe(0);
     });
 
-    it('defines ai.tryOn.monthly: 75 and ai.tryOn.trial.lifetime: 0 for client.enterprise', () => {
+    it('defines ai.tryOn.monthly: 10 and ai.tryOn.trial.lifetime: 0 for client.enterprise', () => {
       const entPlan = CANONICAL_PLANS.find((p) => p.code === 'client.enterprise');
       expect(entPlan).toBeDefined();
-      expect(entPlan.entitlements['ai.tryOn.monthly']).toBe(75);
+      expect(entPlan.entitlements['ai.tryOn.monthly']).toBe(10);
       expect(entPlan.entitlements['ai.tryOn.trial.lifetime']).toBe(0);
     });
 

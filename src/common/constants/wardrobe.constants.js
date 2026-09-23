@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Common Wardrobe & Fashion Domain Constants.
  * Shared across Wardrobe, Stylist, Preferences, and Search modules.
  */
@@ -32,6 +32,30 @@ export const WARDROBE_FORMALITIES = Object.freeze([
   'loungewear',
   'sportswear',
 ]);
+
+export const FORMALITY_ADJACENCY = Object.freeze({
+  casual: ['casual', 'smart_casual'],
+  smart_casual: ['smart_casual', 'casual', 'business'],
+  business: ['business', 'smart_casual', 'formal'],
+  formal: ['formal', 'business', 'smart_casual'],
+  sportswear: ['sportswear', 'casual'],
+  loungewear: ['loungewear', 'casual'],
+});
+
+export const expandFormalityAdjacency = (formality) => {
+  if (!formality) return null;
+  const list = Array.isArray(formality) ? formality : [formality];
+  const expanded = new Set();
+  for (const f of list) {
+    const adj = FORMALITY_ADJACENCY[f];
+    if (adj) {
+      adj.forEach((item) => expanded.add(item));
+    } else {
+      expanded.add(f);
+    }
+  }
+  return Array.from(expanded);
+};
 
 export const WARDROBE_SEASONS = Object.freeze([
   'spring',

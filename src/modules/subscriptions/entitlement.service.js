@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import UsageCounter from './usage-counter.model.js';
 import Request from '../requests/request.model.js';
 import Offer from '../offers/offer.model.js';
@@ -137,6 +138,21 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
 
   const setOnInsert = expiresAt ? { expiresAt } : {};
 
+  // Pre-CAS defense-in-depth: explicit usage check before attempting atomic update/upsert
+  if (typeof UsageCounter.findOne === 'function' && mongoose.isValidObjectId(userId)) {
+    try {
+      const existing = await UsageCounter.findOne({ subjectId: userId, metric, periodKey }).lean();
+      if (existing && existing.used + count > limit) {
+        throw new ApiError(
+          429,
+          `${quotaPrefix} exceeded for ${metric}. Your limit is ${limit}${limitUnit} on the ${planCode} plan. Upgrade your plan for higher limits.`
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+    }
+  }
+
   try {
     const counter = await UsageCounter.findOneAndUpdate(
       {
@@ -158,7 +174,7 @@ export const consume = async (userId, metric, count = 1, role = 'client') => {
     return { success: true, used: counter.used, limit };
   } catch (error) {
     // Unique index violation (E11000) occurs when doc exists and used >= limit (upsert attempts insert)
-    if (error.code === 11000) {
+    if (error.code === 11000 || (error.name === 'MongoServerError' && error.code === 11000)) {
       throw new ApiError(
         429,
         `${quotaPrefix} exceeded for ${metric}. Your limit is ${limit}${limitUnit} on the ${planCode} plan. Upgrade your plan for higher limits.`
@@ -325,6 +341,54 @@ export const consumeTryOnQuota = async (userId, role = 'client') => {
   );
 };
 
+/**
+ * Consumes AI message quota with tier fallback:
+ * 1. If user plan defines `ai.messages.daily` (paid tiers: basic, mid, pro, enterprise),
+ *    checks and consumes 1 unit against Cairo calendar day.
+ * 2. If user plan defines `ai.messages.lifetime` (free tier trial),
+ *    checks and consumes 1 unit against lifetime trial counter (no reset).
+ * 3. Throws ApiError 429 if limit is exceeded.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @param {string} [role='client']
+ * @returns {Promise<{ success: boolean, quotaSource: 'daily'|'lifetime' }>}
+ */
+export const consumeMessageQuota = async (userId, role = 'client') => {
+  const { entitlements, planCode } = await getEntitlements(userId, role);
+
+  if (entitlements['ai.messages.daily'] !== undefined) {
+    await consume(userId, 'ai.messages.daily', 1, role);
+    return { success: true, quotaSource: 'daily' };
+  }
+
+  if (entitlements['ai.messages.lifetime'] !== undefined) {
+    await consume(userId, 'ai.messages.lifetime', 1, role);
+    return { success: true, quotaSource: 'lifetime' };
+  }
+
+  throw new ApiError(
+    429,
+    `AI message quota not configured on the ${planCode} plan. Upgrade your plan for higher limits.`
+  );
+};
+
+/**
+ * Refunds previously consumed message quota (daily or lifetime) on validation refusal or scope abort.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @param {string} [role='client']
+ * @returns {Promise<void>}
+ */
+export const refundMessageQuota = async (userId, role = 'client') => {
+  const { entitlements } = await getEntitlements(userId, role);
+
+  if (entitlements['ai.messages.daily'] !== undefined) {
+    await refundQuota(userId, 'ai.messages.daily', 1);
+  } else if (entitlements['ai.messages.lifetime'] !== undefined) {
+    await refundQuota(userId, 'ai.messages.lifetime', 1);
+  }
+};
+
 export default {
   getEntitlements,
   consume,
@@ -334,4 +398,6 @@ export default {
   refundQuota,
   resolvePeriodDetails,
   consumeTryOnQuota,
+  consumeMessageQuota,
+  refundMessageQuota,
 };

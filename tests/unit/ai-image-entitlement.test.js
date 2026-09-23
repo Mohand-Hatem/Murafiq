@@ -52,10 +52,10 @@ describe('Phase 15C Step 1: AI Image Entitlements & Orchestrator Two-Metric Quot
   });
 
   describe('1. Plan Constants Definition', () => {
-    it('defines ai.imageMessages.daily across all canonical client plan tiers', () => {
+    it('defines ai.imageMessages.daily across paid canonical client plan tiers and omits it on free', () => {
       const clientPlans = CANONICAL_PLANS.filter((p) => p.role === 'client');
       const expectedLimits = {
-        'client.free': 1,
+        'client.free': undefined,
         'client.basic': 3,
         'client.mid': 10,
         'client.pro': 25,
@@ -67,164 +67,291 @@ describe('Phase 15C Step 1: AI Image Entitlements & Orchestrator Two-Metric Quot
       }
     });
 
-    it('defines ai.imageMessages.daily as 1 in FALLBACK_FREE_ENTITLEMENTS for clients', () => {
-      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.imageMessages.daily']).toBe(1);
+    it('omits ai.imageMessages.daily in FALLBACK_FREE_ENTITLEMENTS for clients (unlimited daily, bounded by lifetime: 10)', () => {
+      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.imageMessages.daily']).toBeUndefined();
+      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.messages.lifetime']).toBe(10);
     });
   });
 
   describe('2. Orchestrator Two-Metric Quota Consumption & Rollback', () => {
-    it('consumes ONLY ai.messages.daily when imageRef is absent', async () => {
-      jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
-        inDomain: true,
-        eventType: 'wedding',
-        language: 'en',
+    describe('Free Tier (Lifetime Only, No Daily Image Restriction)', () => {
+      it('consumes ONLY ai.messages.lifetime when imageRef is absent', async () => {
+        jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+          inDomain: true,
+          eventType: 'wedding',
+          language: 'en',
+        });
+
+        await runStylistPipeline({
+          userId,
+          message: 'I have a wedding tomorrow evening',
+        });
+
+        expect(entitlementService.consume).toHaveBeenCalledTimes(1);
+        expect(entitlementService.consume).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.lifetime',
+          1,
+          'client'
+        );
       });
 
-      await runStylistPipeline({
-        userId,
-        message: 'I have a wedding tomorrow evening',
-      });
+      it('consumes ONLY ai.messages.lifetime even when imageRef is present', async () => {
+        jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+          inDomain: true,
+          eventType: 'dinner',
+          language: 'en',
+        });
 
-      expect(entitlementService.consume).toHaveBeenCalledTimes(1);
-      expect(entitlementService.consume).toHaveBeenCalledWith(
-        userId,
-        'ai.messages.daily',
-        1,
-        'client'
-      );
-    });
-
-    it('consumes ai.messages.daily and ai.imageMessages.daily sequentially when imageRef is present', async () => {
-      jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
-        inDomain: true,
-        eventType: 'dinner',
-        language: 'en',
-      });
-
-      await runStylistPipeline({
-        userId,
-        message: 'What pants go well with this shirt?',
-        imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
-      });
-
-      expect(entitlementService.consume).toHaveBeenCalledTimes(2);
-      expect(entitlementService.consume).toHaveBeenNthCalledWith(
-        1,
-        userId,
-        'ai.messages.daily',
-        1,
-        'client'
-      );
-      expect(entitlementService.consume).toHaveBeenNthCalledWith(
-        2,
-        userId,
-        'ai.imageMessages.daily',
-        1,
-        'client'
-      );
-    });
-
-    it('refunds ai.messages.daily and throws 429 when ai.imageMessages.daily quota is exceeded', async () => {
-      const quotaError = new ApiError(429, 'Daily quota exceeded for ai.imageMessages.daily');
-      jest
-        .spyOn(entitlementService, 'consume')
-        .mockResolvedValueOnce({ success: true }) // ai.messages.daily succeeds
-        .mockRejectedValueOnce(quotaError); // ai.imageMessages.daily fails
-
-      const classifySpy = jest.spyOn(intentStep, 'classifyAndExtract');
-
-      await expect(
-        runStylistPipeline({
+        await runStylistPipeline({
           userId,
           message: 'What pants go well with this shirt?',
           imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
-        })
-      ).rejects.toThrow('Daily quota exceeded for ai.imageMessages.daily');
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
 
-      // Assert rollback: ai.messages.daily was refunded
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.messages.daily',
-        1
-      );
-      // Assert no downstream model call was made
-      expect(classifySpy).not.toHaveBeenCalled();
-    });
-
-    it('refunds BOTH ai.messages.daily and ai.imageMessages.daily on Layer 1 invalid message', async () => {
-      await expect(
-        runStylistPipeline({
+        expect(entitlementService.consume).toHaveBeenCalledTimes(1);
+        expect(entitlementService.consume).toHaveBeenCalledWith(
           userId,
-          message: '   ', // whitespace only -> fails Layer 1
+          'ai.messages.lifetime',
+          1,
+          'client'
+        );
+      });
+
+      it('refunds ONLY ai.messages.lifetime on Layer 1 invalid message', async () => {
+        await expect(
+          runStylistPipeline({
+            userId,
+            message: '   ',
+            imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+            options: {
+              imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+            },
+          })
+        ).rejects.toThrow(ApiError);
+
+        expect(entitlementService.refundQuota).toHaveBeenCalledTimes(1);
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.lifetime',
+          1
+        );
+      });
+
+      it('refunds ONLY ai.messages.lifetime on Layer 1 rate limit refusal', async () => {
+        jest.spyOn(scopeGuard, 'checkRefusalRateLimit').mockResolvedValue({
+          allowed: false,
+          refusalCategory: 'rate_limited',
+        });
+
+        const res = await runStylistPipeline({
+          userId,
+          message: 'What pants go with this?',
           imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
-        })
-      ).rejects.toThrow(ApiError);
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
 
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.messages.daily',
-        1
-      );
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.imageMessages.daily',
-        1
-      );
+        expect(res.refused).toBe(true);
+        expect(res.refusalCategory).toBe('rate_limited');
+        expect(entitlementService.refundQuota).toHaveBeenCalledTimes(1);
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.lifetime',
+          1
+        );
+      });
+
+      it('refunds ONLY ai.messages.lifetime on Layer 1b scope refusal', async () => {
+        jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+          inDomain: false,
+          refusalCategory: 'general_knowledge',
+          language: 'en',
+        });
+        const recordRefusalSpy = jest.spyOn(scopeGuard, 'recordScopeRefusal').mockResolvedValue();
+
+        const res = await runStylistPipeline({
+          userId,
+          message: 'Write Python code for me',
+          imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
+
+        expect(res.refused).toBe(true);
+        expect(res.refusalCategory).toBe('general_knowledge');
+        expect(recordRefusalSpy).toHaveBeenCalledWith(userId);
+        expect(entitlementService.refundQuota).toHaveBeenCalledTimes(1);
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.lifetime',
+          1
+        );
+      });
     });
 
-    it('refunds BOTH ai.messages.daily and ai.imageMessages.daily on Layer 1 rate limit refusal', async () => {
-      jest.spyOn(scopeGuard, 'checkRefusalRateLimit').mockResolvedValue({
-        allowed: false,
-        refusalCategory: 'rate_limited',
+    describe('Paid Tier (Sequential Two-Metric Consumption & Rollback)', () => {
+      beforeEach(() => {
+        jest.spyOn(entitlementService, 'getEntitlements').mockResolvedValue({
+          planCode: 'client.basic',
+          tier: 'basic',
+          entitlements: {
+            'ai.messages.daily': 5,
+            'ai.imageMessages.daily': 3,
+          },
+        });
       });
 
-      const res = await runStylistPipeline({
-        userId,
-        message: 'What pants go with this?',
-        imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+      it('consumes ai.messages.daily and ai.imageMessages.daily sequentially when imageRef is present', async () => {
+        jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+          inDomain: true,
+          eventType: 'dinner',
+          language: 'en',
+        });
+
+        await runStylistPipeline({
+          userId,
+          message: 'What pants go well with this shirt?',
+          imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
+
+        expect(entitlementService.consume).toHaveBeenCalledTimes(2);
+        expect(entitlementService.consume).toHaveBeenNthCalledWith(
+          1,
+          userId,
+          'ai.messages.daily',
+          1,
+          'client'
+        );
+        expect(entitlementService.consume).toHaveBeenNthCalledWith(
+          2,
+          userId,
+          'ai.imageMessages.daily',
+          1,
+          'client'
+        );
       });
 
-      expect(res.refused).toBe(true);
-      expect(res.refusalCategory).toBe('rate_limited');
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.messages.daily',
-        1
-      );
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.imageMessages.daily',
-        1
-      );
-    });
+      it('refunds ai.messages.daily and throws 429 when ai.imageMessages.daily quota is exceeded', async () => {
+        const quotaError = new ApiError(429, 'Daily quota exceeded for ai.imageMessages.daily');
+        jest
+          .spyOn(entitlementService, 'consume')
+          .mockResolvedValueOnce({ success: true }) // ai.messages.daily succeeds
+          .mockRejectedValueOnce(quotaError); // ai.imageMessages.daily fails
 
-    it('refunds BOTH quotas on Layer 1b scope refusal', async () => {
-      jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
-        inDomain: false,
-        refusalCategory: 'general_knowledge',
-        language: 'en',
+        const classifySpy = jest.spyOn(intentStep, 'classifyAndExtract');
+
+        await expect(
+          runStylistPipeline({
+            userId,
+            message: 'What pants go well with this shirt?',
+            imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+            options: {
+              imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+            },
+          })
+        ).rejects.toThrow('Daily quota exceeded for ai.imageMessages.daily');
+
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.daily',
+          1
+        );
+        expect(classifySpy).not.toHaveBeenCalled();
       });
-      const recordRefusalSpy = jest.spyOn(scopeGuard, 'recordScopeRefusal').mockResolvedValue();
 
-      const res = await runStylistPipeline({
-        userId,
-        message: 'Write Python code for me',
-        imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+      it('refunds BOTH ai.messages.daily and ai.imageMessages.daily on Layer 1 invalid message', async () => {
+        await expect(
+          runStylistPipeline({
+            userId,
+            message: '   ',
+            imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+            options: {
+              imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+            },
+          })
+        ).rejects.toThrow(ApiError);
+
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.daily',
+          1
+        );
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.imageMessages.daily',
+          1
+        );
       });
 
-      expect(res.refused).toBe(true);
-      expect(res.refusalCategory).toBe('general_knowledge');
-      expect(recordRefusalSpy).toHaveBeenCalledWith(userId);
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.messages.daily',
-        1
-      );
-      expect(entitlementService.refundQuota).toHaveBeenCalledWith(
-        userId,
-        'ai.imageMessages.daily',
-        1
-      );
+      it('refunds BOTH ai.messages.daily and ai.imageMessages.daily on Layer 1 rate limit refusal', async () => {
+        jest.spyOn(scopeGuard, 'checkRefusalRateLimit').mockResolvedValue({
+          allowed: false,
+          refusalCategory: 'rate_limited',
+        });
+
+        const res = await runStylistPipeline({
+          userId,
+          message: 'What pants go with this?',
+          imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
+
+        expect(res.refused).toBe(true);
+        expect(res.refusalCategory).toBe('rate_limited');
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.daily',
+          1
+        );
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.imageMessages.daily',
+          1
+        );
+      });
+
+      it('refunds BOTH quotas on Layer 1b scope refusal', async () => {
+        jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+          inDomain: false,
+          refusalCategory: 'general_knowledge',
+          language: 'en',
+        });
+        const recordRefusalSpy = jest.spyOn(scopeGuard, 'recordScopeRefusal').mockResolvedValue();
+
+        const res = await runStylistPipeline({
+          userId,
+          message: 'Write Python code for me',
+          imageRef: 'murafiq/ai-chat/user_image_quota_test_001/abc-123',
+          options: {
+            imageData: { mimeType: 'image/jpeg', data: 'mock-base64' },
+          },
+        });
+
+        expect(res.refused).toBe(true);
+        expect(res.refusalCategory).toBe('general_knowledge');
+        expect(recordRefusalSpy).toHaveBeenCalledWith(userId);
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.messages.daily',
+          1
+        );
+        expect(entitlementService.refundQuota).toHaveBeenCalledWith(
+          userId,
+          'ai.imageMessages.daily',
+          1
+        );
+      });
     });
   });
 });

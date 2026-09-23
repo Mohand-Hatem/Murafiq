@@ -151,8 +151,8 @@ describe('Golden-Set Evaluation Harness — AI Stylist Pipeline (Flow A & Scope 
         expect(wardrobeSpy).not.toHaveBeenCalled();
         expect(composeSpy).not.toHaveBeenCalled();
 
-        // 4. Daily message quota refunded
-        expect(refundSpy).toHaveBeenCalledWith(evalUserId, 'ai.messages.daily', 1);
+        // 4. Message quota refunded
+        expect(refundSpy).toHaveBeenCalledWith(evalUserId, 'ai.messages.lifetime', 1);
       }
     );
   });
@@ -734,11 +734,11 @@ describe('Golden-Set Evaluation Harness — AI Stylist Pipeline (Flow A & Scope 
           expect(res.suggestBookStylist).toBe(true);
         }
 
-        // Invariant: fromYourWardrobe and suggestedToAcquire must NEVER be merged
-        expect(res.fromYourWardrobe).toBeDefined();
+        // Invariant: outfits and suggestedToAcquire must NEVER be merged
+        expect(res.outfits).toBeDefined();
         expect(res.suggestedToAcquire).toBeDefined();
-        if (res.fromYourWardrobe.length > 0 && res.suggestedToAcquire.length > 0) {
-          const wardrobeNames = res.fromYourWardrobe.flatMap((o) => o.fromYourWardrobe.map((i) => i.name));
+        if (res.outfits.length > 0 && res.suggestedToAcquire.length > 0) {
+          const wardrobeNames = res.outfits.flatMap((o) => o.fromYourWardrobe.map((i) => i.name));
           const externalTitles = res.suggestedToAcquire.map((p) => p.title);
           for (const wName of wardrobeNames) {
             expect(externalTitles).not.toContain(wName);

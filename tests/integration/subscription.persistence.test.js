@@ -95,7 +95,7 @@ describe('Plan catalogue persistence (real schema)', () => {
 
     const pro = await Plan.findOne({ code: 'client.pro' }).lean();
     expect(pro.priceEgp).toBe(250);
-    expect(pro.priceYearlyEgp).toBe(2900);
+    expect(pro.priceYearlyEgp).toBe(2842);
 
     const free = await Plan.findOne({ code: 'client.free' }).lean();
     expect(free.priceYearlyEgp).toBeNull();

@@ -68,7 +68,7 @@ describe('Entitlement Service (Unit)', () => {
       expect(result.planCode).toBe('client.free');
       expect(result.tier).toBe('free');
       expect(result.entitlements['requests.daily']).toBe(1);
-      expect(result.entitlements['ai.messages.daily']).toBe(3);
+      expect(result.entitlements['ai.messages.lifetime']).toBe(10);
     });
 
     it('returns plan entitlements when user has an active paid subscription', async () => {

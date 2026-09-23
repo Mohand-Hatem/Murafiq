@@ -14,8 +14,11 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 7. [Update 6: Wardrobe vs. Shopping Response Isolation](#7-update-6-wardrobe-vs-shopping-response-isolation)
 8. [Update 7: Save to Wardrobe from Chat Protocol](#8-update-7-save-to-wardrobe-from-chat-protocol)
 9. [Update 8: Flexible Virtual Try-On Inputs (`outfitId` & `itemId`)](#9-update-8-flexible-virtual-try-on-inputs-outfitid--itemid)
-10. [OpenAPI / Swagger & `docs.json` Synchronization](#10-openapi--swagger--docsjson-synchronization)
-11. [Verification & Test Results](#11-verification--test-results)
+10. [Update 9: Subscription Plan Architecture & Lifetime Quota Safety](#10-update-9-subscription-plan-architecture--lifetime-quota-safety)
+11. [Update 10: Wardrobe Formality Adjacency & Multi-Look Composition](#11-update-10-wardrobe-formality-adjacency--multi-look-composition)
+12. [Update 11: Clean Response Schema & Honest Quota Feedback](#12-update-11-clean-response-schema--honest-quota-feedback)
+13. [OpenAPI / Swagger & `docs.json` Synchronization](#13-openapi--swagger--docsjson-synchronization)
+14. [Verification & Test Results](#14-verification--test-results)
 
 ---
 
@@ -31,6 +34,9 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 | **Wardrobe/Shopping Isolation** | AI Render Step | Clean mobile UI card rendering | ✅ Verified |
 | **Save to Wardrobe API** | Wardrobe Service | Zero-token chat image promotion | ✅ Verified |
 | **Flexible Try-On Inputs** | Virtual Try-On | Direct `outfitId` & `itemId` try-ons | ✅ Verified |
+| **Subscription Quota Safety** | Subscriptions | CAS pre-check & free tier 10-message trial | ✅ Verified |
+| **Formality Adjacency** | Wardrobe / AI | Two-pass query for small closets | ✅ Verified |
+| **Clean Response & Multi-Look** | AI Render / Compose | Single `outfits` array & 2 distinct looks | ✅ Verified |
 | **OpenAPI / `docs.json` Sync** | Docs & Tooling | Complete API contract export | ✅ Verified |
 
 ---
@@ -207,7 +213,46 @@ Updated `POST /api/v1/ai/try-on` to support three flexible input formats:
 
 ---
 
-## 10. OpenAPI / Swagger & `docs.json` Synchronization
+## 10. Update 9: Subscription Plan Architecture & Lifetime Quota Safety
+
+### Problem
+1. **CAS Bypass Risk:** Quota enforcement in `entitlement.service.js` previously relied solely on MongoDB's atomic Compare-And-Swap pattern via `UsageCounter.findOneAndUpdate({ used: { $lte: limit - count } }, ..., { upsert: true })`. If the unique compound index `{ subjectId: 1, metric: 1, periodKey: 1 }` was missing or inactive, an upsert silently inserted a duplicate counter document with `used: 1`, allowing users to bypass quotas indefinitely.
+2. **Free Plan Friction:** `client.free` originally had a daily image cap of `ai.imageMessages.daily: 2`, artificially preventing new users from testing image styling queries even though they had plenty of their 10 lifetime messages remaining.
+
+### Solution
+1. **Defense-in-Depth Pre-CAS Check:** Added an explicit `.findOne()` check in `consume()` before attempting CAS, ensuring an immediate `ApiError(429)` if the user has reached or exceeded their limit regardless of database index status.
+2. **Unconstrained Free Trial:** Omitted `ai.imageMessages.daily` from `client.free` in `plan.constants.js`. Free users can use all 10 messages with or without images whenever they choose, strictly bounded by `ai.messages.lifetime: 10`.
+
+---
+
+## 11. Update 10: Wardrobe Formality Adjacency & Multi-Look Composition
+
+### Problem
+1. **Formality Starvation on Small Closets:** The candidate retrieval query in `wardrobe.repository.js` strictly matched requested occasion formality (e.g. `{ formality: { $in: ['casual'] } }`). For a free user with 7 wardrobe items whose tops were `smart_casual` (sweater) and `business` (dress shirts), the query returned 0 tops, causing the AI to report "no clothes" despite having 7 valid items.
+2. **Single-Look Generation:** On hybrid queries like `"شوفلى طقم لخروجه شبابى كلاسك"`, the orchestrator forced `formality: ['casual']` from the event dress code, discarding the user's explicit `smart_casual` intent. Combined with strict filtering, only 1 candidate was retrieved per slot, forcing Gemini to compose only 1 outfit.
+
+### Solution
+1. **Progressive Formality Relaxation:** Added `FORMALITY_ADJACENCY` in `wardrobe.constants.js` and a two-pass query strategy in `findCandidatesForSlot()`:
+   - Pass 1: Strict query matching exact occasion formality.
+   - Pass 2: If Pass 1 returns 0 items for that slot, automatically broadens the query to adjacent formality levels.
+2. **Formality Blending:** In `stylist.orchestrator.js`, when events are non-high-stakes (`!resolvedDressCode.highStakes`), `targetFormality` combines the event dress code with user intent (`['casual', 'smart_casual']`).
+3. **Multi-Look Prompting:** Strengthened Rule 4 in `compose.step.js` to instruct Gemini to compose 2 distinct ranked looks (Look 1 and Look 2) whenever wardrobe candidates permit.
+
+---
+
+## 12. Update 11: Clean Response Schema & Honest Quota Feedback
+
+### Problem
+1. **Duplicate Root Payloads:** `renderStylistResponse()` in `render.step.js` returned both `fromYourWardrobe: renderedOutfits` and `outfits: renderedOutfits` at the root of `data`. In Swagger and client apps, this caused the full composed outfits list to appear twice.
+2. **Misleading Online Shopping Cards:** When a free user asked `"شوفلى طقم من الانترنيت"`, the AI message claimed to find online store products, but returned static template items with `retailer: null` and `sourceUrl: null` because free users have `ai.productSearch.monthly: 0`.
+
+### Solution
+1. **Unified Schema:** Removed `fromYourWardrobe` from the root of `renderStylistResponse()`. `data.outfits` is now the single primary array of composed looks, with `outfit.fromYourWardrobe` contained strictly inside each outfit object.
+2. **Honest Quota Feedback:** Added `searchQuotaBlocked` boolean and `productSearchUpgradeCta` string. When `isShoppingRequest && searchQuotaBlocked`, `suggestedToAcquire` returns `[]` (no broken null cards) and the assistant clearly explains that online store search is a premium feature with an upgrade CTA.
+
+---
+
+## 13. OpenAPI / Swagger & `docs.json` Synchronization
 
 ### Updates Applied
 1. **`src/modules/ai/ai.swagger.js`**:
@@ -226,7 +271,7 @@ Updated `POST /api/v1/ai/try-on` to support three flexible input formats:
 
 ---
 
-## 11. Verification & Test Results
+## 14. Verification & Test Results
 
 ### Automated Test Suites
 ```bash
@@ -234,19 +279,26 @@ Updated `POST /api/v1/ai/try-on` to support three flexible input formats:
 npm test -- tests/unit/ai-intent.test.js tests/unit/ai-orchestrator-product-search.test.js tests/unit/ai-product-search-service.test.js tests/unit/ai-product-render.test.js tests/unit/ai-orchestrator-image.test.js
 # Result: 5 passed, 43/43 tests passed
 
-# 2. Virtual Try-On Subsystem (Unit & Entitlement)
-npm test -- tests/unit/ai-tryon-service.test.js tests/unit/ai-tryon-entitlement.test.js
-# Result: 2 passed, 41/41 tests passed
+# 2. Wardrobe Candidate Relaxation & Entitlement CAS Safety
+npm test -- tests/unit/wardrobe-candidates.test.js tests/unit/entitlement.service.test.js tests/unit/ai-product-search-entitlement.test.js
+# Result: 3 passed, 34/34 tests passed
 
-# 3. Virtual Try-On Integration & IDOR Tests
-npm test -- tests/integration/ai-tryon-
-# Result: 2 passed, 22/22 tests passed
+# 3. AI Stylist Golden Evaluation Harness (Full Pipeline)
+npm test -- tests/ai/golden/stylist-pipeline.eval.test.js
+# Result: 1 passed, 58/58 scenarios passed
 
-# 4. OpenAPI Specification Validation
+# 4. Virtual Try-On Subsystem (Unit, Entitlement & Integration)
+npm test -- tests/unit/ai-tryon-service.test.js tests/unit/ai-tryon-entitlement.test.js tests/integration/ai-tryon-
+# Result: 4 passed, 63/63 tests passed
+
+# 5. Full Phase 15 Regression Suite
+# Total Tests: 141 passed, 0 failed across all suites
+
+# 6. OpenAPI Specification Validation
 npm run validate:openapi
 # Result: Exit 0 — 146 documented operations matching 146 routes
 
-# 5. ESLint
+# 7. ESLint
 npm run lint
 # Result: Exit 0 — 0 errors, 0 warnings
 ```

@@ -55,11 +55,9 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
       language: 'en',
     });
 
-    // Separation & Backward Compatibility
-    expect(result.fromYourWardrobe).toHaveLength(1);
+    // Clean response structure: outfits contains rendered outfits with fromYourWardrobe pieces
     expect(result.outfits).toHaveLength(1);
-    expect(result.fromYourWardrobe).toEqual(result.outfits);
-    expect(result.fromYourWardrobe[0].fromYourWardrobe).toHaveLength(2);
+    expect(result.outfits[0].fromYourWardrobe).toHaveLength(2);
 
     // Empty acquisition & no booking CTA
     expect(result.suggestedToAcquire).toEqual([]);
@@ -115,11 +113,11 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
       language: 'en',
     });
 
-    expect(result.fromYourWardrobe).toHaveLength(1);
+    expect(result.outfits).toHaveLength(1);
     expect(result.suggestedToAcquire).toHaveLength(2);
 
     // Owned and unowned are completely isolated
-    expect(result.fromYourWardrobe[0].fromYourWardrobe[0].itemId).toBe('item_top_1');
+    expect(result.outfits[0].fromYourWardrobe[0].itemId).toBe('item_top_1');
     expect(result.suggestedToAcquire[0].title).toBe('Polished Black Leather Oxfords');
     expect(result.suggestedToAcquire[0].isGrounded).toBe(true);
     expect(result.suggestedToAcquire[0].imageUrl).toBe('https://static.zara.net/photos/sample-oxford.jpg');
@@ -143,7 +141,7 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
       language: 'en',
     });
 
-    expect(result.fromYourWardrobe).toHaveLength(0);
+    expect(result.outfits).toHaveLength(0);
     expect(result.suggestedToAcquire).toHaveLength(2);
 
     expect(result.suggestedToAcquire[0]).toEqual({

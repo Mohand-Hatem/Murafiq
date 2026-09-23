@@ -1,4 +1,5 @@
 import WardrobeItem from './wardrobe-item.model.js';
+import { expandFormalityAdjacency } from '../../common/constants/wardrobe.constants.js';
 
 export const createWardrobeItem = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -88,19 +89,15 @@ export const findCandidatesForSlot = async (
   { slot, formality, season, genderPresentation, limit = 6 },
   session = null
 ) => {
-  const query = {
+  const baseQuery = {
     userId,
     category: slot,
     isArchived: { $ne: true },
     classificationStatus: 'done',
   };
 
-  if (formality && formality.length > 0) {
-    query.formality = Array.isArray(formality) ? { $in: formality } : formality;
-  }
-
   if (season) {
-    query.season = { $in: [season, 'all_season'] };
+    baseQuery.season = { $in: [season, 'all_season'] };
   }
 
   const GENDER_MAP = {
@@ -115,7 +112,7 @@ export const findCandidatesForSlot = async (
     : null;
 
   if (targetGender) {
-    query.genderPresentation = { $in: [targetGender, 'unisex'] };
+    baseQuery.genderPresentation = { $in: [targetGender, 'unisex'] };
   }
 
   const projection = {
@@ -139,11 +136,37 @@ export const findCandidatesForSlot = async (
     lastWornAt: 1,
   };
 
-  return WardrobeItem.find(query, projection)
+  // Pass 1: Strict query matching the exact requested formality
+  const strictQuery = { ...baseQuery };
+  const hasFormalityFilter = formality && (Array.isArray(formality) ? formality.length > 0 : Boolean(formality));
+
+  if (hasFormalityFilter) {
+    strictQuery.formality = Array.isArray(formality) ? { $in: formality } : formality;
+  }
+
+  let candidates = await WardrobeItem.find(strictQuery, projection)
     .sort({ wearCount: 1, createdAt: -1 })
     .limit(limit)
     .session(session)
     .lean();
+
+  // Pass 2: Progressive Formality Relaxation if strict query yields 0 results for this slot
+  if (candidates.length === 0 && hasFormalityFilter) {
+    const expandedFormalities = expandFormalityAdjacency(formality);
+    if (expandedFormalities && expandedFormalities.length > 0) {
+      const relaxedQuery = {
+        ...baseQuery,
+        formality: { $in: expandedFormalities },
+      };
+      candidates = await WardrobeItem.find(relaxedQuery, projection)
+        .sort({ wearCount: 1, createdAt: -1 })
+        .limit(limit)
+        .session(session)
+        .lean();
+    }
+  }
+
+  return candidates;
 };
 
 export const findItemsByIds = async (userId, itemIds, session = null) => {

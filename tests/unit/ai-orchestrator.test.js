@@ -17,6 +17,8 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(entitlementService, 'consume').mockResolvedValue({ success: true });
+    jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
     jest.spyOn(entitlementService, 'checkQuota').mockResolvedValue({ allowed: false, remaining: 0, planCode: 'client.free' });
     jest.spyOn(knowledgeService, 'searchFashionKnowledge').mockResolvedValue([]);
   });
@@ -53,7 +55,7 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
       })
     ).rejects.toThrow(ApiError);
 
-    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.daily', 1);
+    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.lifetime', 1);
     expect(intentSpy).not.toHaveBeenCalled();
   });
 
@@ -74,7 +76,7 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
 
     expect(result.refused).toBe(true);
     expect(result.refusalCategory).toBe(REFUSAL_CATEGORIES.RATE_LIMITED);
-    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.daily', 1);
+    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.lifetime', 1);
     expect(intentSpy).not.toHaveBeenCalled();
   });
 
@@ -104,7 +106,7 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
     expect(result.message).toContain("I'm your Murafiq AI Stylist");
 
     // Quota refunded and abuse counter incremented
-    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.daily', 1);
+    expect(refundSpy).toHaveBeenCalledWith(userId, 'ai.messages.lifetime', 1);
     expect(abuseRecordSpy).toHaveBeenCalledWith(userId);
 
     // ZERO downstream retrieval or composition calls

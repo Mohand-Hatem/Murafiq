@@ -38,7 +38,9 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
 
     // Default mocks
     jest.spyOn(entitlementService, 'consume').mockResolvedValue({ success: true });
+    jest.spyOn(entitlementService, 'consumeMessageQuota').mockResolvedValue({ success: true, quotaSource: 'daily' });
     jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
+    jest.spyOn(entitlementService, 'refundMessageQuota').mockResolvedValue();
     jest.spyOn(entitlementService, 'checkQuota').mockResolvedValue({ allowed: true, remaining: 3 });
 
     jest.spyOn(wardrobeService, 'getWardrobeCandidates').mockResolvedValue(mockWardrobeCandidates);
@@ -89,13 +91,12 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     });
 
     expect(result.sufficiency).toBe('good');
-    expect(result.fromYourWardrobe).toHaveLength(1);
     expect(result.outfits).toHaveLength(1);
     expect(result.suggestedToAcquire).toEqual([]);
     expect(result.suggestBookStylist).toBe(false);
 
     // Product search quota must NEVER be checked or consumed on sufficient wardrobe
-    expect(entitlementService.checkQuota).not.toHaveBeenCalledWith(userId, 'ai.productSearch.daily', expect.any(Number), expect.any(String));
+    expect(entitlementService.checkQuota).not.toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', expect.any(Number), expect.any(String));
     expect(productSearchService.searchExternalProducts).not.toHaveBeenCalled();
   });
 
@@ -135,14 +136,14 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     });
 
     expect(result.sufficiency).toBe('partial');
-    expect(result.fromYourWardrobe).toHaveLength(1);
+    expect(result.outfits).toHaveLength(1);
     expect(result.suggestedToAcquire).toHaveLength(1);
     expect(result.suggestedToAcquire[0].title).toBe('Zara Egypt Polished Oxfords');
     expect(result.suggestedToAcquire[0].isGrounded).toBe(true);
     expect(result.suggestBookStylist).toBe(true);
 
     // Quota consumed for external product search
-    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
+    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', 1, 'client');
     expect(productSearchService.searchExternalProducts).toHaveBeenCalledWith(
       expect.objectContaining({
         gapDescription: 'polished black leather oxford dress shoes',
@@ -189,14 +190,14 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     });
 
     expect(result.sufficiency).toBe('partial');
-    expect(result.fromYourWardrobe).toHaveLength(1);
+    expect(result.outfits).toHaveLength(1);
     expect(result.suggestedToAcquire).toHaveLength(1);
     expect(result.suggestedToAcquire[0].isGrounded).toBe(false);
     expect(result.suggestedToAcquire[0].itemType).toBe('charcoal single-breasted blazer');
     expect(result.suggestBookStylist).toBe(true);
 
     // Never consumed product search quota; searchExternalProducts not called
-    expect(entitlementService.consume).not.toHaveBeenCalledWith(userId, 'ai.productSearch.daily', expect.any(Number), expect.any(String));
+    expect(entitlementService.consume).not.toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', expect.any(Number), expect.any(String));
     expect(productSearchService.searchExternalProducts).not.toHaveBeenCalled();
   });
 
@@ -229,13 +230,13 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     });
 
     expect(result.sufficiency).toBe('none');
-    expect(result.fromYourWardrobe).toHaveLength(0);
+    expect(result.outfits).toHaveLength(0);
     expect(result.suggestedToAcquire).toHaveLength(1);
     expect(result.suggestedToAcquire[0].title).toBe('White Cotton Dress Shirt');
     expect(result.suggestedToAcquire[0].isGrounded).toBe(true);
     expect(result.suggestBookStylist).toBe(true);
 
-    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
+    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', 1, 'client');
   });
 
   it('5. Fail-open resilience: external product search failure does not crash pipeline', async () => {
@@ -359,7 +360,6 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     });
 
     expect(result.sufficiency).toBe('good');
-    expect(result.fromYourWardrobe).toHaveLength(0);
     expect(result.outfits).toHaveLength(0);
     expect(result.suggestedToAcquire).toHaveLength(6);
 
@@ -370,8 +370,8 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     expect(outfit1[0].outfitTitle).toBe('الإطلالة الأولى (كاجوال يومي)');
     expect(outfit2[0].outfitTitle).toBe('الإطلالة الثانية (سمارت كاجوال)');
 
-    expect(entitlementService.checkQuota).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
-    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.daily', 1, 'client');
+    expect(entitlementService.checkQuota).toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', 1, 'client');
+    expect(entitlementService.consume).toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', 1, 'client');
     expect(productSearchService.searchExternalProducts).toHaveBeenCalledWith(
       expect.objectContaining({
         isShoppingRequest: true,
@@ -443,8 +443,8 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
         isAnchor: true,
       })
     );
-    expect(result.fromYourWardrobe).toHaveLength(1);
-    expect(result.fromYourWardrobe[0].anchor).toEqual(
+    expect(result.outfits).toHaveLength(1);
+    expect(result.outfits[0].anchor).toEqual(
       expect.objectContaining({
         category: 'top',
         colorFamily: 'beige',

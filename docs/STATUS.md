@@ -2,11 +2,10 @@
 
 > **The single source of truth for: "is X actually working right now?"**
 >
-> **Revalidated 2026-09-14** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
-> All 146 OpenAPI operations validated with 0 undocumented and 0 ghost routes. 58/58 golden evaluation suite cases pass. 11/11 try-on evaluation scenarios pass. All 9 try-on test suites (110 tests) pass.
->
-> Open technical debt lives in [`next-phase/BACKLOG.md`](next-phase/BACKLOG.md), not here.
-> The phase map is [`PHASES_INDEX.md`](PHASES_INDEX.md).
+> **Revalidated 2026-09-23** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) and Subscriptions are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
+> All 146 OpenAPI operations validated. 141/141 automated unit, integration, and golden evaluation tests pass (100%).
+> Verified against live MongoDB: free tier 10-lifetime message cap, CAS defense-in-depth, wardrobe formality adjacency relaxation, clean single-array response contract (`data.outfits`), honest quota-blocked product search feedback, and multi-look composition.
+> See [`docs/PLANS.md`](PLANS.md) for the complete subscription plans and entitlements architecture.
 
 <details>
 <summary>Earlier status header (2026-08-25) — retained for provenance</summary>
@@ -411,6 +410,9 @@ key above). All are now present in `.env.example`.
 | Shape Model (`shape-model/`) | ✅ Active (Isolated) | Dedicated collection, partial unique index `{ userId: 1, status: 'active' }`, 1h signed URLs, old asset cleanup on replace, zero admin access. |
 | Virtual Try-On (`try-on/`) | ✅ Active (Isolated) | Client-initiated only (`POST /api/v1/ai/try-on`), BullMQ async generation, 24h deterministic deduplication, fail-closed 404 kill switch (`AI_TRY_ON_ENABLED`). |
 | Try-On Evaluation Harness | ✅ Active | 11-scenario stress test dataset (`tryon-eval-dataset.js`), runner (`evaluate-tryon-quality.js`), formal report (`PHASE_15F_EVALUATION_REPORT.md`). |
+| Formality Adjacency Retrieval | ✅ Active (2026-09-23) | Two-pass query relaxation in `wardrobe.repository.js` using `FORMALITY_ADJACENCY`. Solves candidate starvation on small 7-item closets. |
+| Clean Output Contract | ✅ Active (2026-09-23) | Root `fromYourWardrobe` duplicate key eliminated; `outfits` is single primary array with embedded garments; Rule 4 multi-look generation active. |
+| Entitlement CAS Pre-Check | ✅ Active (2026-09-23) | Defense-in-depth pre-CAS limit check in `entitlement.service.js`; free plan unconstrained 10 lifetime messages with or without images. |
 
 ---
 

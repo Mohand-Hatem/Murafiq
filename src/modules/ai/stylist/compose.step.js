@@ -78,9 +78,13 @@ STRICT INVARIANTS:
 1. CANDIDATE PROVENANCE: Every "itemIds" array MUST contain ONLY exact string IDs from the provided candidate list (or the anchor garment ID if provided). Never fabricate, guess, or modify an ID.
 2. A complete outfit must cover the required slots (either top + bottom + shoes, or dress + shoes, plus appropriate outerwear/accessories if needed).
 3. ELEGANCE & COLOR HARMONY: Combine pieces that complement each other in silhouette, formality, color palette, and season. Respect the user's style preferences and color restrictions.
-4. TWO-SUGGESTION RULE & RANKING: Propose up to 2 distinct ranked outfits (aim for 2 distinct styling directions or silhouettes when wardrobe candidates permit). Assign a compatibility score from 0 to 100 for each outfit based on aesthetic synergy and dress code fit. Never duplicate item combinations.
+4. TWO-SUGGESTION RULE & RANKING: Propose up to 2 distinct ranked outfits (MANDATORY 2 LOOKS WHEN CANDIDATES PERMIT):
+   - Whenever candidate garments allow multiple valid combinations, you MUST propose EXACTLY 2 distinct ranked outfits in "outfits" representing different styling angles or silhouettes (e.g. Look 1: relaxed/smart-casual direction, Look 2: sharper/more classic direction, or contrasting color palettes).
+   - Only return 1 outfit if the user's wardrobe candidates strictly allow only a single possible combination across required slots.
+   - Assign a compatibility score from 0 to 100 for each outfit based on aesthetic synergy and dress code fit.
+   - Never duplicate item combinations between Outfit 1 and Outfit 2.
 5. SUFFICIENCY EVALUATION:
-   - 'good': The client's wardrobe provides complete, well-fitting, high-scoring outfits. Return up to 2 distinct outfits in "outfits".
+   - 'good': The client's wardrobe provides complete, well-fitting, high-scoring outfits. Return 2 distinct outfits in "outfits" (or 1 if candidates strictly allow only a single combination).
    - 'partial': Complete base looks are possible, but missing key complementary or elevating pieces (e.g. jacket, tie, accessories, proper dress shoes). Return the best available partial outfit(s).
    - 'none': The wardrobe candidates cannot fulfill the occasion's dress code adequately. Return an empty "outfits" array [].
 6. GAP ANALYSIS & CONCRETE DESCRIPTIONS:
