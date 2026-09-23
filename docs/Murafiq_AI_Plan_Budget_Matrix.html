@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Murafiq — AI Unit Economics & Plan Budget Matrix</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 10mm 12mm 10mm 12mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #1e293b;
+      background-color: #ffffff;
+      font-size: 11px;
+      line-height: 1.4;
+      padding: 10px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .brand .arabic {
+      font-size: 16px;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .meta {
+      text-align: right;
+      font-size: 10px;
+      color: #64748b;
+    }
+    .meta strong {
+      color: #0f172a;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 12px;
+      background-color: #2563eb;
+      border-radius: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      font-size: 10px;
+    }
+    th, td {
+      padding: 6px 8px;
+      text-align: left;
+      border: 1px solid #e2e8f0;
+    }
+    th {
+      background-color: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    tr:nth-child(even) {
+      background-color: #fdfdfd;
+    }
+    .unit-table th {
+      background-color: #f1f5f9;
+    }
+    .master-table th {
+      background-color: #0f172a;
+      color: #ffffff;
+      border-color: #1e293b;
+    }
+    .plan-name {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: 11px;
+    }
+    .plan-price {
+      font-size: 9.5px;
+      color: #64748b;
+    }
+    .cost-cell {
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .cost-sub {
+      font-size: 8.5px;
+      color: #64748b;
+    }
+    .total-cost {
+      font-weight: 700;
+      color: #0f172a;
+      background-color: #f8fafc;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 9px;
+      text-align: center;
+    }
+    .badge-success {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+    .badge-cac {
+      background-color: #f1f5f9;
+      color: #475569;
+    }
+    .badge-warning {
+      background-color: #fef3c7;
+      color: #b45309;
+    }
+    .grid-notes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .note-card {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .note-card h4 {
+      font-size: 10px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .note-card p {
+      font-size: 9px;
+      color: #475569;
+      line-height: 1.35;
+    }
+    .footer {
+      margin-top: 12px;
+      padding-top: 6px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8.5px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="brand">
+      <h1>MURAFIQ</h1>
+      <span class="arabic">مرافق — دراسة اقتصاديات وتكاليف الذكاء الاصطناعي</span>
+    </div>
+    <div class="meta">
+      <div><strong>Document:</strong> AI Unit Economics & Plan Budget Matrix</div>
+      <div><strong>Date:</strong> September 2026 | <strong>FX Rate:</strong> 1 USD ≈ 49.00 EGP</div>
+    </div>
+  </div>
+
+  <div class="section-title">1. Operational Model Rates & Unit Costs</div>
+  <table class="unit-table">
+    <thead>
+      <tr>
+        <th>Service Component</th>
+        <th>AI Model / Provider</th>
+        <th>Operation Type</th>
+        <th>Unit Rate (USD)</th>
+        <th>Unit Rate (EGP)</th>
+        <th>Billing Trigger</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>AI Stylist Chat Message</strong></td>
+        <td>Google Gemini 3.1 Flash Lite</td>
+        <td>Intent extraction + Outfit composition + Render</td>
+        <td>$0.0020 USD</td>
+        <td><strong>~0.10 EGP</strong></td>
+        <td>Per completed styling turn</td>
+      </tr>
+      <tr>
+        <td><strong>Wardrobe Image Classification</strong></td>
+        <td>Google Gemini 3.1 Flash Lite (Vision)</td>
+        <td>Extract 14 garment attributes + category + colors + fit</td>
+        <td>$0.0007 USD</td>
+        <td><strong>~0.034 EGP</strong> (3.4 Piasters)</td>
+        <td><strong>Once at upload</strong> (persisted forever in DB)</td>
+      </tr>
+      <tr>
+        <td><strong>External Outfit Search</strong></td>
+        <td>Google Search Grounding (Paid Rate)</td>
+        <td>Live search across Egyptian retailers with citations</td>
+        <td>$0.0153 USD</td>
+        <td><strong>~0.75 EGP</strong> (75 Piasters)</td>
+        <td>Per live web search (Free under 5k pool / Redis)</td>
+      </tr>
+      <tr>
+        <td><strong>Nano Banana Try-On</strong></td>
+        <td>Gemini Flash Image Lite (Nano Banana 2 Lite)</td>
+        <td>Shape Model + garments composite image generation</td>
+        <td>$0.0336 USD</td>
+        <td><strong>~1.65 EGP</strong></td>
+        <td>Per generated try-on image</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">2. Master Subscription Plans & Cost Matrix (All Components Itemized)</div>
+  <table class="master-table">
+    <thead>
+      <tr>
+        <th style="width: 13%;">Plan & Price</th>
+        <th style="width: 15%;">AI Chat Messages</th>
+        <th style="width: 14%;">Wardrobe Classification</th>
+        <th style="width: 13%;">Google Searches</th>
+        <th style="width: 13%;">Nano Banana (Try-On)</th>
+        <th style="width: 14%;">Total AI Cost (USD / EGP)</th>
+        <th style="width: 10%;">Net Profit (EGP)</th>
+        <th style="width: 8%;">Margin</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <div class="plan-name">Client Free</div>
+          <div class="plan-price">0 EGP / $0.00</div>
+        </td>
+        <td>
+          <div class="cost-cell">10 total / account</div>
+          <div class="cost-sub">0.98 EGP ($0.020)</div>
+        </td>
+        <td>
+          <div class="cost-cell">7 items max</div>
+          <div class="cost-sub">0.24 EGP ($0.005)</div>
+        </td>
+        <td>
+          <div class="cost-cell">0 searches</div>
+          <div class="cost-sub">0.00 EGP</div>
+        </td>
+        <td>
+          <div class="cost-cell">0 try-ons</div>
+          <div class="cost-sub">0.00 EGP</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>1.22 EGP</strong></div>
+          <div class="cost-sub">$0.025 USD</div>
+        </td>
+        <td>
+          <span class="badge badge-cac">-1.22 EGP</span>
+        </td>
+        <td>
+          <span class="badge badge-cac">CAC (Trial)</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Basic</div>
+          <div class="plan-price">50 EGP / $1.02</div>
+        </td>
+        <td>
+          <div class="cost-cell">5 / day (~150/mo)</div>
+          <div class="cost-sub">14.70 EGP ($0.300)</div>
+        </td>
+        <td>
+          <div class="cost-cell">50 items max</div>
+          <div class="cost-sub">1.72 EGP ($0.035)</div>
+        </td>
+        <td>
+          <div class="cost-cell">15 searches / mo</div>
+          <div class="cost-sub">11.27 EGP ($0.230)</div>
+        </td>
+        <td>
+          <div class="cost-cell">4 try-ons / mo</div>
+          <div class="cost-sub">6.58 EGP ($0.134)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>34.27 EGP</strong></div>
+          <div class="cost-sub">$0.699 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d;">+15.73 EGP</strong>
+        </td>
+        <td>
+          <span class="badge badge-success">+31.5%</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Mid</div>
+          <div class="plan-price">150 EGP / $3.06</div>
+        </td>
+        <td>
+          <div class="cost-cell">35 / day (~700 real)</div>
+          <div class="cost-sub">68.60 EGP ($1.400)</div>
+        </td>
+        <td>
+          <div class="cost-cell">90 items max</div>
+          <div class="cost-sub">3.09 EGP ($0.063)</div>
+        </td>
+        <td>
+          <div class="cost-cell">30 searches / mo</div>
+          <div class="cost-sub">22.49 EGP ($0.459)</div>
+        </td>
+        <td>
+          <div class="cost-cell">6 try-ons / mo</div>
+          <div class="cost-sub">9.88 EGP ($0.202)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>104.06 EGP</strong></div>
+          <div class="cost-sub">$2.124 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d;">+45.94 EGP</strong>
+        </td>
+        <td>
+          <span class="badge badge-success">+30.6%</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Pro</div>
+          <div class="plan-price">250 EGP / $5.10</div>
+        </td>
+        <td>
+          <div class="cost-cell">80 / day (~1,400 real)</div>
+          <div class="cost-sub">137.20 EGP ($2.800)</div>
+        </td>
+        <td>
+          <div class="cost-cell">200 items max</div>
+          <div class="cost-sub">6.86 EGP ($0.140)</div>
+        </td>
+        <td>
+          <div class="cost-cell">45 searches / mo</div>
+          <div class="cost-sub">33.74 EGP ($0.689)</div>
+        </td>
+        <td>
+          <div class="cost-cell">8 try-ons / mo</div>
+          <div class="cost-sub">13.17 EGP ($0.269)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>190.97 EGP</strong></div>
+          <div class="cost-sub">$3.898 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d;">+59.03 EGP</strong>
+        </td>
+        <td>
+          <span class="badge badge-success">+23.6%</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Enterprise</div>
+          <div class="plan-price">500 EGP / $10.20</div>
+        </td>
+        <td>
+          <div class="cost-cell">150 / day (~2,500 real)</div>
+          <div class="cost-sub">245.00 EGP ($5.000)</div>
+        </td>
+        <td>
+          <div class="cost-cell">400 items max</div>
+          <div class="cost-sub">13.72 EGP ($0.280)</div>
+        </td>
+        <td>
+          <div class="cost-cell">60 searches / mo</div>
+          <div class="cost-sub">44.98 EGP ($0.918)</div>
+        </td>
+        <td>
+          <div class="cost-cell">10 try-ons / mo</div>
+          <div class="cost-sub">16.46 EGP ($0.336)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>320.16 EGP</strong></div>
+          <div class="cost-sub">$6.534 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d;">+179.84 EGP</strong>
+        </td>
+        <td>
+          <span class="badge badge-success">+36.0%</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="grid-notes">
+    <div class="note-card">
+      <h4>1. Wardrobe Classification Invariant</h4>
+      <p>Classifying uploaded garments runs asynchronously in BullMQ. Because it runs <strong>strictly once per garment</strong> and caches normalized attributes in MongoDB, classifying 50 items costs only <strong>1.72 EGP</strong>, leaving chat reasoning free forever.</p>
+    </div>
+    <div class="note-card">
+      <h4>2. Safe Unit Economics on Basic</h4>
+      <p>By capping the Basic tier (50 EGP) at 5 messages/day, 15 searches, and 4 try-ons, the plan achieves a guaranteed <strong>+31.5% profit margin (+15.73 EGP)</strong> even when paying full out-of-trial rates from query #1.</p>
+    </div>
+    <div class="note-card">
+      <h4>3. Free Trial Guard & Search Buffer</h4>
+      <p>Capping Free tier at <strong>10 lifetime messages per account</strong> cuts CAC to <strong>1.22 EGP ($0.025 USD)</strong> and eliminates bot abuse. Additionally, Google AI Studio's <strong>5,000 free monthly search queries</strong> further elevate Basic gross margins up to <strong>+45% to +55%</strong>.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>Murafiq (مرافق) — Confidential Internal Financial Specification</div>
+    <div>Generated from codebase: <code>plan.constants.js</code>, <code>PHASE_15E</code>, <code>PHASE_15F</code></div>
+  </div>
+
+</body>
+</html>

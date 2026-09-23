@@ -8,7 +8,7 @@
 ## 1. Executive Summary & Context
 
 Murafiq's AI Stylist feature operates on strict unit economics and regional constraints:
-1. **Subscription pricing:** `client.basic` is priced at **50 EGP/month (~$1.00 USD)**, providing **10 daily stylist messages (~300 requests/month)**.
+1. **Subscription pricing:** `client.basic` is priced at **50 EGP/month (~$1.02 USD)**, providing **5 daily stylist messages (~150 requests/month)**.
 2. **Dual workload:**
    - **Background Multimodal Ingestion (BullMQ):** Garment photo classification into structured attributes (category, formality, colors, material, season, fit).
    - **Synchronous Stylist Pipeline (REST/SSE):** Intent extraction & scope check, candidate slot retrieval from MongoDB, outfit composition & sufficiency reasoning, external product search fallback, and bilingual Arabic/English response rendering.
@@ -201,27 +201,104 @@ The search engine mechanics differ fundamentally depending on the chosen LLM pro
 
 ---
 
-## 5. Unit Economics & Monthly Cost Simulation
+## 5. Total Monthly Cost Simulation: WITHOUT Try-On vs. WITH Try-On
 
-Assumptions for 1,000 active `client.basic` subscribers:
-- **Subscription Revenue:** 1,000 × 50 EGP = 50,000 EGP (~**$1,040 USD / month**).
-- **Usage per User:**
-  - 300 text stylist conversations / month.
-  - 15 image garment uploads / month.
-  - 5 external product searches / month (capped by `ai.productSearch.daily`).
+### 5.1 Granular Per-Request Economics (Gemini 3.1 Flash Lite)
 
-| Cost Item | Gemini 3.1 Flash Lite | OpenAI GPT-4o mini (with Tavily) | Anthropic Claude 3.5 Haiku (with SerpApi) |
-| :--- | :--- | :--- | :--- |
-| **Stylist Text Pipeline** | $450.00 | $270.00 | $1,260.00 |
-| **Wardrobe Vision Classification** | $7.50 | $2.25 | $19.50 |
-| **External Product Search (5,000 queries)** | **$0.00** *(Under 5k free pool)* | $40.00 (Tavily) + $48.00 (tokens) = $88.00 | $50.00 (SerpApi) + $125.00 (tokens) = $175.00 |
-| **Infrastructure / Redis / BullMQ** | $30.00 | $30.00 | $30.00 |
-| **Total Monthly Cost** | **~$487.50** | **~$390.25** | **~$1,484.50** |
-| **Gross AI Margin** | **+53.1% Profit** (Healthy) | **+62.4% Profit** (Highest) | **-42.7% Loss** (Underwater) |
+All Gemini 3.1 Flash Lite calculations use verified Google pricing: **$0.25 / 1M input tokens** and **$1.50 / 1M output tokens**.
+
+| Pipeline Flow | Input Tokens | Output Tokens | Cost per Invocation | Description / Formula |
+| :--- | :--- | :--- | :--- | :--- |
+| **Flow A: Text Stylist Session** | ~3,300 in | ~800 out | **~$0.00203 USD** (~0.10 EGP) | Step 1 (Scope & Intent) + Step 5 (Compose & Sufficiency) + Step 8 (Render) |
+| **Flow B: Chat with Uploaded Image** | ~4,332 in | ~950 out | **~$0.00251 USD** (~0.12 EGP) | Flow A + ~1,032 image tile tokens in Step 1 (vision attribute extraction) |
+| **Flow C: Out-of-Domain Scope Refusal** | ~700 in | ~100 out | **~$0.00033 USD** (~0.016 EGP) | Fails at Step 1 scope guard; renders static template; refunds quota |
+| **BullMQ Wardrobe Classification** | ~1,200 in | ~250 out | **~$0.00068 USD** (~0.033 EGP) | One-time async vision extraction at upload (category, fabric, colors, fit) |
+| **Google Search Grounding** | Included in Flow | Included in Flow | **$0.00 (First 5k/mo)**, then **$0.014 USD** | Executes live web search for Egypt stores when wardrobe is insufficient |
+
+---
+
+### 5.2 The Virtual Try-On Model (Phase 15F Image Generation)
+
+Virtual Try-On (`PHASE_15F_VIRTUAL_TRY_ON.md`) introduces an image synthesis pipeline allowing a client to upload a **Shape Model** (full-body photo) and generate a photo of themselves wearing selected garments.
+
+#### Try-On Model Options & Unit Costs:
+- **`gemini-3.1-flash-lite-image` (Standard V1):** **$0.0336 per generated image** (~1.65 EGP).
+- **`gemini-3.1-flash-image` (High-Fidelity 1K):** **$0.067 per generated image** (~3.28 EGP).
+- **Vertex AI `virtual-try-on-001` (Fallback):** ~$0.040 – $0.070 per image.
+
+> [!WARNING]
+> **Unit Cost Multiplier:** One Virtual Try-On generation is **17× to 34× more expensive** than an entire 3-step text stylist session ($0.0336 vs $0.0020). For this reason, try-on is **never an automatic model tool-call**; it is strictly a user-initiated button and bounded by monthly quotas (`ai.tryOn.monthly`).
+
+##### Try-On Monthly Quotas Defined in Phase 15F:
+- **Free:** `0` / month (0 try-ons, 10 AI chat messages total per account).
+- **Basic (50 EGP / ~$1.02):** `4` try-ons / month.
+- **Mid (150 EGP / ~$3.06):** `6` try-ons / month.
+- **Pro (250 EGP / ~$5.10):** `8` try-ons / month.
+- **Enterprise (500 EGP / ~$10.20):** `10` try-ons / month.
+
+---
+
+### 5.3 Master Subscription Plans & Cost Matrix (All AI Components Itemized)
 
 > [!IMPORTANT]
-> **Anthropic Claude 3.5 Haiku is financially unviable** for Murafiq's current 50 EGP subscription price. It would cause a net loss on every active subscriber.
-> **Gemini 3.1 Flash Lite** and **OpenAI GPT-4o mini** are the only two financially viable choices.
+> **Complete PDF Available:** A standalone, executive printable version of this table is available at [`docs/Murafiq_AI_Plan_Budget_Matrix.pdf`](file:///d:/JOBS/Murafiq/docs/Murafiq_AI_Plan_Budget_Matrix.pdf) and interactive HTML at [`docs/Murafiq_AI_Plan_Budget_Matrix.html`](file:///d:/JOBS/Murafiq/docs/Murafiq_AI_Plan_Budget_Matrix.html).
+
+**Assumptions & Unit Economics:**
+- **FX Rate:** 1 USD ≈ 49.00 EGP
+- **AI Chat Message:** Gemini 3.1 Flash Lite text session = ~$0.0020 USD (~0.098 EGP)
+- **Wardrobe Image Classification:** Gemini 3.1 Flash Lite Vision = ~$0.0007 USD (~0.034 EGP, runs strictly once at upload)
+- **External Web Search:** Google Grounding = $0.0153 USD (~0.75 EGP / query)
+- **Virtual Try-On:** Gemini Flash Image Lite (Nano Banana 2 Lite) = $0.0336 USD (~1.65 EGP / image)
+
+| Plan & Price | AI Chat Messages | Wardrobe Classification | Google Searches | Nano Banana (Try-On) | Total AI Cost (USD / EGP) | Net Profit (EGP) | Margin % |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Client Free**<br>`0 EGP ($0.00)` | 10 total / account<br>`0.98 EGP ($0.020)` | 7 items max<br>`0.24 EGP ($0.005)` | 0 searches<br>`0.00 EGP` | 0 try-ons<br>`0.00 EGP` | **$0.025 USD**<br>`1.22 EGP` | **-1.22 EGP** | **CAC (Trial)** |
+| **Client Basic**<br>`50 EGP ($1.02)` | 5 / day (~150/mo)<br>`14.70 EGP ($0.300)` | 50 items max<br>`1.72 EGP ($0.035)` | 15 searches / mo<br>`11.27 EGP ($0.230)` | 4 try-ons / mo<br>`6.58 EGP ($0.134)` | **$0.699 USD**<br>`34.27 EGP` | <span style="color:green">**+15.73 EGP**</span> | **+31.5%** |
+| **Client Mid**<br>`150 EGP ($3.06)` | 35 / day (~700 real)<br>`68.60 EGP ($1.400)` | 90 items max<br>`3.09 EGP ($0.063)` | 30 searches / mo<br>`22.49 EGP ($0.459)` | 6 try-ons / mo<br>`9.88 EGP ($0.202)` | **$2.124 USD**<br>`104.06 EGP` | <span style="color:green">**+45.94 EGP**</span> | **+30.6%** |
+| **Client Pro**<br>`250 EGP ($5.10)` | 80 / day (~1,400 real)<br>`137.20 EGP ($2.800)` | 200 items max<br>`6.86 EGP ($0.140)` | 45 searches / mo<br>`33.74 EGP ($0.689)` | 8 try-ons / mo<br>`13.17 EGP ($0.269)` | **$3.897 USD**<br>`190.97 EGP` | <span style="color:green">**+59.03 EGP**</span> | **+23.6%** |
+| **Client Enterprise**<br>`500 EGP ($10.20)` | 150 / day (~2,500 real)<br>`245.00 EGP ($5.000)` | 400 items max<br>`13.72 EGP ($0.280)` | 60 searches / mo<br>`44.98 EGP ($0.918)` | 10 try-ons / mo<br>`16.46 EGP ($0.336)` | **$6.534 USD**<br>`320.16 EGP` | <span style="color:green">**+179.84 EGP**</span> | **+36.0%** |
+
+> [!TIP]
+> **Account Lifetime Free Trial Guard:** Setting Free to **10 AI requests total per account** reduces Customer Acquisition Cost (CAC) to just **1.22 EGP ($0.025 USD)** per registered user, completely eliminating bot/free-tier drain while giving new users an immediate interactive trial experience before upgrading.
+> 
+> **The 5,000 Search Free Buffer:** When factoring in Google AI Studio's 5,000 free monthly search queries, live search costs on Basic drop to near zero, increasing the Basic plan profit margin to **+45% to +55%** in practice.
+
+---
+
+### 5.4 Scaled Fleet Monthly Cost: WITHOUT Try-On vs. WITH Try-On
+
+Below is the total monthly fleet cost simulation across different scales of active `client.basic` subscribers (50 EGP/month, assuming 4 try-ons/user at standard $0.0336 generation):
+
+| Scale (Basic Users) | Monthly Revenue | Cost WITHOUT Try-On | Profit WITHOUT Try-On | Try-On Spend Added (4/user) | Total Cost WITH Try-On | Net Profit WITH Try-On | Margin % WITH Try-On |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **100 users** | 5,000 EGP ($102) | **$48.50** (2,376 EGP) | +2,624 EGP (+52.5%) | +$13.44 (659 EGP) | **$61.94** (3,035 EGP) | **+1,965 EGP** | **+39.3%** |
+| **500 users** | 25,000 EGP ($510) | **$242.50** (11,882 EGP) | +13,118 EGP (+52.5%) | +$67.20 (3,293 EGP) | **$309.70** (15,175 EGP) | **+9,825 EGP** | **+39.3%** |
+| **1,000 users** | 50,000 EGP ($1,020)| **$485.00** (23,765 EGP) | +26,235 EGP (+52.5%) | +$134.40 (6,586 EGP) | **$619.40** (30,351 EGP) | **+19,649 EGP** | **+39.3%** |
+| **2,500 users** | 125,000 EGP ($2,551)| **$1,317.50** (64,557 EGP)| +60,443 EGP (+48.3%) | +$336.00 (16,464 EGP) | **$1,653.50** (81,021 EGP)| **+43,979 EGP** | **+35.2%** |
+| **5,000 users** | 250,000 EGP ($5,102)| **$2,705.00** (132,545 EGP)| +117,455 EGP (+47.0%)| +$672.00 (32,928 EGP) | **$3,377.00** (165,473 EGP)| **+84,527 EGP** | **+33.8%** |
+| **10,000 users**| 500,000 EGP ($10,204)|**$5,480.00** (268,520 EGP)| +231,480 EGP (+46.3%)| +$1,344.00 (65,856 EGP)| **$6,824.00** (334,376 EGP)| **+165,624 EGP**| **+33.1%** |
+
+---
+
+### 5.5 Key Takeaways & Try-On Monetization Strategy
+
+1. **WITHOUT Try-On (V1 Core):** Murafiq operates at **+47% to +53% gross AI margins**, leaving healthy room for payment gateway fees (Paymob 2.75% + 3 EGP), hosting, and operations.
+2. **WITH Try-On (Phase 15F):** Unit margins drop by ~13% to 15% across all tiers, but Murafiq remains solidly profitable (**+33% to +39% gross margin**) as long as `gemini-3.1-flash-lite-image` ($0.0336) is used and monthly quotas are enforced.
+3. **Upsell Opportunity:** Once users exhaust their monthly try-on quota (`ai.tryOn.monthly`), sell **"Try-On Top-Up Packs"** (e.g., 10 try-ons for 30 EGP). Cost to Murafiq is ~16.5 EGP, yielding a **+45% direct profit margin** per pack.
+
+---
+
+### 5.6 Cross-Model Financial Benchmark (1,000 Basic Users - Core V1)
+
+| Cost Item | Google Gemini 3.1 Flash Lite | OpenAI GPT-4o mini (with Tavily) | Anthropic Claude 3.5 Haiku (with SerpApi) |
+| :--- | :--- | :--- | :--- |
+| **Subscription Revenue** | 50,000 EGP (~$1,020 USD) | 50,000 EGP (~$1,020 USD) | 50,000 EGP (~$1,020 USD) |
+| **Stylist Text Pipeline** | $450.00 | $270.00 | $1,260.00 |
+| **Wardrobe Vision Classification** | $7.50 | $2.25 | $19.50 |
+| **External Search (5,000 queries)** | **$0.00** *(Under 5k free pool)* | $40.00 (Tavily) + $48.00 (tokens) = $88.00 | $50.00 (SerpApi) + $125.00 (tokens) = $175.00 |
+| **Infrastructure / Redis / BullMQ** | $30.00 | $30.00 | $30.00 |
+| **Total Monthly Cost (No Try-On)** | **~$487.50** (~23,887 EGP) | **~$390.25** (~19,122 EGP) | **~$1,484.50** (~72,740 EGP) |
+| **Net Gross Profit (No Try-On)** | **+26,113 EGP (+52.2%)** | **+30,878 EGP (+61.7%)** | **-22,740 EGP (-45.5% NET LOSS)** |
 
 ---
 
@@ -310,7 +387,120 @@ const response = await anthropic.messages.create({
 
 ---
 
-## 7. Final Recommendations & Strategic Roadmap
+---
+
+## 8. Step-by-Step Guide: How to Add Billing & Buy Credits in Google AI Studio
+
+Google AI Studio does not use a prepaid wallet or credit voucher system. Instead, it operates on a **Pay-as-you-go postpaid model linked to a Google Cloud Billing Account**. You are invoiced at the end of each monthly billing cycle based on your exact token and search usage.
+
+---
+
+### Step 1: Access Google AI Studio
+1. Open your browser and navigate to: **[https://aistudio.google.com/](https://aistudio.google.com/)**.
+2. Sign in using your organization or production Google account (e.g., `admin@murafiq.com` or your designated developer account).
+
+---
+
+### Step 2: Create or Select a Google Cloud Project
+Google AI Studio projects are directly tied to Google Cloud Console projects:
+1. In Google AI Studio, look at the top navigation bar or left sidebar.
+2. Click on the **Project Selector** dropdown.
+3. Click **"Create New Project"** and name it (e.g., `murafiq-ai-production`), or select an existing Google Cloud project if you already have one.
+4. Alternatively, you can create the project directly in the [Google Cloud Console](https://console.cloud.google.com/).
+
+---
+
+### Step 3: Create a Google Cloud Billing Account
+To upgrade from the rate-limited Free Tier to the production Pay-as-you-go Tier:
+1. Open the [Google Cloud Billing Console](https://console.cloud.google.com/billing).
+2. Click **"Manage billing accounts"** → **"Add billing account"** (or click **"Create Account"**).
+3. **Account Details:**
+   - **Country:** Select **Egypt** (or the country where your company / payment card is registered).
+   - **Currency:** USD (or EGP if offered for Egyptian commercial entities).
+   - **Account Type:** Select **Business** (enter company tax ID/registration if applicable) or **Individual**.
+4. **Payment Method Setup:**
+   - Enter your card details (Visa or Mastercard).
+   - **Egyptian Bank Card Guidance:**
+     - Credit cards enabled for international online transactions work smoothly.
+     - Note your Egyptian bank's monthly foreign currency spending cap (typically $50 to $250+ per month on standard cards; higher or unlimited on corporate/USD accounts).
+     - Ensure international e-commerce is enabled via your bank's mobile app.
+5. Click **"Submit and enable billing"**. Google will place a temporary $1.00 USD authorization hold (refunded immediately) to verify card validity.
+
+---
+
+### Step 4: Link Billing to AI Studio ("Upgrade to Pay-as-you-go")
+Once your Billing Account is active:
+1. Return to **[Google AI Studio](https://aistudio.google.com/)**.
+2. Click the **"Get API key"** icon in the left-hand navigation menu.
+3. In the API Keys dashboard, find the table listing your projects.
+4. In the **"Plan"** column next to your project:
+   - If it displays `Free tier`, click the **"Set up billing"** or **"Upgrade to Pay-as-you-go"** link.
+5. In the modal that appears, select the **Billing Account** created in Step 3.
+6. Click **"Confirm & Link"**.
+7. The plan status for your project will immediately update to **`Pay-as-you-go`**.
+
+> [!TIP]
+> **Why Pay-as-you-go is required for Murafiq:**
+> 1. **No Data Logging for Training:** On the paid tier, Google does **not** log or use your prompts or client wardrobe photos to train models (PDPL / Privacy compliance).
+> 2. **High Rate Limits:** Limits jump from 15 RPM (Requests Per Minute) to **4,000 RPM**, preventing 429 rate limit crashes under user traffic.
+> 3. **Google Search Grounding:** Gives you access to 5,000 free live search queries/month and automatic scaling beyond.
+
+---
+
+### Step 5: Generate & Restrict Your Production API Key
+1. In Google AI Studio, click **"Create API key"**.
+2. Select your billed project (`murafiq-ai-production`).
+3. Click **"Create API key in existing project"**.
+4. Copy the generated key (format: `AIzaSy...`).
+5. **Security Hardening (Recommended):**
+   - Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
+   - Click your newly created key to edit its settings.
+   - Under **"API restrictions"**, select **"Restrict key"**.
+   - Check **ONLY** the **"Generative Language API"**.
+   - Click **"Save"**. *(This prevents the key from being misused for any other Google Cloud service if accidentally exposed).*
+
+---
+
+### Step 6: Set Spending Limits & Budget Alerts (Cost Protection)
+To avoid any surprise bills from traffic spikes:
+1. Open the [Google Cloud Budgets & Alerts Console](https://console.cloud.google.com/billing/budgets).
+2. Click **"Create Budget"**:
+   - **Scope:** Select your project `murafiq-ai-production`.
+   - **Services:** Select `Generative Language API`.
+   - **Target Amount:** Enter a monthly limit (e.g., **$100.00 USD** for early stage, or **$500.00 USD** at 1,000+ users).
+3. **Threshold Rules:**
+   - Add alert triggers at **50%**, **80%**, and **100%** of budget.
+   - Ensure **"Email alerts to billing account admins and users"** is checked.
+4. Click **"Finish"**. You will receive instant email warnings if monthly spend reaches your defined thresholds.
+
+---
+
+### Step 7: Configure Murafiq Backend Environment
+Add the production credentials to your Murafiq environment variables:
+
+1. Open `d:\JOBS\Murafiq\.env` (or inject via your PM2 / deployment environment):
+```env
+# Gemini Production AI Configuration
+GEMINI_API_KEY=AIzaSyYourActualProductionKeyHere
+AI_MODEL_VISION=gemini-3.1-flash-lite
+AI_MODEL_REASONING=gemini-3.1-flash-lite
+```
+
+2. Test that the key and billing are operational:
+```bash
+# Run the grounding and provider test suite
+npm test tests/unit/ai-llm-grounding.test.js
+```
+
+---
+
+### Step 8: Monitoring Invoices & Live Usage
+- **Real-time API Metrics:** View request counts, latency, and error rates at [Google Cloud Console → Generative Language API Dashboard](https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com).
+- **Daily Spend Reports:** View exact daily dollar amounts broken down by input tokens, output tokens, and search grounding at [Google Cloud Console → Billing → Reports](https://console.cloud.google.com/billing/reports).
+
+---
+
+## 9. Final Recommendations & Strategic Roadmap
 
 ### Recommendation 1: Stick with Gemini 3.1 Flash Lite for Launch (V1)
 - **Why:** 
@@ -331,3 +521,4 @@ const response = await anthropic.messages.create({
 - Architecture: `docs/next-phase/PHASE_15_AI_ARCHITECTURE_DECISION.md`
 - Product Search Implementation: `docs/next-phase/PHASE_15E_EXTERNAL_PRODUCT_SEARCH.md`
 - Entitlement & Quotas: `src/modules/subscriptions/plan.constants.js`
+
