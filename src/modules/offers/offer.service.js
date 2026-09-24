@@ -146,7 +146,7 @@ const isTransientMongoError = (err) =>
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const acceptOfferOnce = async (clientUser, offerId) => {
+const acceptOfferOnce = async (clientUser, offerId, { bookingMode = 'standard' } = {}) => {
   const offerDoc = await offerRepository.findById(offerId);
   if (!offerDoc) {
     throw new ApiError(404, 'Offer not found');
@@ -167,18 +167,18 @@ const acceptOfferOnce = async (clientUser, offerId) => {
   }
 
   return await withTransaction(async (session) => {
-    return await bookingService.createBookingFromOffer(offerId, session);
+    return await bookingService.createBookingFromOffer(offerId, session, { bookingMode });
   });
 };
 
-export const acceptOffer = async (clientUser, offerId) => {
+export const acceptOffer = async (clientUser, offerId, options = {}) => {
   const MAX_TRANSIENT_RETRIES = 5;
   const RETRY_BACKOFF_MS = 50;
   let bookingDoc;
 
   for (let attempt = 1; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     try {
-      bookingDoc = await acceptOfferOnce(clientUser, offerId);
+      bookingDoc = await acceptOfferOnce(clientUser, offerId, options);
       break; // success
     } catch (err) {
       if (err.statusCode || !isTransientMongoError(err) || attempt === MAX_TRANSIENT_RETRIES) {

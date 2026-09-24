@@ -18,7 +18,8 @@ export const withdrawOffer = asyncHandler(async (req, res) => {
 });
 
 export const acceptOffer = asyncHandler(async (req, res) => {
-  const offerDoc = await offerService.acceptOffer(req.user, req.params.id);
+  const bookingMode = req.bookingMode || 'standard';
+  const offerDoc = await offerService.acceptOffer(req.user, req.params.id, { bookingMode });
   return ApiResponse.success(res, {
     message: 'Offer accepted successfully',
     data: offerDoc,

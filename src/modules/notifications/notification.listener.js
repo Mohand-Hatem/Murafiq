@@ -236,10 +236,13 @@ class NotificationListener {
           }
 
           if (stylistUserId) {
+            const isDemo = booking.bookingMode === 'demo';
             await notificationService.send(stylistUserId, {
-              type: 'payout',
+              type: isDemo ? 'review' : 'payout',
               title: 'Session Completed',
-              body: 'Session completed successfully. Your earnings are now eligible for payout.',
+              body: isDemo
+                ? 'Session completed successfully. Don’t forget to leave a review for your client!'
+                : 'Session completed successfully. Your earnings are now eligible for payout.',
               relatedEntityId: booking._id,
             });
           }
