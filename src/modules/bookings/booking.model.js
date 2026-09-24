@@ -40,6 +40,13 @@ const bookingSchema = new Schema(
       ],
       default: 'confirmed',
     },
+    bookingMode: {
+      type: String,
+      enum: ['standard', 'demo'],
+      default: 'standard',
+      required: true,
+      index: true,
+    },
     checkInAt: Date,
     clientCheckInAt: Date,
     stylistCheckInAt: Date,

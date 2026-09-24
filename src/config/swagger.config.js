@@ -90,3 +90,60 @@ export const apis = [
   path.join(modulesDir, '**/*.routes.js').replace(/\\/g, '/'),
   path.join(modulesDir, '**/*.swagger.js').replace(/\\/g, '/'),
 ];
+
+export const demoSwaggerDefinition = {
+  openapi: '3.0.0',
+  info: {
+    title: 'Murafiq Demo API',
+    version: '1.0.0',
+    description:
+      'API documentation for Murafiq Demo trial release. Exposes Free plan capabilities and Cash-on-Delivery (COD) booking workflows without payment gateways or platform payouts.',
+  },
+  servers: [
+    {
+      url: env.API_BASE_URL
+        ? env.API_BASE_URL.replace(/\/api\/v1$/, '/api/demo')
+        : `http://localhost:${env.PORT}/api/demo`,
+      description: env.NODE_ENV === 'production' ? 'Demo Production Server' : 'Demo Development Server',
+    },
+  ],
+  components: swaggerDefinition.components,
+  security: swaggerDefinition.security,
+};
+
+const OMITTED_DEMO_PATH_PREFIXES = ['/payments', '/payouts', '/coupons', '/admin'];
+const ALLOWED_DEMO_SUBSCRIPTION_PATHS = new Set([
+  '/subscriptions/plans',
+  '/subscriptions/me',
+  '/subscriptions/me/entitlements',
+]);
+
+const normaliseRoute = (route) =>
+  route
+    .replace('/api/v1', '')
+    .replace(/:([A-Za-z0-9_]+)/g, '{$1}')
+    .replace(/\/+$/, '') || '/';
+
+export const buildDemoSwaggerSpec = (fullSpec) => {
+  const demoPaths = {};
+
+  for (const [p, ops] of Object.entries(fullSpec.paths || {})) {
+    const norm = normaliseRoute(p);
+
+    if (OMITTED_DEMO_PATH_PREFIXES.some((prefix) => norm.startsWith(prefix))) {
+      continue;
+    }
+
+    if (norm.startsWith('/subscriptions') && !ALLOWED_DEMO_SUBSCRIPTION_PATHS.has(norm)) {
+      continue;
+    }
+
+    demoPaths[norm] = ops;
+  }
+
+  return {
+    ...demoSwaggerDefinition,
+    components: fullSpec.components || demoSwaggerDefinition.components,
+    paths: demoPaths,
+  };
+};

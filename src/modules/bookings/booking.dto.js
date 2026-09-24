@@ -29,6 +29,7 @@ export const toPublicBookingDto = (bookingDoc) => {
     id: doc._id?.toString() || doc.id,
     requestId: doc.requestId?.toString() || doc.requestId,
     offerId: doc.offerId?.toString() || doc.offerId,
+    bookingMode: doc.bookingMode || 'standard',
     client,
     stylist,
     scheduledDate: doc.scheduledDate,

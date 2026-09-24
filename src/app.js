@@ -10,7 +10,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import env from './config/env.config.js';
 import { stream } from './config/logger.config.js';
-import { swaggerDefinition, apis } from './config/swagger.config.js';
+import { swaggerDefinition, apis, buildDemoSwaggerSpec } from './config/swagger.config.js';
 import rateLimiter from './common/middlewares/rate-limiter.middleware.js';
 import authMiddleware from './common/middlewares/auth.middleware.js';
 import { restrictTo } from './common/middlewares/rbac.middleware.js';
@@ -18,6 +18,7 @@ import { ROLES } from './common/constants/roles.constant.js';
 import errorHandler from './common/middlewares/error-handler.middleware.js';
 import notFoundHandler from './common/middlewares/not-found.middleware.js';
 import routes from './routes/index.js';
+import demoRoutes from './routes/demo.routes.js';
 import notificationListener from './modules/notifications/notification.listener.js';
 import auditLogListener from './modules/audit-log/audit-log.listener.js';
 import stylistListener from './modules/stylists/stylist.listener.js';
@@ -77,18 +78,41 @@ if (env.NODE_ENV !== 'test') {
   app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev', { stream }));
 }
 
-// API Docs — mounted from Phase 0 so every phase from here on documents its own routes as it builds them
-// (see docs/PHASES_INDEX.md), rather than one large retrofit at the end.
+// API Docs — V1 and Demo specifications
 const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis });
+const demoSwaggerSpec = buildDemoSwaggerSpec(swaggerSpec);
+
 if (env.NODE_ENV === 'production') {
+  app.use('/api/docs/demo', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.get('/api/docs/demo.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(demoSwaggerSpec);
+  });
+  app.use('/api/demo/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.get('/api/demo/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(demoSwaggerSpec);
+  });
+
   app.use('/api/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-  app.get('/api/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (req, res) => {
+  app.get('/api/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
   });
 } else {
+  app.use('/api/docs/demo', swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.get('/api/docs/demo.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(demoSwaggerSpec);
+  });
+  app.use('/api/demo/docs', swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.get('/api/demo/docs.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(demoSwaggerSpec);
+  });
+
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-  app.get('/api/docs.json', (req, res) => {
+  app.get('/api/docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
   });
@@ -96,6 +120,7 @@ if (env.NODE_ENV === 'production') {
 
 // API Routes
 app.use('/api/v1', routes);
+app.use('/api/demo', demoRoutes);
 
 // 404 & Error Handling
 app.use(notFoundHandler);

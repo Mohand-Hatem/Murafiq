@@ -20,6 +20,7 @@ import { assertBookingParticipant } from '../../common/authz/assertParticipant.j
 import { computeSettlement } from '../../common/settlement.js';
 import {
   PAYMENT_STATUS,
+  PAYOUT_STATUS,
   CANCELLATION_POLICY,
   OFFER_STATUS,
   BOOKING_TERMINAL_STATUSES,
@@ -28,7 +29,11 @@ import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import env from '../../config/env.config.js';
 import logger from '../../config/logger.config.js';
 
-export const createBookingFromOffer = async (offerId, session = null) => {
+export const createBookingFromOffer = async (
+  offerId,
+  session = null,
+  { bookingMode = 'standard' } = {}
+) => {
   const offer = await offerRepository.findById(offerId, session);
   if (!offer) {
     throw new ApiError(404, 'Offer not found');
@@ -68,6 +73,8 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     throw new ApiError(409, 'This time slot is already booked for this stylist');
   }
 
+  const isDemo = bookingMode === 'demo';
+
   // Create booking with duplicate-offer / duplicate-request protection
   let bookingDoc;
   try {
@@ -84,6 +91,8 @@ export const createBookingFromOffer = async (offerId, session = null) => {
         price: offer.price,
         duration: offer.duration,
         status: 'confirmed',
+        bookingMode,
+        payoutStatus: isDemo ? PAYOUT_STATUS.NOT_OWED : PAYOUT_STATUS.UNPAID,
       },
       session
     );
@@ -116,25 +125,27 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     throw err;
   }
 
-  // Create pending payment record
-  const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || 15;
-  const platformFeeAmount = round2(offer.price * (platformFeePercentage / 100));
-  const stylistPayoutAmount = round2(offer.price - platformFeeAmount);
+  // Create pending payment record (V1 online payments only; skipped for demo COD)
+  if (!isDemo) {
+    const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || 15;
+    const platformFeeAmount = round2(offer.price * (platformFeePercentage / 100));
+    const stylistPayoutAmount = round2(offer.price - platformFeeAmount);
 
-  await paymentRepository.create(
-    {
-      bookingId: bookingDoc._id,
-      clientId: offer.clientId._id || offer.clientId,
-      currency: 'EGP',
-      amount: offer.price,
-      platformFeePercentage,
-      platformFeeAmount,
-      stylistPayoutAmount,
-      status: PAYMENT_STATUS.PENDING,
-      provider: env.PAYMENT_PROVIDER || 'mock',
-    },
-    session
-  );
+    await paymentRepository.create(
+      {
+        bookingId: bookingDoc._id,
+        clientId: offer.clientId._id || offer.clientId,
+        currency: 'EGP',
+        amount: offer.price,
+        platformFeePercentage,
+        platformFeeAmount,
+        stylistPayoutAmount,
+        status: PAYMENT_STATUS.PENDING,
+        provider: env.PAYMENT_PROVIDER || 'mock',
+      },
+      session
+    );
+  }
 
   // Update winning Offer status to 'accepted'
   await offerRepository.updateById(offer._id, { status: OFFER_STATUS.ACCEPTED }, session);
@@ -150,12 +161,16 @@ export const createBookingFromOffer = async (offerId, session = null) => {
     await offerRepository.rejectSiblingOffers(requestDoc._id, offer._id, session);
   }
 
-  // Initialize closed chat room (unlocked upon payment)
+  // Initialize chat room: demo opens immediately; V1 unlocked upon payment
   try {
-    await chatService.createConversation(bookingDoc._id, [
-      offer.clientId._id || offer.clientId,
-      offer.stylistId._id || offer.stylistId,
-    ]);
+    await chatService.createConversation(
+      bookingDoc._id,
+      [
+        offer.clientId._id || offer.clientId,
+        offer.stylistId._id || offer.stylistId,
+      ],
+      { isOpen: isDemo }
+    );
   } catch (_err) {
     // Non-fatal in dev/test environments if Firebase is not configured
   }
@@ -202,10 +217,12 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     throw new ApiError(400, `Cannot check-in to a booking in '${booking.status}' status`);
   }
 
-  // Payment Gate: Booking must be paid before check-in is permitted
-  const payment = await paymentRepository.findByBookingId(bookingId);
-  if (!payment || payment.status !== PAYMENT_STATUS.PAID) {
-    throw new ApiError(400, 'Payment must be completed before check-in');
+  // Payment Gate: Booking must be paid before check-in is permitted (bypassed for demo COD bookings)
+  if (booking.bookingMode !== 'demo') {
+    const payment = await paymentRepository.findByBookingId(bookingId);
+    if (!payment || payment.status !== PAYMENT_STATUS.PAID) {
+      throw new ApiError(400, 'Payment must be completed before check-in');
+    }
   }
 
   const updateData = {
@@ -461,12 +478,8 @@ export const resolveDispute = async (
     finalRefundPercentage = refundPercentage;
   }
 
-  // If refund is required, execute via paymentService. On a genuine split/partial outcome
-  // the stylist keeps their normal fee-split share of whatever is NOT refunded to the
-  // client (MONEY_AND_LEDGER.md Section 4.2, e.g. 750 EGP retained * 0.85 = 637.50 EGP to
-  // the stylist) -- arbitration should not silently zero out a stylist's earnings on
-  // whatever portion of the booking the admin decided they keep.
-  if (finalRefundPercentage > 0) {
+  // If refund is required, execute via paymentService (skipped for demo COD bookings)
+  if (booking.bookingMode !== 'demo' && finalRefundPercentage > 0) {
     let stylistPayoutOverrideAmount = 0;
     if (finalRefundPercentage < 100) {
       const payment = await paymentRepository.findByBookingId(bookingId);
@@ -685,10 +698,9 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
 
     await scheduleRepository.deleteByBookingId(bookingId, session);
 
-    // Stylist cancellation accrues a penalty debt — 3% early, 20% late. The reason type
-    // must follow the tier: the unique {bookingId, reasonType} index is what makes
-    // assessment idempotent, so a hardcoded type would collide across tiers.
-    if (outcome.penaltyAmount > 0) {
+    // Stylist cancellation accrues a penalty debt — 3% early, 20% late.
+    // In demo, zero platform penalties and zero ledger entries are posted.
+    if (booking.bookingMode !== 'demo' && outcome.penaltyAmount > 0) {
       const isEarlyCancel = outcome.tier === 'EARLY_STYLIST_CANCEL';
       const penaltyPct = isEarlyCancel
         ? CANCELLATION_POLICY.EARLY_STYLIST_PENALTY_PERCENTAGE
@@ -735,21 +747,23 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
     return res;
   });
 
-  // If payment was paid, execute refund logic based on cancellation outcome
-  const payment = await paymentRepository.findByBookingId(bookingId);
-  if (payment && payment.status === PAYMENT_STATUS.PAID) {
-    try {
-      await paymentService.processRefund({
-        bookingId,
-        refundPercentage: outcome.refundPercentage,
-        reason: cancelData.reason || `Booking cancelled by ${cancelledBy} (${outcome.tier})`,
-      });
-    } catch (refundErr) {
-      await paymentRepository.updateById(payment._id, {
-        refundError: refundErr.message,
-        refundFailedAt: new Date(),
-      });
-      logger.error(`Refund failed after cancellation for booking ${bookingId}: ${refundErr.message}`);
+  // If payment was paid, execute refund logic based on cancellation outcome (skipped for demo COD bookings)
+  if (booking.bookingMode !== 'demo') {
+    const payment = await paymentRepository.findByBookingId(bookingId);
+    if (payment && payment.status === PAYMENT_STATUS.PAID) {
+      try {
+        await paymentService.processRefund({
+          bookingId,
+          refundPercentage: outcome.refundPercentage,
+          reason: cancelData.reason || `Booking cancelled by ${cancelledBy} (${outcome.tier})`,
+        });
+      } catch (refundErr) {
+        await paymentRepository.updateById(payment._id, {
+          refundError: refundErr.message,
+          refundFailedAt: new Date(),
+        });
+        logger.error(`Refund failed after cancellation for booking ${bookingId}: ${refundErr.message}`);
+      }
     }
   }
 

@@ -268,34 +268,38 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
       }
     }
 
-    // Step B (OUTSIDE txn): processRefund with idempotency guard
-    if (payment?.status === PAYMENT_STATUS.REFUNDING) {
-      // AMBIGUOUS: the provider may or may not have refunded. Auto-retrying could double-refund.
-      // Stop, record, and escalate to a human. This is the one branch that must never guess.
-      await bookingRepository.recordPostSettlementError(
-        bookingId,
-        'refund',
-        'Payment stuck in REFUNDING - manual reconciliation required'
-      );
-      logger.error(`[No-show] Payment ${payment._id} stuck in REFUNDING; settlement halted for booking ${bookingId}`);
-      throw new ApiError(409, 'Refund state is ambiguous; this settlement requires manual reconciliation.');
-    }
+    const isDemo = booking.bookingMode === 'demo';
 
-    const alreadyRefunded =
-      payment?.status === PAYMENT_STATUS.REFUNDED || payment?.status === PAYMENT_STATUS.PARTIALLY_REFUNDED;
+    // Step B (OUTSIDE txn): processRefund with idempotency guard (skipped for demo COD bookings)
+    if (!isDemo) {
+      if (payment?.status === PAYMENT_STATUS.REFUNDING) {
+        // AMBIGUOUS: the provider may or may not have refunded. Auto-retrying could double-refund.
+        // Stop, record, and escalate to a human. This is the one branch that must never guess.
+        await bookingRepository.recordPostSettlementError(
+          bookingId,
+          'refund',
+          'Payment stuck in REFUNDING - manual reconciliation required'
+        );
+        logger.error(`[No-show] Payment ${payment._id} stuck in REFUNDING; settlement halted for booking ${bookingId}`);
+        throw new ApiError(409, 'Refund state is ambiguous; this settlement requires manual reconciliation.');
+      }
 
-    if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
-      // Idempotency guard: pass deterministic key to provider to prevent duplicate external refunds on retry.
-      // If processRefund throws, do NOT swallow. Rethrow to abort the settlement!
-      await paymentService.processRefund({
-        bookingId,
-        refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
-        reason: reason || `No-show by ${against}`,
-        stylistPayoutOverrideAmount: settlement.stylistCompensationAmount,
-        idempotencyKey: `refund-noshow-${bookingId}`,
-      });
-    } else if (alreadyRefunded) {
-      logger.info(`[No-show] Payment ${payment._id} already refunded; skipping provider call on resume.`);
+      const alreadyRefunded =
+        payment?.status === PAYMENT_STATUS.REFUNDED || payment?.status === PAYMENT_STATUS.PARTIALLY_REFUNDED;
+
+      if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
+        // Idempotency guard: pass deterministic key to provider to prevent duplicate external refunds on retry.
+        // If processRefund throws, do NOT swallow. Rethrow to abort the settlement!
+        await paymentService.processRefund({
+          bookingId,
+          refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
+          reason: reason || `No-show by ${against}`,
+          stylistPayoutOverrideAmount: settlement.stylistCompensationAmount,
+          idempotencyKey: `refund-noshow-${bookingId}`,
+        });
+      } else if (alreadyRefunded) {
+        logger.info(`[No-show] Payment ${payment._id} already refunded; skipping provider call on resume.`);
+      }
     }
 
     // Step C (INSIDE txn): payoutStatus write + Penalty create + ledger postDoubleEntry(session)
@@ -304,14 +308,14 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
         bookingId,
         {
           payoutStatus:
-            settlement.stylistCompensationAmount > 0
+            !isDemo && settlement.stylistCompensationAmount > 0
               ? PAYOUT_STATUS.UNPAID
               : PAYOUT_STATUS.NOT_OWED,
         },
         session
       );
 
-      if (policy.STYLIST_PENALTY_PERCENTAGE > 0) {
+      if (!isDemo && policy.STYLIST_PENALTY_PERCENTAGE > 0) {
         const penaltyAmount = settlement.penaltyAmount;
         try {
           await penaltyRepository.create(

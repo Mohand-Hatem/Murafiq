@@ -13,16 +13,17 @@ const mockMessages = new Map();
 
 class ChatService {
   /**
-   * Create a new conversation doc 1:1 with bookingId (created closed, unlocked upon payment)
+   * Create a new conversation doc 1:1 with bookingId (created closed by default, unlocked upon payment or immediately for demo)
    */
-  async createConversation(bookingId, participants = []) {
+  async createConversation(bookingId, participants = [], options = {}) {
     const stringId = String(bookingId);
     const participantIds = participants.map((p) => String(p));
+    const isOpen = options.isOpen ?? false;
 
     const conversationData = {
       bookingId: stringId,
       participants: participantIds,
-      isOpen: false,
+      isOpen,
       isLocked: false,
       lastMessageAt: null,
       createdAt: new Date().toISOString(),

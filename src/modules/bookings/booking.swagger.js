@@ -56,6 +56,10 @@
  *         status:
  *           type: string
  *           enum: [confirmed, in-progress, completed, cancelled, disputed]
+ *         bookingMode:
+ *           type: string
+ *           enum: [standard, demo]
+ *           example: standard
  *         checkInAt:
  *           type: string
  *           format: date-time

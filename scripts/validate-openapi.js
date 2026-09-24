@@ -16,7 +16,7 @@
  * Exit 0 = clean, 1 = problems found.
  */
 import swaggerJsdoc from 'swagger-jsdoc';
-import { swaggerDefinition, apis } from '../src/config/swagger.config.js';
+import { swaggerDefinition, apis, buildDemoSwaggerSpec } from '../src/config/swagger.config.js';
 
 const asJson = process.argv.includes('--json');
 
@@ -38,9 +38,9 @@ const normalise = (route) =>
  * version-fragile. The route files are the declaration of record and parse identically
  * across versions.
  */
-const collectRoutes = async () => {
+const collectRoutes = async (indexPath = 'src/routes/index.js') => {
   const fs = await import('fs');
-  const routesIndex = fs.readFileSync('src/routes/index.js', 'utf8');
+  const routesIndex = fs.readFileSync(indexPath, 'utf8');
 
   // Mount prefixes: router.use('/auth', authRoutes)
   const mounts = [];
@@ -83,6 +83,12 @@ const collectRoutes = async () => {
     }
   }
 
+  // Support inline sub-routers in routes files (e.g. demoSubscriptionRoutes in demo.routes.js)
+  for (const m of routesIndex.matchAll(/demoSubscriptionRoutes\.(get|post|put|patch|delete)\(\s*'([^']*)'/g)) {
+    const sub = m[2] === '/' ? '' : m[2];
+    out.add(`${m[1].toUpperCase()} /subscriptions${sub}`);
+  }
+
   return out;
 };
 
@@ -107,9 +113,7 @@ const findBrokenRefs = (spec) => {
   return broken;
 };
 
-const main = async () => {
-  const spec = buildSpec();
-
+const auditSpec = async (name, spec, indexPath, isDemo = false) => {
   const documented = new Set();
   for (const [p, ops] of Object.entries(spec.paths || {})) {
     for (const method of Object.keys(ops)) {
@@ -119,7 +123,7 @@ const main = async () => {
     }
   }
 
-  const raw = await collectRoutes();
+  const raw = await collectRoutes(indexPath);
   const actual = new Set(
     [...raw].map((r) => {
       const [m, p] = r.split(' ');
@@ -145,7 +149,24 @@ const main = async () => {
     structural.push('spec is not JSON-serialisable');
   }
 
-  const report = {
+  if (isDemo) {
+    const forbiddenPrefixes = ['/payments', '/payouts', '/coupons', '/admin'];
+    for (const p of Object.keys(spec.paths || {})) {
+      const norm = normalise(p);
+      if (forbiddenPrefixes.some((pref) => norm.startsWith(pref))) {
+        structural.push(`Demo spec leaks forbidden route: ${p}`);
+      }
+      if (
+        norm.startsWith('/subscriptions') &&
+        !['/subscriptions/plans', '/subscriptions/me', '/subscriptions/me/entitlements'].includes(norm)
+      ) {
+        structural.push(`Demo spec leaks forbidden subscription commerce route: ${p}`);
+      }
+    }
+  }
+
+  return {
+    name,
     openapi: spec.openapi,
     documentedOperations: documented.size,
     actualRoutes: actual.size,
@@ -154,27 +175,39 @@ const main = async () => {
     brokenRefs,
     securitySchemes,
     structural,
+    failed: undocumented.length > 0 || ghosts.length > 0 || brokenRefs.length > 0 || structural.length > 0,
   };
+};
+
+const main = async () => {
+  const v1Spec = buildSpec();
+  const demoSpec = buildDemoSwaggerSpec(v1Spec);
+
+  const v1Report = await auditSpec('V1 API (/api/v1)', v1Spec, 'src/routes/index.js', false);
+  const demoReport = await auditSpec('Demo API (/api/demo)', demoSpec, 'src/routes/demo.routes.js', true);
 
   if (asJson) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify({ v1: v1Report, demo: demoReport }, null, 2));
   } else {
-    console.log(`OpenAPI          : ${report.openapi}`);
-    console.log(`Documented ops   : ${report.documentedOperations}`);
-    console.log(`Actual routes    : ${report.actualRoutes}`);
-    console.log(`Security schemes : ${securitySchemes.join(', ') || '(NONE)'}`);
-    console.log(`\nUNDOCUMENTED (${undocumented.length}):`);
-    console.log(undocumented.length ? undocumented.map((r) => `  ${r}`).join('\n') : '  (none)');
-    console.log(`\nGHOSTS — documented but absent (${ghosts.length}):`);
-    console.log(ghosts.length ? ghosts.map((r) => `  ${r}`).join('\n') : '  (none)');
-    console.log(`\nBROKEN $refs (${brokenRefs.length}):`);
-    console.log(brokenRefs.length ? brokenRefs.map((r) => `  ${r}`).join('\n') : '  (none)');
-    console.log(`\nSTRUCTURAL PROBLEMS (${structural.length}):`);
-    console.log(structural.length ? structural.map((r) => `  ${r}`).join('\n') : '  (none)');
+    for (const report of [v1Report, demoReport]) {
+      console.log(`\n========================================`);
+      console.log(`OpenAPI Target   : ${report.name}`);
+      console.log(`OpenAPI Version  : ${report.openapi}`);
+      console.log(`Documented ops   : ${report.documentedOperations}`);
+      console.log(`Actual routes    : ${report.actualRoutes}`);
+      console.log(`Security schemes : ${report.securitySchemes.join(', ') || '(NONE)'}`);
+      console.log(`\nUNDOCUMENTED (${report.undocumented.length}):`);
+      console.log(report.undocumented.length ? report.undocumented.map((r) => `  ${r}`).join('\n') : '  (none)');
+      console.log(`\nGHOSTS — documented but absent (${report.ghosts.length}):`);
+      console.log(report.ghosts.length ? report.ghosts.map((r) => `  ${r}`).join('\n') : '  (none)');
+      console.log(`\nBROKEN $refs (${report.brokenRefs.length}):`);
+      console.log(report.brokenRefs.length ? report.brokenRefs.map((r) => `  ${r}`).join('\n') : '  (none)');
+      console.log(`\nSTRUCTURAL PROBLEMS (${report.structural.length}):`);
+      console.log(report.structural.length ? report.structural.map((r) => `  ${r}`).join('\n') : '  (none)');
+    }
   }
 
-  const failed =
-    undocumented.length > 0 || ghosts.length > 0 || brokenRefs.length > 0 || structural.length > 0;
+  const failed = v1Report.failed || demoReport.failed;
   process.exit(failed ? 1 : 0);
 };
 
