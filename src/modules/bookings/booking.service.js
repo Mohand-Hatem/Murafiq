@@ -19,11 +19,14 @@ import ApiError from '../../common/utils/ApiError.js';
 import { assertBookingParticipant } from '../../common/authz/assertParticipant.js';
 import { computeSettlement } from '../../common/settlement.js';
 import {
+  BOOKING_STATUS,
   PAYMENT_STATUS,
   PAYOUT_STATUS,
   CANCELLATION_POLICY,
+  SYSTEM_NO_SHOW_POLICY,
   OFFER_STATUS,
   BOOKING_TERMINAL_STATUSES,
+  CHECK_IN_POLICY,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import env from '../../config/env.config.js';
@@ -225,9 +228,32 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     }
   }
 
+  // Temporal window validation: Check-in opens 30 minutes before start and closes at end
+  const appointmentStart = getAppointmentDateTime(booking);
+  const appointmentEnd = getAppointmentEndDateTime(booking);
+  const earlyWindowMinutes = CHECK_IN_POLICY?.EARLY_WINDOW_MINUTES ?? 30;
+  const earlyWindowMs = earlyWindowMinutes * 60 * 1000;
+  const earliestAllowed = new Date(appointmentStart.getTime() - earlyWindowMs);
+  const now = new Date();
+
+  if (now < earliestAllowed) {
+    throw new ApiError(
+      400,
+      `Check-in is not permitted until ${earlyWindowMinutes} minutes before the scheduled start time.`
+    );
+  }
+
+  if (now > appointmentEnd) {
+    throw new ApiError(
+      400,
+      'Check-in is closed because the scheduled session time has passed.'
+    );
+  }
+
+  const existingPartyCheckIn = isClient ? booking.clientCheckInAt : booking.stylistCheckInAt;
   const updateData = {
-    checkInAt: new Date(), // legacy: still read by reliability + the DTO
-    [isClient ? 'clientCheckInAt' : 'stylistCheckInAt']: new Date(),
+    checkInAt: booking.checkInAt || now, // legacy: still read by reliability + the DTO
+    [isClient ? 'clientCheckInAt' : 'stylistCheckInAt']: existingPartyCheckIn || now,
     status: 'in-progress',
   };
 
@@ -576,6 +602,60 @@ export const getAppointmentDateTime = (booking) => {
   return new Date(startOfDay.getTime() + startMinute * 60 * 1000);
 };
 
+export const getAppointmentEndDateTime = (booking) => {
+  const { startOfDay } = getBusinessDayRange(booking.scheduledDate || booking.date, 'Africa/Cairo');
+  const startMinute =
+    booking.scheduledStartMinute !== undefined && booking.scheduledStartMinute !== null
+      ? booking.scheduledStartMinute
+      : timeToMinutes(booking.time || '10:00');
+  const endMinute =
+    booking.scheduledEndMinute !== undefined && booking.scheduledEndMinute !== null
+      ? booking.scheduledEndMinute
+      : startMinute + (booking.duration || 60);
+  return new Date(startOfDay.getTime() + endMinute * 60 * 1000);
+};
+
+export const CHECKIN_SPLIT_AT = process.env.CHECKIN_SPLIT_AT
+  ? new Date(process.env.CHECKIN_SPLIT_AT)
+  : new Date('2026-09-11T00:00:00.000Z');
+
+/**
+ * Evaluates whether a given party's check-in timestamp is valid:
+ * Must fall strictly inside [scheduledStart - 30 minutes, scheduledEnd].
+ * Missing, null, or invalid dates return false.
+ *
+ * @param {Object} booking
+ * @param {'client'|'stylist'} partyRole
+ * @param {Date|string|null} [checkInDate] optional override timestamp
+ * @returns {boolean}
+ */
+export const isAttendanceValid = (booking, partyRole, checkInDate = null) => {
+  if (!booking) return false;
+
+  const rawTimestamp =
+    checkInDate ||
+    (partyRole === 'client' ? booking.clientCheckInAt : booking.stylistCheckInAt);
+
+  if (!rawTimestamp) {
+    // Legacy fallback only for pre-split bookings
+    const isLegacy = booking.createdAt && new Date(booking.createdAt) < CHECKIN_SPLIT_AT;
+    if (isLegacy && booking.checkInAt) {
+      return isAttendanceValid(booking, partyRole, booking.checkInAt);
+    }
+    return false;
+  }
+
+  const checkInTime = new Date(rawTimestamp).getTime();
+  if (Number.isNaN(checkInTime)) return false;
+
+  const appointmentStart = getAppointmentDateTime(booking).getTime();
+  const appointmentEnd = getAppointmentEndDateTime(booking).getTime();
+  const earlyWindowMs = (CHECK_IN_POLICY?.EARLY_WINDOW_MINUTES ?? 30) * 60 * 1000;
+  const earliestAllowed = appointmentStart - earlyWindowMs;
+
+  return checkInTime >= earliestAllowed && checkInTime <= appointmentEnd;
+};
+
 /**
  * Cancellation pricing. The four-branch matrix now lives in ONE place
  * (src/common/settlement.js) shared with the no-show and dispute paths -- see the plan
@@ -802,6 +882,427 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
   return toPublicBookingDto(updated);
 };
 
+/**
+ * Resolves an abandoned confirmed booking where the session end has passed and
+ * neither party checked in within the valid attendance window.
+ *
+ * Invariants:
+ * - 100% client refund (for non-demo paid bookings).
+ * - 0 stylist penalty.
+ * - 0 goodwill coupon.
+ * - payoutStatus set to not_owed (after refund).
+ * - Terminal status: 'cancelled', cancelledBy: 'system'.
+ * - ScheduleBlock released.
+ * - Chat locked.
+ * - Emits EVENTS.BOOKING_CANCELLED with tier: 'SYSTEM_ABANDONED_CANCEL'.
+ *
+ * @param {string|mongoose.Types.ObjectId} bookingId
+ * @param {Object} [opts]
+ * @param {string} [opts.reason]
+ * @returns {Promise<Object>} Public booking DTO
+ */
+export const resolveAbandonedConfirmedBooking = async (
+  bookingId,
+  { reason = '', now = new Date() } = {}
+) => {
+  const booking = await bookingRepository.findById(bookingId);
+  if (!booking) {
+    throw new ApiError(404, 'Booking not found');
+  }
+
+  // Idempotent: If already in a terminal status, return without repeating financial actions
+  if (BOOKING_TERMINAL_STATUSES.includes(booking.status)) {
+    return toPublicBookingDto(booking);
+  }
+
+  if (booking.status !== 'confirmed' && booking.status !== 'in-progress') {
+    throw new ApiError(400, `Cannot auto-cancel booking in '${booking.status}' status`);
+  }
+
+  // Attendance check: Must NOT have valid attendance
+  if (isAttendanceValid(booking, 'client') || isAttendanceValid(booking, 'stylist')) {
+    throw new ApiError(
+      400,
+      'Cannot auto-cancel booking as abandoned: one or more participants checked in'
+    );
+  }
+
+  // Session must have ended
+  const appointmentEnd = getAppointmentEndDateTime(booking);
+  if (now < appointmentEnd) {
+    throw new ApiError(400, 'Cannot resolve abandoned booking before scheduled session end');
+  }
+
+  // Atomic CAS transition: ['confirmed', 'in-progress'] -> 'cancelled'
+  const updated = await withTransaction(async (session) => {
+    const res = await bookingRepository.transitionStatus(
+      bookingId,
+      ['confirmed', 'in-progress'],
+      {
+        status: 'cancelled',
+        cancelledBy: 'system',
+        cancellationReason: reason || 'System-cancelled: session expired with no participant check-in',
+        cancelledAt: new Date(),
+      },
+      session
+    );
+
+    if (!res) return null;
+    await scheduleRepository.deleteByBookingId(bookingId, session);
+    return res;
+  });
+
+  if (!updated) {
+    // CAS lost to concurrent operation; return current state
+    const current = await bookingRepository.findById(bookingId);
+    return toPublicBookingDto(current);
+  }
+
+  // If payment was paid, execute 100% refund (skipped for demo bookings)
+  if (booking.bookingMode !== 'demo') {
+    const payment = await paymentRepository.findByBookingId(bookingId);
+    if (payment && payment.status === PAYMENT_STATUS.PAID) {
+      try {
+        await paymentService.processRefund({
+          bookingId,
+          refundPercentage: 100,
+          reason: reason || 'System-cancelled: abandoned confirmed booking (no check-in)',
+          idempotencyKey: `refund-abandoned-${bookingId}`,
+        });
+      } catch (refundErr) {
+        await paymentRepository.updateById(payment._id, {
+          refundError: refundErr.message,
+          refundFailedAt: new Date(),
+        });
+        logger.error(`Refund failed after system cancellation for booking ${bookingId}: ${refundErr.message}`);
+      }
+    }
+  }
+
+  // Now that refund is complete, set payoutStatus to not_owed
+  await bookingRepository.updateById(bookingId, {
+    payoutStatus: PAYOUT_STATUS.NOT_OWED,
+  });
+
+  // Lock chat conversation
+  try {
+    await chatService.lockConversation(bookingId);
+  } catch (_err) {
+    // Non-fatal
+  }
+
+  const stylistUserId = updated.stylistId?._id
+    ? updated.stylistId._id.toString()
+    : updated.stylistId?.toString();
+
+  eventBus.emit(EVENTS.BOOKING_CANCELLED, {
+    bookingId: updated._id.toString(),
+    cancelledBy: 'system',
+    cancelledByUserId: null,
+    stylistId: stylistUserId,
+    refundPercentage: 100,
+    penaltyAmount: 0,
+    tier: 'SYSTEM_ABANDONED_CANCEL',
+  });
+
+  const refreshed = await bookingRepository.findById(bookingId);
+  return toPublicBookingDto(refreshed);
+};
+
+export const resolveStaleZeroAttendanceBooking = resolveAbandonedConfirmedBooking;
+
+/**
+ * Auto-completes a stale in-progress booking where both participants have verified attendance.
+ *
+ * @param {string|mongoose.Types.ObjectId} bookingId
+ * @returns {Promise<Object>} Public booking DTO
+ */
+export const autoCompleteStaleBooking = async (bookingId) => {
+  const booking = await bookingRepository.findById(bookingId);
+  if (!booking) {
+    throw new ApiError(404, 'Booking not found');
+  }
+
+  // Idempotent return if already completed and finalized.
+  // If completed but NOT finalized (crash occurred post-CAS), resume post-completion side effects!
+  if (booking.status === 'completed' && booking.completionFinalizedAt) {
+    return toPublicBookingDto(booking);
+  }
+
+  let updated = booking;
+
+  if (booking.status !== 'completed') {
+    if (booking.status !== 'in-progress') {
+      throw new ApiError(
+        400,
+        `Cannot auto-complete booking in '${booking.status}' status. Session must be in-progress.`
+      );
+    }
+
+    // Attendance check: Both parties must have valid attendance
+    if (!isAttendanceValid(booking, 'client') || !isAttendanceValid(booking, 'stylist')) {
+      throw new ApiError(
+        400,
+        'Cannot auto-complete booking: both client and stylist must have valid attendance'
+      );
+    }
+
+    // Atomic CAS promotion: 'in-progress' -> 'completed'
+    updated = await bookingRepository.promoteToCompleted(bookingId);
+    if (!updated) {
+      // CAS lost to concurrent operation; return current state
+      const current = await bookingRepository.findById(bookingId);
+      return toPublicBookingDto(current);
+    }
+  }
+
+  // Lock chat conversation
+  try {
+    await chatService.lockConversation(bookingId);
+  } catch (_err) {
+    // Non-fatal
+  }
+
+  const stylistUserId = updated.stylistId?._id
+    ? updated.stylistId._id.toString()
+    : updated.stylistId?.toString();
+
+  eventBus.emit(EVENTS.SESSION_COMPLETED, {
+    bookingId: updated._id.toString(),
+    stylistId: stylistUserId,
+    isSystemCompleted: true,
+  });
+
+  // Stamp completionFinalizedAt so subsequent sweeps or calls safely short-circuit
+  const finalized = await bookingRepository.updateById(bookingId, {
+    completionFinalizedAt: new Date(),
+  });
+
+  return toPublicBookingDto(finalized?.status ? finalized : { ...updated, completionFinalizedAt: new Date() });
+};
+
+/**
+ * Processes an individual stale booking candidate evaluated against the authoritative 24h threshold.
+ * Classifies attendance via isAttendanceValid() into one of 4 outcomes:
+ * 1. Both valid attendance -> auto-complete (SESSION_COMPLETED)
+ * 2. Client valid only -> system stylist no-show (Option B: 100% refund, 0 penalty, 0 coupon)
+ * 3. Stylist valid only -> system client no-show (Option A: 60% refund, 20% stylist, 20% platform)
+ * 4. Zero valid attendance -> system auto-cancel (100% refund, 0 penalty, 0 coupon)
+ *
+ * @param {Object} booking
+ * @param {Date} [now=new Date()]
+ * @returns {Promise<{ action: string, bookingId: any }>}
+ */
+export const processStaleBooking = async (booking, now = new Date()) => {
+  if (!booking) return null;
+
+  // Strict 24h stale check
+  const appointmentEnd = getAppointmentEndDateTime(booking);
+  const staleThreshold = new Date(appointmentEnd.getTime() + 24 * 60 * 60 * 1000);
+  if (now < staleThreshold) {
+    return { action: 'skipped_not_stale', bookingId: booking._id };
+  }
+
+  // Idempotent: Ignore terminal statuses
+  if (BOOKING_TERMINAL_STATUSES.includes(booking.status)) {
+    return { action: 'skipped_terminal', bookingId: booking._id };
+  }
+
+  const clientValid = isAttendanceValid(booking, 'client');
+  const stylistValid = isAttendanceValid(booking, 'stylist');
+
+  // Classification:
+  // 1. Both valid attendance -> auto-complete
+  if (clientValid && stylistValid) {
+    if (booking.status === 'in-progress') {
+      await autoCompleteStaleBooking(booking._id);
+      return { action: 'auto_completed', bookingId: booking._id };
+    }
+    await autoCompleteStaleBooking(booking._id);
+    return { action: 'auto_completed', bookingId: booking._id };
+  }
+
+  // 2. Client valid only -> system stylist no-show (Option B)
+  if (clientValid && !stylistValid) {
+    const noShowModule = await import('./no-show.service.js');
+    const noShowSvc = noShowModule.default || noShowModule;
+    await noShowSvc.resolveSystemNoShow({
+      bookingId: booking._id,
+      accusedRole: 'stylist',
+      reason: 'Stale session: stylist absent, client attended',
+    });
+    return { action: 'system_no_show_stylist', bookingId: booking._id };
+  }
+
+  // 3. Stylist valid only -> system client no-show (Option A)
+  if (!clientValid && stylistValid) {
+    const noShowModule = await import('./no-show.service.js');
+    const noShowSvc = noShowModule.default || noShowModule;
+    await noShowSvc.resolveSystemNoShow({
+      bookingId: booking._id,
+      accusedRole: 'client',
+      reason: 'Stale session: client absent, stylist attended',
+    });
+    return { action: 'system_no_show_client', bookingId: booking._id };
+  }
+
+  // 4. Zero valid attendance -> system auto-cancel + 100% refund
+  await resolveAbandonedConfirmedBooking(booking._id, {
+    reason: 'Stale session: zero attendance recorded',
+    now,
+  });
+  return { action: 'auto_cancelled_zero_attendance', bookingId: booking._id };
+};
+
+/**
+ * Recovers an unfinalized external refund for a system-cancelled or system-no-show booking.
+ *
+ * @param {Object} booking
+ * @returns {Promise<{ status: string, bookingId: any }>}
+ */
+export const recoverStaleRefund = async (booking) => {
+  if (!booking) return null;
+
+  // 0. Handle unfinalized system completions (crash recovery for auto-completion side effects)
+  if (booking.status === 'completed' || booking.status === BOOKING_STATUS.COMPLETED) {
+    await autoCompleteStaleBooking(booking._id);
+    return { status: 'completion_finalized', bookingId: booking._id };
+  }
+
+  // 1. Demo bookings: no external money to refund
+  if (booking.bookingMode === 'demo') {
+    if (booking.payoutStatus !== PAYOUT_STATUS.NOT_OWED && booking.status === 'cancelled') {
+      await bookingRepository.updateById(booking._id, { payoutStatus: PAYOUT_STATUS.NOT_OWED });
+    }
+    if (booking.noShowDetails?.isSystemDetected && !booking.noShowDetails?.settlementCompletedAt) {
+      await bookingRepository.stampSettlementCompleted(booking._id);
+    }
+    return { status: 'finalized_demo', bookingId: booking._id };
+  }
+
+  const payment = await paymentRepository.findByBookingId(booking._id);
+  if (!payment) {
+    logger.warn(`[Refund Recovery] No payment found for booking ${booking._id}`);
+    if (booking.status === 'cancelled') {
+      await bookingRepository.updateById(booking._id, { payoutStatus: PAYOUT_STATUS.NOT_OWED });
+    }
+    if (booking.noShowDetails?.isSystemDetected && !booking.noShowDetails?.settlementCompletedAt) {
+      await bookingRepository.stampSettlementCompleted(booking._id);
+    }
+    return { status: 'no_payment', bookingId: booking._id };
+  }
+
+  // 2. Already refunded: gateway refund already succeeded
+  if (
+    payment.status === PAYMENT_STATUS.REFUNDED ||
+    payment.status === PAYMENT_STATUS.PARTIALLY_REFUNDED
+  ) {
+    const isClientNoShow =
+      booking.status === BOOKING_STATUS.NO_SHOW_CLIENT ||
+      booking.status === 'no-show-client' ||
+      booking.noShowDetails?.reportedAgainst === 'client';
+
+    // Option A: Stylist compensation (20%) remains owed to the stylist, so payoutStatus MUST remain 'unpaid'.
+    // Option B / Zero-attendance cancellation: No stylist compensation owed, so payoutStatus is 'not_owed'.
+    const targetPayoutStatus = isClientNoShow ? PAYOUT_STATUS.UNPAID : PAYOUT_STATUS.NOT_OWED;
+
+    await bookingRepository.updateById(booking._id, {
+      payoutStatus: targetPayoutStatus,
+    });
+    if (booking.noShowDetails?.isSystemDetected && !booking.noShowDetails?.settlementCompletedAt) {
+      await bookingRepository.stampSettlementCompleted(booking._id);
+    }
+    return {
+      status: 'finalized_already_refunded',
+      bookingId: booking._id,
+      payoutStatus: targetPayoutStatus,
+    };
+  }
+
+  // 3. Ambiguous REFUNDING status: requires manual reconciliation, do NOT auto-retry
+  if (payment.status === PAYMENT_STATUS.REFUNDING) {
+    logger.error(
+      `[Refund Recovery] Payment ${payment._id} for booking ${booking._id} stuck in REFUNDING; manual reconciliation required.`
+    );
+    await bookingRepository.recordPostSettlementError(
+      booking._id,
+      'refund_recovery',
+      'Payment stuck in REFUNDING - manual reconciliation required'
+    );
+    return { status: 'ambiguous_refunding', bookingId: booking._id };
+  }
+
+  // 4. PAID status: retry external refund with deterministic idempotency key
+  if (payment.status === PAYMENT_STATUS.PAID) {
+    let refundPercentage = 100;
+    let stylistPayoutOverrideAmount = 0;
+    let idempotencyKey = `refund-abandoned-${booking._id}`;
+
+    if (booking.status === 'cancelled') {
+      refundPercentage = 100;
+      stylistPayoutOverrideAmount = 0;
+      idempotencyKey = `refund-abandoned-${booking._id}`;
+    } else if (booking.status === 'no-show-stylist' || booking.status === BOOKING_STATUS.NO_SHOW_STYLIST) {
+      refundPercentage = 100;
+      stylistPayoutOverrideAmount = 0;
+      idempotencyKey = `refund-noshow-system-${booking._id}`;
+    } else if (booking.status === 'no-show-client' || booking.status === BOOKING_STATUS.NO_SHOW_CLIENT) {
+      const policy = SYSTEM_NO_SHOW_POLICY.CLIENT;
+      refundPercentage = policy.CLIENT_REFUND_PERCENTAGE;
+      const settlement = computeSettlement({
+        price: payment.amount,
+        event: 'SYSTEM_NO_SHOW',
+        actor: 'client',
+      });
+      stylistPayoutOverrideAmount = settlement.stylistCompensationAmount;
+      idempotencyKey = `refund-noshow-system-${booking._id}`;
+    }
+
+    try {
+      await paymentService.processRefund({
+        bookingId: booking._id,
+        refundPercentage,
+        stylistPayoutOverrideAmount,
+        idempotencyKey,
+        reason: 'Refund recovery sweep retry',
+      });
+
+      const isClientNoShow =
+        booking.status === BOOKING_STATUS.NO_SHOW_CLIENT ||
+        booking.status === 'no-show-client' ||
+        booking.noShowDetails?.reportedAgainst === 'client';
+      await bookingRepository.updateById(booking._id, {
+        payoutStatus: isClientNoShow ? PAYOUT_STATUS.UNPAID : PAYOUT_STATUS.NOT_OWED,
+      });
+
+      if (booking.noShowDetails?.isSystemDetected && !booking.noShowDetails?.settlementCompletedAt) {
+        await bookingRepository.stampSettlementCompleted(booking._id);
+      }
+
+      // Ensure schedule deleted and chat locked
+      try {
+        await scheduleRepository.deleteByBookingId(booking._id);
+      } catch (_e) {
+        /* non-fatal */
+      }
+      try {
+        await chatService.lockConversation(booking._id);
+      } catch (_e) {
+        /* non-fatal */
+      }
+
+      return { status: 'refund_recovered', bookingId: booking._id };
+    } catch (err) {
+      logger.error(
+        `[Refund Recovery] Refund retry failed for booking ${booking._id}: ${err.message}`
+      );
+      return { status: 'recovery_failed', bookingId: booking._id, error: err.message };
+    }
+  }
+
+  return { status: 'skipped_not_paid', bookingId: booking._id };
+};
+
 export default {
   createBookingFromOffer,
   getMine,
@@ -816,4 +1317,12 @@ export default {
   resolveDispute,
   getCancellationQuote,
   cancelBooking,
+  getAppointmentDateTime,
+  getAppointmentEndDateTime,
+  isAttendanceValid,
+  resolveAbandonedConfirmedBooking,
+  resolveStaleZeroAttendanceBooking,
+  autoCompleteStaleBooking,
+  processStaleBooking,
+  recoverStaleRefund,
 };

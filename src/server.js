@@ -11,6 +11,7 @@ import { startRequestAutoPauseCron } from './jobs/request-autopause.cron.js';
 import { startSessionReminderCron } from './jobs/session-reminder.cron.js';
 import { startNoShowResolutionCron } from './jobs/no-show-resolution.cron.js';
 import { startAiChatCleanupCron } from './jobs/ai-chat-cleanup.cron.js';
+import { startStaleBookingCron } from './jobs/stale-booking.cron.js';
 import { closeRedisConnection } from './config/redis.config.js';
 
 const PORT = env.PORT || 4000;
@@ -25,6 +26,7 @@ const startServer = async () => {
   startNoShowResolutionCron();
   startSessionReminderCron();
   startAiChatCleanupCron();
+  startStaleBookingCron();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${PORT}`);
   });

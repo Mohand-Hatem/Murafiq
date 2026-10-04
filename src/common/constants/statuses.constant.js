@@ -147,6 +147,27 @@ export const COUPON_POLICY = {
   MIN_BOOKING_EGP: 0, // no minimum — bookings already carry a 100 EGP floor
 };
 
+export const CHECK_IN_POLICY = Object.freeze({
+  EARLY_WINDOW_MINUTES: 30,
+});
+
+export const SYSTEM_NO_SHOW_POLICY = Object.freeze({
+  STYLIST: Object.freeze({
+    CLIENT_REFUND_PERCENTAGE: 100,
+    PLATFORM_PERCENTAGE: 0,
+    STYLIST_PERCENTAGE: 0,
+    STYLIST_PENALTY_PERCENTAGE: 0,
+    ISSUES_COUPON: false,
+  }),
+  CLIENT: Object.freeze({
+    CLIENT_REFUND_PERCENTAGE: 60,
+    PLATFORM_PERCENTAGE: 20,
+    STYLIST_PERCENTAGE: 20,
+    STYLIST_PENALTY_PERCENTAGE: 0,
+    ISSUES_COUPON: false,
+  }),
+});
+
 export default {
   ACCOUNT_STATUS,
   BOOKING_STATUS,
@@ -159,4 +180,7 @@ export default {
   CANCELLATION_POLICY,
   NO_SHOW_POLICY,
   COUPON_POLICY,
+  CHECK_IN_POLICY,
+  SYSTEM_NO_SHOW_POLICY,
 };
+

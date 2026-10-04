@@ -14,6 +14,18 @@ import chatService from '../../src/modules/chat/chat.service.js';
 import bookingService from '../../src/modules/bookings/booking.service.js';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 import { connectTestDB, clearTestDB, closeTestDB } from '../setup/db-handler.js';
+import getBusinessDayRange from '../../src/common/utils/businessDay.util.js';
+
+const makeBookingActiveNow = async (bookingId) => {
+  const now = new Date();
+  const { startOfDay } = getBusinessDayRange(now, 'Africa/Cairo');
+  const nowMinutes = Math.floor((now.getTime() - startOfDay.getTime()) / (60 * 1000));
+  await Booking.findByIdAndUpdate(bookingId, {
+    scheduledDate: now,
+    scheduledStartMinute: Math.max(0, nowMinutes - 10),
+    scheduledEndMinute: nowMinutes + 60,
+  });
+};
 
 describe('Demo → V1 Same-Database Transition & Invariant Verification (Phase 5)', () => {
   beforeAll(async () => {
@@ -136,6 +148,7 @@ describe('Demo → V1 Same-Database Transition & Invariant Verification (Phase 5
     expect(conversation.isOpen).toBe(true);
 
     // 3.5 Guarantee Check-In Bypasses Payment Gate in Demo
+    await makeBookingActiveNow(demoBookingId);
     const checkInRes = await request(app)
       .patch(`/api/demo/bookings/${demoBookingId}/check-in`)
       .set('Authorization', `Bearer ${clientToken}`)

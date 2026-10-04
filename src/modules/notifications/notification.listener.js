@@ -313,7 +313,7 @@ class NotificationListener {
     });
 
     // 11c. No-Show Resolved -> Notify both parties of the financial outcome.
-    eventBus.on(EVENTS.NO_SHOW_RESOLVED, async ({ bookingId, against }) => {
+    eventBus.on(EVENTS.NO_SHOW_RESOLVED, async ({ bookingId, against, isSystemDetected }) => {
       try {
         if (!bookingId) return;
         const booking = await bookingRepository.findById(bookingId);
@@ -323,25 +323,33 @@ class NotificationListener {
         const stylistUserId = booking.stylistId?._id || booking.stylistId;
 
         if (clientUserId) {
+          const body =
+            against === 'stylist'
+              ? (isSystemDetected
+                  ? 'Your session was closed because the stylist did not attend. You have been refunded in full.'
+                  : 'Your stylist did not attend. You have been refunded in full and issued a compensation coupon.')
+              : 'This booking was closed as a no-show. A partial refund has been issued.';
+
           await notificationService.send(clientUserId, {
             type: 'booking',
             title: 'No-Show Resolved',
-            body:
-              against === 'stylist'
-                ? 'Your stylist did not attend. You have been refunded in full and issued a compensation coupon.'
-                : 'This booking was closed as a no-show. A partial refund has been issued.',
+            body,
             relatedEntityId: booking._id,
           });
         }
 
         if (stylistUserId) {
+          const body =
+            against === 'stylist'
+              ? (isSystemDetected
+                  ? 'Your session was closed due to non-attendance. No penalty was assessed.'
+                  : 'A no-show was recorded against you. A penalty has been applied to your account balance.')
+              : 'The client did not attend. Partial compensation has been applied to this booking.';
+
           await notificationService.send(stylistUserId, {
             type: 'booking',
             title: 'No-Show Resolved',
-            body:
-              against === 'stylist'
-                ? 'A no-show was recorded against you. A penalty has been applied to your account balance.'
-                : 'The client did not attend. Partial compensation has been applied to this booking.',
+            body,
             relatedEntityId: booking._id,
           });
         }

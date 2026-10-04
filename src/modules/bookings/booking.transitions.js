@@ -30,6 +30,9 @@ export const BOOKING_TRANSITIONS = Object.freeze({
     BOOKING_STATUS.DISPUTED,
     BOOKING_STATUS.NO_SHOW_STYLIST,
     BOOKING_STATUS.NO_SHOW_CLIENT,
+    // Strictly reserved for system-driven stale zero-attendance auto-cancellations (Step 3).
+    // Not accessible to clients/stylists via cancelBooking (which guards strictly on 'confirmed').
+    BOOKING_STATUS.CANCELLED,
   ]),
   [BOOKING_STATUS.COMPLETED]: Object.freeze([BOOKING_STATUS.DISPUTED]),
   [BOOKING_STATUS.DISPUTED]: Object.freeze([

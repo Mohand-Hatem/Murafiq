@@ -1,4 +1,4 @@
-import { CANCELLATION_POLICY, NO_SHOW_POLICY } from './constants/statuses.constant.js';
+import { CANCELLATION_POLICY, NO_SHOW_POLICY, SYSTEM_NO_SHOW_POLICY } from './constants/statuses.constant.js';
 
 /** The repository's single money-rounding rule. Mirrors payment.service.js round2. */
 export const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -44,11 +44,15 @@ export const computeSettlement = ({
   hoursUntilSession = null,
   refundPercentage = 0,
   platformFeePercentage = 15,
+  isSystem = false,
 }) => {
   const p = Number(price) || 0;
 
-  if (event === 'NO_SHOW') {
-    const policy = actor === 'stylist' ? NO_SHOW_POLICY.STYLIST : NO_SHOW_POLICY.CLIENT;
+  if (event === 'NO_SHOW' || event === 'SYSTEM_NO_SHOW') {
+    const isSystemDetected = event === 'SYSTEM_NO_SHOW' || Boolean(isSystem);
+    const policy = isSystemDetected
+      ? (actor === 'stylist' ? SYSTEM_NO_SHOW_POLICY.STYLIST : SYSTEM_NO_SHOW_POLICY.CLIENT)
+      : (actor === 'stylist' ? NO_SHOW_POLICY.STYLIST : NO_SHOW_POLICY.CLIENT);
     const refundAmount = round2(p * (policy.CLIENT_REFUND_PERCENTAGE / 100));
     const retained = round2(Math.max(0, p - refundAmount));
     const stylistCompensationAmount = Math.min(
@@ -57,7 +61,9 @@ export const computeSettlement = ({
     );
     const platformFeeAmount = round2(Math.max(0, retained - stylistCompensationAmount));
     return {
-      tier: actor === 'stylist' ? 'NO_SHOW_STYLIST' : 'NO_SHOW_CLIENT',
+      tier: isSystemDetected
+        ? (actor === 'stylist' ? 'SYSTEM_NO_SHOW_STYLIST' : 'SYSTEM_NO_SHOW_CLIENT')
+        : (actor === 'stylist' ? 'NO_SHOW_STYLIST' : 'NO_SHOW_CLIENT'),
       refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
       refundAmount,
       platformFeeAmount,
@@ -66,6 +72,7 @@ export const computeSettlement = ({
       couponEligible: policy.ISSUES_COUPON,
       hoursUntilSession: null,
       isEarly: null,
+      isSystemDetected,
     };
   }
 

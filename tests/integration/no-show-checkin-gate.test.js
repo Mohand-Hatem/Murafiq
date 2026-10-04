@@ -9,6 +9,7 @@ import * as bookingService from '../../src/modules/bookings/booking.service.js';
 import * as noShowService from '../../src/modules/bookings/no-show.service.js';
 import { CHECKIN_SPLIT_AT } from '../../src/modules/bookings/no-show.service.js';
 import { PAYMENT_STATUS } from '../../src/common/constants/statuses.constant.js';
+import getBusinessDayRange from '../../src/common/utils/businessDay.util.js';
 
 describe('Task S3.4: Per-party check-in timestamps and fraud gate (S-2 / BK8)', () => {
   let client;
@@ -92,15 +93,17 @@ describe('Task S3.4: Per-party check-in timestamps and fraud gate (S-2 / BK8)', 
   });
 
   it('a check-in stamps only the checking-in party field', async () => {
-    const scheduledDate = new Date(Date.now() - 3600 * 1000);
+    const scheduledDate = new Date();
+    const { startOfDay } = getBusinessDayRange(scheduledDate, 'Africa/Cairo');
+    const nowMinutes = Math.floor((Date.now() - startOfDay.getTime()) / (60 * 1000));
     const booking = await Booking.create({
       requestId: new mongoose.Types.ObjectId(),
       offerId: new mongoose.Types.ObjectId(),
       clientId: client._id,
       stylistId: stylist._id,
       scheduledDate,
-      scheduledStartMinute: 0,
-      scheduledEndMinute: 60,
+      scheduledStartMinute: Math.max(0, nowMinutes - 10),
+      scheduledEndMinute: nowMinutes + 60,
       price: 500,
       duration: 60,
       status: 'confirmed',

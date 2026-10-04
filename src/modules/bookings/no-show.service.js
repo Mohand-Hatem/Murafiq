@@ -19,8 +19,11 @@ import {
   PAYMENT_STATUS,
   PAYOUT_STATUS,
   NO_SHOW_POLICY,
+  CHECK_IN_POLICY,
+  SYSTEM_NO_SHOW_POLICY,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
+import { getAppointmentDateTime, getAppointmentEndDateTime } from './booking.service.js';
 import logger from '../../config/logger.config.js';
 
 export const CHECKIN_SPLIT_AT = process.env.CHECKIN_SPLIT_AT
@@ -33,6 +36,43 @@ const resolveScheduledStart = (booking) => {
   const { startOfDay } = getBusinessDayRange(booking.scheduledDate, 'Africa/Cairo');
   const startMinute = booking.scheduledStartMinute ?? 0;
   return new Date(startOfDay.getTime() + startMinute * 60 * 1000);
+};
+
+/**
+ * Evaluates whether a given party's check-in timestamp is valid:
+ * Must fall strictly inside [scheduledStart - 30 minutes, scheduledEnd].
+ * Missing, null, or invalid dates return false.
+ *
+ * @param {Object} booking
+ * @param {'client'|'stylist'} partyRole
+ * @param {Date|string|null} [checkInDate] optional override timestamp
+ * @returns {boolean}
+ */
+export const isAttendanceValid = (booking, partyRole, checkInDate = null) => {
+  if (!booking) return false;
+
+  const rawTimestamp =
+    checkInDate ||
+    (partyRole === 'client' ? booking.clientCheckInAt : booking.stylistCheckInAt);
+
+  if (!rawTimestamp) {
+    // Legacy fallback only for pre-split bookings
+    const isLegacy = booking.createdAt && new Date(booking.createdAt) < CHECKIN_SPLIT_AT;
+    if (isLegacy && booking.checkInAt) {
+      return isAttendanceValid(booking, partyRole, booking.checkInAt);
+    }
+    return false;
+  }
+
+  const checkInTime = new Date(rawTimestamp).getTime();
+  if (Number.isNaN(checkInTime)) return false;
+
+  const appointmentStart = getAppointmentDateTime(booking).getTime();
+  const appointmentEnd = getAppointmentEndDateTime(booking).getTime();
+  const earlyWindowMs = (CHECK_IN_POLICY?.EARLY_WINDOW_MINUTES ?? 30) * 60 * 1000;
+  const earliestAllowed = appointmentStart - earlyWindowMs;
+
+  return checkInTime >= earliestAllowed && checkInTime <= appointmentEnd;
 };
 
 /**
@@ -436,6 +476,186 @@ export const resolveNoShow = async (bookingId, { confirmedBy = null, reason = ''
 };
 
 /**
+ * Automatically settles a system-detected no-show.
+ *
+ * Invariants approved by business rules:
+ * - Stylist No-Show (Option B):
+ *     100% client refund, 0 stylist penalty, 0 goodwill coupon.
+ *     noShowDetails marked with isSystemDetected: true, reportedBy: null.
+ *     PayoutStatus becomes not_owed.
+ * - Client No-Show (Option A):
+ *     60% client refund, 20% stylist compensation, 20% platform fee.
+ *     noShowDetails marked with isSystemDetected: true, reportedBy: null.
+ *     PayoutStatus becomes unpaid (stylist compensation).
+ *
+ * Concurrency & Idempotency:
+ * - Uses atomic CAS (bookingRepository.settleNoShow) to claim from ['confirmed', 'in-progress'].
+ * - If already claimed/settled, returns existing public DTO without duplicating side-effects.
+ * - processRefund uses a deterministic idempotency key.
+ *
+ * @param {Object} input
+ * @param {string|mongoose.Types.ObjectId} input.bookingId
+ * @param {'stylist'|'client'} input.accusedRole
+ * @param {string} [input.reason]
+ * @returns {Promise<Object>} Public booking DTO
+ */
+export const resolveSystemNoShow = async ({ bookingId, accusedRole, reason = '' } = {}) => {
+  if (!accusedRole || (accusedRole !== 'stylist' && accusedRole !== 'client')) {
+    throw new ApiError(400, "accusedRole must be either 'stylist' or 'client'");
+  }
+
+  const booking = await bookingRepository.findById(bookingId);
+  if (!booking) {
+    throw new ApiError(404, 'Booking not found');
+  }
+
+  const isTerminalNoShow =
+    booking.status === BOOKING_STATUS.NO_SHOW_STYLIST ||
+    booking.status === BOOKING_STATUS.NO_SHOW_CLIENT;
+
+  if (isTerminalNoShow && booking.noShowDetails?.settlementCompletedAt) {
+    return toPublicBookingDto(booking);
+  }
+
+  if (!isTerminalNoShow && !REPORTABLE_STATUSES.includes(booking.status)) {
+    logger.warn(
+      `resolveSystemNoShow: booking ${bookingId} is in '${booking.status}' status, not reportable; no money moved.`
+    );
+    return toPublicBookingDto(booking);
+  }
+
+  const policy =
+    accusedRole === 'stylist' ? SYSTEM_NO_SHOW_POLICY.STYLIST : SYSTEM_NO_SHOW_POLICY.CLIENT;
+  const targetStatus =
+    accusedRole === 'stylist' ? BOOKING_STATUS.NO_SHOW_STYLIST : BOOKING_STATUS.NO_SHOW_CLIENT;
+
+  const payment = await paymentRepository.findByBookingId(bookingId);
+  const effectivePrice = payment?.amount ?? booking.price ?? 0;
+  const clientId = (booking.clientId?._id || booking.clientId).toString();
+  const stylistId = (booking.stylistId?._id || booking.stylistId).toString();
+  const settlement = computeSettlement({
+    price: effectivePrice,
+    event: 'SYSTEM_NO_SHOW',
+    actor: accusedRole,
+  });
+
+  try {
+    // Step A (OUTSIDE txn): Claim the booking atomically via CAS
+    if (!isTerminalNoShow) {
+      const claimed = await bookingRepository.settleNoShow(bookingId, {
+        status: targetStatus,
+        'noShowDetails.isSystemDetected': true,
+        'noShowDetails.reportedAt': new Date(),
+        'noShowDetails.reportedAgainst': accusedRole,
+        'noShowDetails.confirmedAt': new Date(),
+        'noShowDetails.confirmedBy': null,
+      });
+
+      if (!claimed) {
+        const current = await bookingRepository.findById(bookingId);
+        logger.warn(
+          `resolveSystemNoShow: booking ${bookingId} left status '${booking.status}' before claim; no money moved.`
+        );
+        return toPublicBookingDto(current);
+      }
+    }
+
+    const isDemo = booking.bookingMode === 'demo';
+
+    // Step B (OUTSIDE txn): processRefund with idempotency guard (skipped for demo)
+    if (!isDemo) {
+      if (payment?.status === PAYMENT_STATUS.REFUNDING) {
+        await bookingRepository.recordPostSettlementError(
+          bookingId,
+          'refund',
+          'Payment stuck in REFUNDING - manual reconciliation required'
+        );
+        throw new ApiError(409, 'Refund state is ambiguous; this settlement requires manual reconciliation.');
+      }
+
+      const alreadyRefunded =
+        payment?.status === PAYMENT_STATUS.REFUNDED || payment?.status === PAYMENT_STATUS.PARTIALLY_REFUNDED;
+
+      if (payment && payment.status === PAYMENT_STATUS.PAID && policy.CLIENT_REFUND_PERCENTAGE > 0) {
+        await paymentService.processRefund({
+          bookingId,
+          refundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
+          reason: reason || `System-detected no-show by ${accusedRole}`,
+          stylistPayoutOverrideAmount: settlement.stylistCompensationAmount,
+          idempotencyKey: `refund-noshow-system-${bookingId}`,
+        });
+      } else if (alreadyRefunded) {
+        logger.info(`[System No-show] Payment ${payment._id} already refunded; skipping provider call.`);
+      }
+    }
+
+    // Step C (INSIDE txn): payoutStatus write (Option B: 0 penalty, 0 ledger entries)
+    await withTransaction(async (session) => {
+      await bookingRepository.updateById(
+        bookingId,
+        {
+          payoutStatus:
+            !isDemo && settlement.stylistCompensationAmount > 0
+              ? PAYOUT_STATUS.UNPAID
+              : PAYOUT_STATUS.NOT_OWED,
+        },
+        session
+      );
+    });
+
+    // Step D (AFTER txn): schedule delete, chat lock, event emission
+    let hasPostSettlementError = false;
+
+    // 1. Release stylist's schedule block
+    try {
+      await scheduleRepository.deleteByBookingId(bookingId);
+    } catch (schedErr) {
+      hasPostSettlementError = true;
+      await bookingRepository.recordPostSettlementError(bookingId, 'schedule', schedErr.message);
+      logger.error(`[System No-show] Schedule delete failed for booking ${bookingId}: ${schedErr.message}`);
+    }
+
+    // 2. Lock conversation
+    try {
+      await chatService.lockConversation(bookingId);
+    } catch (chatErr) {
+      hasPostSettlementError = true;
+      await bookingRepository.recordPostSettlementError(bookingId, 'chat', chatErr.message);
+      logger.error(`[System No-show] Chat lock failed for booking ${bookingId}: ${chatErr.message}`);
+    }
+
+    // 3. Emit domain event with isSystemDetected: true
+    try {
+      eventBus.emit(EVENTS.NO_SHOW_RESOLVED, {
+        bookingId: bookingId.toString(),
+        against: accusedRole,
+        clientRefundPercentage: policy.CLIENT_REFUND_PERCENTAGE,
+        stylistPercentage: policy.STYLIST_PERCENTAGE,
+        platformPercentage: policy.PLATFORM_PERCENTAGE,
+        stylistId,
+        clientId,
+        isSystemDetected: true,
+      });
+    } catch (evErr) {
+      logger.error(`[System No-show] Event emission failed for booking ${bookingId}: ${evErr.message}`);
+    }
+
+    // Step E: Stamp completion marker
+    if (!hasPostSettlementError) {
+      await bookingRepository.stampSettlementCompleted(bookingId);
+    } else {
+      await bookingRepository.releaseSettlementResumeClaim(bookingId);
+    }
+
+    const updated = await bookingRepository.findById(bookingId);
+    return toPublicBookingDto(updated);
+  } catch (err) {
+    await bookingRepository.releaseSettlementResumeClaim(bookingId);
+    throw err;
+  }
+};
+
+/**
  * Admin arbitration of a CONTESTED no-show report — reachable only from a booking the
  * `respondToNoShow` contest branch moved to 'disputed'. Guarded on that precondition
  * explicitly (rather than trusting the route comment alone) after an audit found this
@@ -576,6 +796,8 @@ export default {
   fileNoShow,
   respondToNoShow,
   resolveNoShow,
+  resolveSystemNoShow,
+  isAttendanceValid,
   adminResolveNoShow,
   autoResolveExpiredNoShows,
   resumeUnfinishedNoShowSettlements,

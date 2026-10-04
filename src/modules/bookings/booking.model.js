@@ -61,7 +61,7 @@ const bookingSchema = new Schema(
     clientConfirmedAt: Date,
     stylistConfirmedAt: Date,
     liveTrackingEnabled: { type: Boolean, default: false },
-    cancelledBy: { type: String, enum: ['client', 'stylist', 'admin'] },
+    cancelledBy: { type: String, enum: ['client', 'stylist', 'admin', 'system'] },
     cancellationReason: String,
     cancelledAt: Date,
     // Set exactly once, the moment status first becomes 'completed' (mutual confirmation or
@@ -69,6 +69,9 @@ const bookingSchema = new Schema(
     // payout-eligibility hold period — NOT `updatedAt`, which changes on unrelated writes
     // (e.g. payoutStatus flipping to 'processing') and would keep pushing both windows back.
     completedAt: Date,
+    // Set once post-completion side effects (chat lock, SESSION_COMPLETED emission) have succeeded.
+    // Allows the recovery sweep to safely resume and finalize completions that crashed after CAS.
+    completionFinalizedAt: Date,
     payoutStatus: {
       type: String,
       enum: Object.values(PAYOUT_STATUS),
@@ -77,6 +80,7 @@ const bookingSchema = new Schema(
     payoutId: { type: Schema.Types.ObjectId, ref: 'Payout' },
 
     noShowDetails: {
+      isSystemDetected: { type: Boolean, default: false },
       reportedBy: { type: Schema.Types.ObjectId, ref: 'User' },
       reportedAt: Date,
       // Which side is accused. Stored rather than derived from reportedBy so the

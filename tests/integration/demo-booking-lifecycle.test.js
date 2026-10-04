@@ -15,6 +15,18 @@ import chatService from '../../src/modules/chat/chat.service.js';
 import notificationService from '../../src/modules/notifications/notification.service.js';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
 import { connectTestDB, clearTestDB, closeTestDB } from '../setup/db-handler.js';
+import getBusinessDayRange from '../../src/common/utils/businessDay.util.js';
+
+const makeBookingActiveNow = async (bookingId) => {
+  const now = new Date();
+  const { startOfDay } = getBusinessDayRange(now, 'Africa/Cairo');
+  const nowMinutes = Math.floor((now.getTime() - startOfDay.getTime()) / (60 * 1000));
+  await Booking.findByIdAndUpdate(bookingId, {
+    scheduledDate: now,
+    scheduledStartMinute: Math.max(0, nowMinutes - 10),
+    scheduledEndMinute: nowMinutes + 60,
+  });
+};
 
 describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () => {
   let clientUser;
@@ -148,6 +160,7 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
         .set('Authorization', `Bearer ${clientToken}`);
 
       const bookingId = acceptRes.body.data._id || acceptRes.body.data.id;
+      await makeBookingActiveNow(bookingId);
 
       // 2. Perform check-in via client
       const checkInRes = await request(app)
@@ -240,6 +253,7 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
         .set('Authorization', `Bearer ${clientToken}`);
 
       const bookingId = acceptRes.body.data._id || acceptRes.body.data.id;
+      await makeBookingActiveNow(bookingId);
 
       // Check in to reach in-progress
       await request(app)
@@ -311,24 +325,27 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
         .set('Authorization', `Bearer ${clientToken}`);
 
       const bookingId = acceptRes.body.data._id || acceptRes.body.data.id;
+      await makeBookingActiveNow(bookingId);
 
       // Both check in
-      await request(app)
+      const res1 = await request(app)
         .patch(`/api/demo/bookings/${bookingId}/check-in`)
         .set('Authorization', `Bearer ${clientToken}`)
         .send({});
+      expect(res1.statusCode).toBe(200);
 
-      await request(app)
+      const res2 = await request(app)
         .patch(`/api/demo/bookings/${bookingId}/check-in`)
         .set('Authorization', `Bearer ${stylistToken}`)
         .send({});
+      expect(res2.statusCode).toBe(200);
 
       // Both confirm completion
-      await bookingService.confirmCompletion(clientUser, bookingId);
-      await bookingService.confirmCompletion(stylistUser, bookingId);
+      const comp1 = await bookingService.confirmCompletion(clientUser, bookingId);
+      const comp2 = await bookingService.confirmCompletion(stylistUser, bookingId);
 
-      // Wait a tick for event bus handlers
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Wait for event bus handlers
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       const stylistCall = sendSpy.mock.calls.find(
         ([userId, payload]) =>

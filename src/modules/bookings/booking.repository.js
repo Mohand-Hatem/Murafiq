@@ -415,6 +415,64 @@ export const findExhaustedNoShowSettlements = async () =>
     'noShowDetails.settlementExhausted': true,
   }).populate(['clientId', 'stylistId']);
 
+/**
+ * Finds candidate bookings for stale-booking resolution.
+ * Pre-filters on active status ('confirmed', 'in-progress') and scheduledDate <= coarseDateEnd.
+ * Authoritative 24h stale check (now >= getAppointmentEndDateTime(b) + 24h) is strictly
+ * evaluated per-booking in the service layer.
+ *
+ * @param {Date} coarseDateEnd
+ * @param {number} [batchSize=50]
+ * @returns {Promise<Array>}
+ */
+export const findStaleBookingCandidates = async (coarseDateEnd, batchSize = 50) =>
+  Booking.find({
+    status: { $in: ['confirmed', 'in-progress'] },
+    scheduledDate: { $lte: coarseDateEnd },
+  })
+    .sort({ scheduledDate: 1 })
+    .limit(batchSize)
+    .populate([
+      { path: 'clientId', select: 'name email profileImage' },
+      { path: 'stylistId', select: 'name email profileImage' },
+    ]);
+
+/**
+ * Finds candidate bookings for refund recovery.
+ * Identifies:
+ * 1. System-cancelled bookings whose payout remains 'unpaid' (external refund failed/pending).
+ * 2. System-detected no-shows whose settlement was never completed.
+ *
+ * @param {number} [batchSize=50]
+ * @returns {Promise<Array>}
+ */
+export const findPendingRefundRecoveryCandidates = async (batchSize = 50) =>
+  Booking.find({
+    $or: [
+      {
+        status: 'cancelled',
+        cancelledBy: 'system',
+        payoutStatus: 'unpaid',
+      },
+      {
+        status: { $in: ['no-show-stylist', 'no-show-client'] },
+        'noShowDetails.isSystemDetected': true,
+        'noShowDetails.settlementCompletedAt': null,
+      },
+      {
+        status: 'completed',
+        completionFinalizedAt: null,
+        completedAt: { $ne: null, $lte: new Date(Date.now() - 30 * 1000) },
+      },
+    ],
+  })
+    .sort({ updatedAt: 1 })
+    .limit(batchSize)
+    .populate([
+      { path: 'clientId', select: 'name email profileImage' },
+      { path: 'stylistId', select: 'name email profileImage' },
+    ]);
+
 export default {
   findPendingNoShowReports,
   claimSettlementResume,
@@ -425,6 +483,8 @@ export default {
   stampSettlementCompleted,
   findUnfinishedNoShowSettlements,
   findExhaustedNoShowSettlements,
+  findStaleBookingCandidates,
+  findPendingRefundRecoveryCandidates,
   create,
   findById,
   findEligibleForPayout,
