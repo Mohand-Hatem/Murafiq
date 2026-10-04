@@ -1,4 +1,5 @@
 import Booking from './booking.model.js';
+import { BOOKING_STATUS } from '../../common/constants/statuses.constant.js';
 import { isLegalTransition } from './booking.transitions.js';
 
 export const create = async (data, session = null) => {
@@ -181,9 +182,18 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
  */
 export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
   const targetStatus = patch?.status ?? patch?.$set?.status;
+  const isSystemCancel =
+    (targetStatus === BOOKING_STATUS.CANCELLED || targetStatus === 'cancelled') &&
+    (patch?.cancelledBy === 'system' || patch?.$set?.cancelledBy === 'system');
+
   if (targetStatus) {
     for (const from of fromStates) {
-      if (from !== targetStatus && !isLegalTransition(from, targetStatus)) {
+      const allowed =
+        from === targetStatus ||
+        isLegalTransition(from, targetStatus) ||
+        (isSystemCancel && (from === BOOKING_STATUS.IN_PROGRESS || from === 'in-progress'));
+
+      if (!allowed) {
         throw new Error(
           `Illegal booking transition declared: '${from}' -> '${targetStatus}'. ` +
             'Update BOOKING_TRANSITIONS deliberately if this is a real new edge.'

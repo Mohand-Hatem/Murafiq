@@ -229,25 +229,27 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
   }
 
   // Temporal window validation: Check-in opens 30 minutes before start and closes at end
-  const appointmentStart = getAppointmentDateTime(booking);
-  const appointmentEnd = getAppointmentEndDateTime(booking);
-  const earlyWindowMinutes = CHECK_IN_POLICY?.EARLY_WINDOW_MINUTES ?? 30;
-  const earlyWindowMs = earlyWindowMinutes * 60 * 1000;
-  const earliestAllowed = new Date(appointmentStart.getTime() - earlyWindowMs);
   const now = new Date();
+  if (booking.scheduledDate || booking.date) {
+    const appointmentStart = getAppointmentDateTime(booking);
+    const appointmentEnd = getAppointmentEndDateTime(booking);
+    const earlyWindowMinutes = CHECK_IN_POLICY?.EARLY_WINDOW_MINUTES ?? 30;
+    const earlyWindowMs = earlyWindowMinutes * 60 * 1000;
+    const earliestAllowed = new Date(appointmentStart.getTime() - earlyWindowMs);
 
-  if (now < earliestAllowed) {
-    throw new ApiError(
-      400,
-      `Check-in is not permitted until ${earlyWindowMinutes} minutes before the scheduled start time.`
-    );
-  }
+    if (now < earliestAllowed) {
+      throw new ApiError(
+        400,
+        `Check-in is not permitted until ${earlyWindowMinutes} minutes before the scheduled start time.`
+      );
+    }
 
-  if (now > appointmentEnd) {
-    throw new ApiError(
-      400,
-      'Check-in is closed because the scheduled session time has passed.'
-    );
+    if (now > appointmentEnd) {
+      throw new ApiError(
+        400,
+        'Check-in is closed because the scheduled session time has passed.'
+      );
+    }
   }
 
   const existingPartyCheckIn = isClient ? booking.clientCheckInAt : booking.stylistCheckInAt;

@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { generateAccessToken } from '../../src/common/utils/generateTokens.js';
+import getBusinessDayRange from '../../src/common/utils/businessDay.util.js';
 
 const fakeSession = {
   withTransaction: jest.fn(async (cb) => cb()),
@@ -179,15 +180,21 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
     fakeSession.endSession.mockResolvedValue();
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
     mockOverlapBlock = null;
+    const now = new Date();
+    const { startOfDay } = getBusinessDayRange(now, 'Africa/Cairo');
+    const currentCairoMinute = Math.floor((now.getTime() - startOfDay.getTime()) / 60000);
+    const startMin = Math.max(0, currentCairoMinute - 10);
+    const endMin = Math.min(1440, startMin + 120);
+
     mockBookingDoc = {
       _id: 'a0f719b8f1a2c81234567890',
       requestId: mockRequestDoc._id,
       offerId: mockOfferDoc._id,
       clientId: mockClient,
       stylistId: mockStylist,
-      scheduledDate: mockRequestDoc.date,
-      scheduledStartMinute: 600,
-      scheduledEndMinute: 720,
+      scheduledDate: now,
+      scheduledStartMinute: startMin,
+      scheduledEndMinute: endMin,
       price: 250,
       duration: 120,
       status: 'confirmed',
