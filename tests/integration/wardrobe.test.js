@@ -359,4 +359,90 @@ describe('Wardrobe Module Integration Tests', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  describe('GET /api/v1/wardrobe/categories', () => {
+    beforeEach(async () => {
+      await WardrobeItem.deleteMany({});
+
+      // Seed items in various categories for clientUser
+      await WardrobeItem.create([
+        {
+          userId: clientUser._id,
+          imageUrl: 'https://example.com/top1.jpg',
+          category: 'top',
+          isArchived: false,
+        },
+        {
+          userId: clientUser._id,
+          imageUrl: 'https://example.com/top2.jpg',
+          category: 'top',
+          isArchived: false,
+        },
+        {
+          userId: clientUser._id,
+          imageUrl: 'https://example.com/shoes1.jpg',
+          category: 'shoes',
+          isArchived: false,
+        },
+        {
+          userId: clientUser._id,
+          imageUrl: 'https://example.com/other1.jpg',
+          category: 'others',
+          isArchived: false,
+        },
+        {
+          userId: clientUser._id,
+          imageUrl: 'https://example.com/archived_top.jpg',
+          category: 'top',
+          isArchived: true, // Should be excluded from summary
+        },
+        {
+          userId: otherClientUser._id,
+          imageUrl: 'https://example.com/other_client_top.jpg',
+          category: 'top',
+          isArchived: false, // Belongs to another user, must not leak
+        },
+      ]);
+    });
+
+    it('returns all 6 categories and others with accurate counts and previews for authenticated client', async () => {
+      const res = await request(app)
+        .get('/api/v1/wardrobe/categories')
+        .set('Authorization', `Bearer ${clientToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.categories).toHaveLength(6);
+
+      const topCategory = res.body.data.categories.find((c) => c.id === 'top');
+      expect(topCategory.itemCount).toBe(2);
+      expect(topCategory.previewImages).toHaveLength(2);
+      expect(topCategory.name).toBe('Top Clothes');
+      expect(topCategory.nameAr).toBe('ملابس علوية');
+
+      const shoesCategory = res.body.data.categories.find((c) => c.id === 'shoes');
+      expect(shoesCategory.itemCount).toBe(1);
+
+      const bottomCategory = res.body.data.categories.find((c) => c.id === 'bottom');
+      expect(bottomCategory.itemCount).toBe(0);
+      expect(bottomCategory.previewImages).toEqual([]);
+
+      expect(res.body.data.others.id).toBe('others');
+      expect(res.body.data.others.itemCount).toBe(1);
+      expect(res.body.data.totalItems).toBe(4);
+      expect(res.body.data.unclassifiedCount).toBe(1);
+    });
+
+    it('rejects unauthenticated requests with 401', async () => {
+      const res = await request(app).get('/api/v1/wardrobe/categories');
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects stylist role with 403', async () => {
+      const res = await request(app)
+        .get('/api/v1/wardrobe/categories')
+        .set('Authorization', `Bearer ${stylistToken}`);
+      expect(res.status).toBe(403);
+    });
+  });
 });

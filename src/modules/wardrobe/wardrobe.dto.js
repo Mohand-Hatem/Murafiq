@@ -8,6 +8,8 @@ export const formatWardrobeItemDto = (item) => {
     imageUrl: doc.imageUrl,
     sourceUploadRef: doc.sourceUploadRef || null,
     category: doc.category || null,
+    userSelectedCategory: Boolean(doc.userSelectedCategory),
+    suggestedCategory: doc.suggestedCategory || null,
     subcategory: doc.subcategory || null,
     primaryColor: doc.primaryColor || null,
     secondaryColors: doc.secondaryColors || [],
@@ -41,3 +43,30 @@ export const formatWardrobeListDto = ({ items, pagination }) => ({
   items: items.map(formatWardrobeItemDto),
   pagination,
 });
+
+export const formatCategorySummaryDto = (summary) => {
+  if (!summary) return null;
+  return {
+    categories: summary.categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameAr: c.nameAr,
+      description: c.description,
+      icon: c.icon,
+      order: c.order,
+      itemCount: c.itemCount,
+      previewImages: c.previewImages || [],
+    })),
+    others: {
+      id: summary.others.id,
+      name: summary.others.name,
+      nameAr: summary.others.nameAr,
+      description: summary.others.description,
+      icon: summary.others.icon,
+      itemCount: summary.others.itemCount,
+      previewImages: summary.others.previewImages || [],
+    },
+    totalItems: summary.totalItems,
+    unclassifiedCount: summary.unclassifiedCount,
+  };
+};

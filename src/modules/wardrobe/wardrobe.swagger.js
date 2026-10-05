@@ -28,11 +28,34 @@
  *                 type: string
  *                 example: murafiq/wardrobe/507f1f77bcf86cd799439011/my-shirt-uuid
  *                 description: Internal namespaced Cloudinary public ID obtained via POST /api/v1/uploads/wardrobe
+ *               category:
+ *                 type: string
+ *                 enum: [top, bottom, dress, outerwear, shoes, accessory, others]
+ *                 description: Optional user-selected category (e.g. uploading directly from a category folder)
  *     responses:
  *       201:
  *         description: Wardrobe item created and classification job queued
  *       400:
  *         description: Invalid input format
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (client role required)
+ */
+
+/**
+ * @swagger
+ * /wardrobe/categories:
+ *   get:
+ *     summary: Get category overview and counts for the client's wardrobe
+ *     description: Aggregates active wardrobe items into 6 default categories plus an others fallback, returning item counts, localized labels, and preview cover thumbnails.
+ *     tags: [Wardrobe]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Wardrobe category summary retrieved successfully
  *       401:
  *         description: Unauthorized
  *       403:
@@ -102,7 +125,7 @@
  *         name: category
  *         schema:
  *           type: string
- *           enum: [top, bottom, shoes, outerwear, accessory, dress]
+ *           enum: [top, bottom, dress, outerwear, shoes, accessory, others]
  *       - in: query
  *         name: formality
  *         schema:

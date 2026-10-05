@@ -35,6 +35,11 @@ router.get(
 );
 
 router.get(
+  '/categories',
+  wardrobeController.getCategorySummary
+);
+
+router.get(
   '/:id',
   wardrobeController.getWardrobeItemById
 );

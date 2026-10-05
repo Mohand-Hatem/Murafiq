@@ -41,6 +41,10 @@ describe('Wardrobe Classification Worker Unit Tests', () => {
       aiConfidence: 0.95,
     };
 
+    jest.spyOn(wardrobeRepo, 'findWardrobeItemById').mockResolvedValue({
+      _id: mockItemId,
+      userSelectedCategory: false,
+    });
     jest.spyOn(geminiService, 'classifyClothingImage').mockResolvedValue(mockClassified);
     const mockUpsert = jest.fn().mockResolvedValue({ success: true });
     jest.spyOn(vectorConfig, 'getUserVectorNamespace').mockReturnValue({
@@ -79,6 +83,62 @@ describe('Wardrobe Classification Worker Unit Tests', () => {
     expect(result.classificationStatus).toBe(CLASSIFICATION_STATUS.DONE);
   });
 
+  it('should preserve user-selected category and flag suggestedCategory on AI mismatch', async () => {
+    const job = {
+      data: {
+        itemId: mockItemId,
+        userId: mockUserId,
+        imageUrl: 'https://res.cloudinary.com/murafiq/image/upload/v1/wardrobe/shirt.jpg',
+      },
+    };
+
+    // User explicitly placed item in 'shoes', but Gemini thinks it's a 'top'
+    jest.spyOn(wardrobeRepo, 'findWardrobeItemById').mockResolvedValue({
+      _id: mockItemId,
+      category: 'shoes',
+      userSelectedCategory: true,
+    });
+
+    const mockClassified = {
+      category: 'top',
+      subcategory: 't-shirt',
+      primaryColor: 'Blue',
+      formality: 'casual',
+      season: ['summer'],
+      material: 'cotton',
+      aiDescription: 'Blue casual cotton t-shirt',
+      aiConfidence: 0.95,
+    };
+
+    jest.spyOn(geminiService, 'classifyClothingImage').mockResolvedValue(mockClassified);
+    const mockUpsert = jest.fn().mockResolvedValue({ success: true });
+    jest.spyOn(vectorConfig, 'getUserVectorNamespace').mockReturnValue({
+      upsert: mockUpsert,
+      delete: jest.fn(),
+    });
+    const updateSpy = jest.spyOn(wardrobeRepo, 'updateWardrobeItemById').mockResolvedValue({
+      _id: mockItemId,
+      category: 'shoes',
+      suggestedCategory: 'top',
+      classificationStatus: CLASSIFICATION_STATUS.NEEDS_REVIEW,
+    });
+
+    const result = await wardrobeWorkerModule.processWardrobeJob(job);
+
+    // Assert: User category ('shoes') was NOT overwritten by AI ('top')
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        category: 'shoes',
+      }),
+    }));
+    expect(updateSpy).toHaveBeenCalledWith(mockItemId, expect.objectContaining({
+      category: 'shoes',
+      suggestedCategory: 'top',
+      classificationStatus: CLASSIFICATION_STATUS.NEEDS_REVIEW,
+    }));
+    expect(result.category).toBe('shoes');
+  });
+
   it('should mark item status as failed when classification throws error', async () => {
     const job = {
       data: {
@@ -88,6 +148,7 @@ describe('Wardrobe Classification Worker Unit Tests', () => {
       },
     };
 
+    jest.spyOn(wardrobeRepo, 'findWardrobeItemById').mockResolvedValue({ _id: mockItemId });
     jest.spyOn(geminiService, 'classifyClothingImage').mockRejectedValue(new Error('Gemini API timeout'));
     const updateSpy = jest.spyOn(wardrobeRepo, 'updateWardrobeItemById').mockResolvedValue({});
 

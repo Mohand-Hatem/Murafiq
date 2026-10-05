@@ -53,6 +53,14 @@ const wardrobeItemSchema = new Schema(
       enum: WARDROBE_CATEGORIES,
       index: true,
     },
+    userSelectedCategory: {
+      type: Boolean,
+      default: false,
+    },
+    suggestedCategory: {
+      type: String,
+      enum: WARDROBE_CATEGORIES,
+    },
     primaryColor: {
       type: String,
       trim: true,

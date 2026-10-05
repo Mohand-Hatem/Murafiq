@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import WardrobeItem from './wardrobe-item.model.js';
 import { expandFormalityAdjacency } from '../../common/constants/wardrobe.constants.js';
 
@@ -182,6 +183,39 @@ export const findItemsByIds = async (userId, itemIds, session = null) => {
     .lean();
 };
 
+export const getCategorySummaryAggregation = async (userId, session = null) => {
+  const userObjectId = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
+  const pipeline = [
+    {
+      $match: {
+        userId: userObjectId,
+        isArchived: { $ne: true },
+      },
+    },
+    {
+      $sort: { createdAt: -1 },
+    },
+    {
+      $group: {
+        _id: '$category',
+        count: { $sum: 1 },
+        previewImages: { $push: '$imageUrl' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        category: '$_id',
+        count: 1,
+        previewImages: { $slice: ['$previewImages', 3] },
+      },
+    },
+  ];
+
+  return WardrobeItem.aggregate(pipeline).session(session);
+};
+
 export default {
   createWardrobeItem,
   findWardrobeItemById,
@@ -191,4 +225,5 @@ export default {
   deleteWardrobeItemByIdAndUser,
   findCandidatesForSlot,
   findItemsByIds,
+  getCategorySummaryAggregation,
 };

@@ -50,7 +50,7 @@ const garmentClassificationSchema = {
   properties: {
     category: {
       type: 'STRING',
-      enum: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress'],
+      enum: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress', 'others'],
     },
     subcategory: { type: 'STRING' },
     primaryColor: { type: 'STRING' },
@@ -121,7 +121,8 @@ export const classifyClothingImage = async (imageUrl) => {
   try {
     const { buffer: imageBuffer, mimeType } = await fetchImageBounded(imageUrl);
     const ai = getGeminiClient();
-    const prompt = 'You are an expert fashion stylist and clothing classifier. Analyze this garment image and extract accurate clothing attributes according to the schema.';
+    const prompt =
+      'You are an expert fashion stylist and clothing classifier. Analyze this garment image and extract accurate clothing attributes according to the schema. Category guidelines: "top" (shirts, t-shirts, blazers, light sweaters), "bottom" (pants, jeans, skirts, shorts), "dress" (full outfits, dresses, suits, co-ords), "outerwear" (winter/heavy clothes, coats, heavy jackets, puffers, heavy winter sweaters), "shoes" (all footwear), "accessory" (bags, watches, belts, hats, scarves, jewelry), "others" (use when an item is ambiguous, non-clothing, or cannot be accurately classified into the 6 main categories).';
 
     const response = await ai.models.generateContent({
       model: env.AI_MODEL_VISION || 'gemini-3.1-flash-lite',

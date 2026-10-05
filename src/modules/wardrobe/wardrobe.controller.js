@@ -1,5 +1,9 @@
 import * as wardrobeService from './wardrobe.service.js';
-import { formatWardrobeItemDto, formatWardrobeListDto } from './wardrobe.dto.js';
+import {
+  formatWardrobeItemDto,
+  formatWardrobeListDto,
+  formatCategorySummaryDto,
+} from './wardrobe.dto.js';
 
 export const createWardrobeItem = asyncHandler(async (req, res) => {
   const item = await wardrobeService.createWardrobeItem(req.user.id, req.body);
@@ -15,6 +19,14 @@ export const getMyWardrobe = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: 'Wardrobe items retrieved successfully',
     data: formatWardrobeListDto(result),
+  });
+});
+
+export const getCategorySummary = asyncHandler(async (req, res) => {
+  const summary = await wardrobeService.getWardrobeCategorySummary(req.user.id);
+  return ApiResponse.success(res, {
+    message: 'Wardrobe category summary retrieved successfully',
+    data: formatCategorySummaryDto(summary),
   });
 });
 
@@ -58,6 +70,7 @@ export const saveFromChat = asyncHandler(async (req, res) => {
 export default {
   createWardrobeItem,
   getMyWardrobe,
+  getCategorySummary,
   getWardrobeItemById,
   updateWardrobeItem,
   deleteWardrobeItem,

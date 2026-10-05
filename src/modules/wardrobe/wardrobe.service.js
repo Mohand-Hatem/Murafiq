@@ -7,8 +7,9 @@ import { logger } from '../../config/logger.config.js';
 import cloudinary from '../../config/cloudinary.config.js';
 import aiConversationService from '../ai/conversation/ai-conversation.service.js';
 import { normalizeGarmentAttributes } from './wardrobe-attribute.normalizer.js';
+import { WARDROBE_CATEGORY_METADATA } from '../../common/constants/wardrobe.constants.js';
 
-export const createWardrobeItem = async (userId, { uploadRef }) => {
+export const createWardrobeItem = async (userId, { uploadRef, category }) => {
   // 0. Verify ownership: uploadRef must contain the caller's own userId
   const parts = uploadRef ? uploadRef.split('/') : [];
   // Expected: ['murafiq', 'wardrobe', '<userId>', '<uuid>']
@@ -34,10 +35,13 @@ export const createWardrobeItem = async (userId, { uploadRef }) => {
   const imageUrl = cloudinary.url(uploadRef, { secure: true });
 
   // 3. Create initial pending item in MongoDB
+  const hasUserCategory = Boolean(category);
   const item = await wardrobeRepo.createWardrobeItem({
     userId,
     imageUrl,
     sourceUploadRef: uploadRef,
+    category: hasUserCategory ? category : undefined,
+    userSelectedCategory: hasUserCategory,
     classificationStatus: CLASSIFICATION_STATUS.PENDING,
   });
 
@@ -357,6 +361,63 @@ export const saveWardrobeItemFromChat = async (userId, messageId) => {
   return item;
 };
 
+/**
+ * Aggregates user's wardrobe items by category into 6 default categories + others fallback.
+ * Always returns all 6 core categories with itemCount (0 if empty) and previewImages.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @returns {Promise<Object>}
+ */
+export const getWardrobeCategorySummary = async (userId) => {
+  const aggregated = await wardrobeRepo.getCategorySummaryAggregation(userId);
+
+  const countMap = new Map();
+  for (const item of aggregated) {
+    if (item.category) {
+      countMap.set(item.category, item);
+    }
+  }
+
+  // The 6 core categories in ordered presentation
+  const coreCategoryKeys = ['top', 'bottom', 'dress', 'outerwear', 'shoes', 'accessory'];
+  const categories = coreCategoryKeys.map((key) => {
+    const meta = WARDROBE_CATEGORY_METADATA[key] || {};
+    const agg = countMap.get(key);
+    return {
+      id: key,
+      name: meta.name || key,
+      nameAr: meta.nameAr || key,
+      description: meta.description || '',
+      icon: meta.icon || 'shirt',
+      order: meta.order || 99,
+      itemCount: agg ? agg.count : 0,
+      previewImages: agg ? agg.previewImages : [],
+    };
+  });
+
+  // Fallback 'others' section
+  const othersMeta = WARDROBE_CATEGORY_METADATA.others || {};
+  const othersAgg = countMap.get('others');
+  const others = {
+    id: 'others',
+    name: othersMeta.name || 'Others',
+    nameAr: othersMeta.nameAr || 'أخرى',
+    description: othersMeta.description || '',
+    icon: othersMeta.icon || 'dots-horizontal',
+    itemCount: othersAgg ? othersAgg.count : 0,
+    previewImages: othersAgg ? othersAgg.previewImages : [],
+  };
+
+  const totalItems = aggregated.reduce((sum, item) => sum + (item.count || 0), 0);
+
+  return {
+    categories,
+    others,
+    totalItems,
+    unclassifiedCount: others.itemCount,
+  };
+};
+
 export default {
   createWardrobeItem,
   getMyWardrobe,
@@ -367,6 +428,7 @@ export default {
   searchWardrobeSemantic,
   getWardrobeItemsByIds,
   saveWardrobeItemFromChat,
+  getWardrobeCategorySummary,
 };
 
 

@@ -18,20 +18,37 @@ export const processWardrobeJob = async (job) => {
   logger.info(`🤖 Processing wardrobe classification for item ${itemId} (user ${userId})`);
 
   try {
+    // 0. Fetch existing item to check if user explicitly selected category
+    const existingItem = await wardrobeRepo.findWardrobeItemById(itemId);
+    const isUserSelected = Boolean(existingItem?.userSelectedCategory && existingItem?.category);
+
     // 1. Call Gemini Flash Vision model
     const rawClassified = await geminiService.classifyClothingImage(imageUrl);
     const { normalized, needsReview } = normalizeGarmentAttributes(rawClassified);
 
+    let finalCategory = normalized.category;
+    let suggestedCategory = null;
+    let status = needsReview ? CLASSIFICATION_STATUS.NEEDS_REVIEW : CLASSIFICATION_STATUS.DONE;
+
+    if (isUserSelected) {
+      // User selection is authoritative: NEVER overwrite user-selected category
+      finalCategory = existingItem.category;
+      if (normalized.category !== existingItem.category) {
+        suggestedCategory = normalized.category;
+        status = CLASSIFICATION_STATUS.NEEDS_REVIEW;
+      }
+    }
+
     // 2. Build semantic description and upsert into Upstash Vector namespace
     const aiDescription = normalized.aiDescription ||
-      `${normalized.primaryColor || ''} ${normalized.material || ''} ${normalized.category || 'clothing'}`.trim();
+      `${normalized.primaryColor || ''} ${normalized.material || ''} ${finalCategory || 'clothing'}`.trim();
 
     const vectorNs = vectorConfig.getUserVectorNamespace(userId);
     await vectorNs.upsert({
       id: itemId.toString(),
       data: aiDescription,
       metadata: {
-        category: normalized.category,
+        category: finalCategory,
         subcategory: normalized.subcategory,
         formality: normalized.formality,
         season: normalized.season,
@@ -45,7 +62,8 @@ export const processWardrobeJob = async (job) => {
 
     // 3. Update database record with normalized attributes and metadata stamps
     const updated = await wardrobeRepo.updateWardrobeItemById(itemId, {
-      category: normalized.category,
+      category: finalCategory,
+      suggestedCategory,
       subcategory: normalized.subcategory,
       primaryColor: normalized.primaryColor,
       secondaryColors: normalized.secondaryColors,
@@ -64,11 +82,11 @@ export const processWardrobeJob = async (job) => {
       styleTags: normalized.styleTags,
       aiDescription,
       embeddingId: itemId.toString(),
-      classificationStatus: needsReview ? CLASSIFICATION_STATUS.NEEDS_REVIEW : CLASSIFICATION_STATUS.DONE,
+      classificationStatus: status,
       classificationError: null,
     });
 
-    logger.info(`✅ Wardrobe item ${itemId} successfully classified and indexed`);
+    logger.info(`✅ Wardrobe item ${itemId} successfully classified and indexed (category: ${finalCategory}, userSelected: ${isUserSelected})`);
     return updated;
   } catch (err) {
     logger.error(`❌ Wardrobe classification failed for item ${itemId}:`, err);

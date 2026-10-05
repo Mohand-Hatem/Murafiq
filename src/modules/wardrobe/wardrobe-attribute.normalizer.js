@@ -138,6 +138,134 @@ export const deriveIsNeutral = (colorFamily) => {
   return NEUTRAL_COLORS.has(colorFamily.toLowerCase());
 };
 
+const CATEGORY_DIRECT_ALIASES = {
+  shirt: 'top',
+  't-shirt': 'top',
+  tshirt: 'top',
+  tee: 'top',
+  blouse: 'top',
+  polo: 'top',
+  top: 'top',
+  pants: 'bottom',
+  trousers: 'bottom',
+  jeans: 'bottom',
+  skirt: 'bottom',
+  shorts: 'bottom',
+  bottom: 'bottom',
+  suit: 'dress',
+  co_ord: 'dress',
+  'co-ord': 'dress',
+  set: 'dress',
+  'two-piece': 'dress',
+  jumpsuit: 'dress',
+  romper: 'dress',
+  dress: 'dress',
+  gown: 'dress',
+  outfit: 'dress',
+  outfits: 'dress',
+  coat: 'outerwear',
+  puffer: 'outerwear',
+  parka: 'outerwear',
+  trench: 'outerwear',
+  overcoat: 'outerwear',
+  outerwear: 'outerwear',
+  sneakers: 'shoes',
+  boots: 'shoes',
+  shoes: 'shoes',
+  sandals: 'shoes',
+  heels: 'shoes',
+  footwear: 'shoes',
+  accessory: 'accessory',
+  accessories: 'accessory',
+  bag: 'accessory',
+  watch: 'accessory',
+  belt: 'accessory',
+  hat: 'accessory',
+  scarf: 'accessory',
+  jewelry: 'accessory',
+  others: 'others',
+  other: 'others',
+};
+
+/**
+ * Context-aware resolution for ambiguous garments (jackets, sweaters, blazers).
+ * Avoids blanket mapping and evaluates material, season, and descriptive tokens.
+ */
+export const resolveContextualCategory = (raw = {}) => {
+  const catStr = sanitizeString(raw.category);
+  const subcatStr = sanitizeString(raw.subcategory);
+  const descStr = sanitizeString(raw.aiDescription || '');
+  const combined = `${catStr} ${subcatStr} ${descStr}`.trim();
+
+  // 1. Explicit blazers / suit jackets -> top
+  if (/\bblazers?\b/.test(combined)) {
+    return 'top';
+  }
+
+  // 2. Full outfits / matching sets -> dress
+  if (/\b(two[- ]?piece|co[- ]?ord|full[- ]?suit|jumpsuit|romper|gown)\b/.test(combined)) {
+    return 'dress';
+  }
+
+  // 3. Winter coats, heavy parkas, puffers -> outerwear
+  if (/\b(puffer|parka|trench|overcoat|shearling|down jacket|winter coat|heavy coat)\b/.test(combined)) {
+    return 'outerwear';
+  }
+
+  // 4. Sweaters & Cardigans context check:
+  // - Heavy / chunky / wool / winter sweaters -> outerwear
+  // - Light / cotton / fine-knit / spring sweaters -> top
+  if (/\b(sweaters?|cardigans?|pullovers?|knitwears?|hoodies?)\b/.test(combined)) {
+    const rawSeasons = Array.isArray(raw.season) ? raw.season.map(sanitizeString) : [sanitizeString(raw.season)];
+    const rawMaterial = sanitizeString(raw.material);
+    const hasWinterSignal =
+      rawSeasons.includes('winter') ||
+      rawMaterial === 'wool' ||
+      /\b(heavy|chunky|cable[- ]?knit|thick|wool|fleece|winter|thermal)\b/.test(combined);
+
+    const hasLightSignal =
+      /\b(light|lightweight|fine[- ]?knit|thin|cotton|linen|summer|spring)\b/.test(combined);
+
+    if (hasWinterSignal && !hasLightSignal) {
+      return 'outerwear';
+    }
+    return 'top';
+  }
+
+  // 5. Jackets context check:
+  // - Winter jackets / puffers / heavy coats -> outerwear
+  // - Light denim jackets / shackets / utility layers -> top
+  if (/\bjackets?\b/.test(combined)) {
+    const rawSeasons = Array.isArray(raw.season) ? raw.season.map(sanitizeString) : [sanitizeString(raw.season)];
+    const rawMaterial = sanitizeString(raw.material);
+    const isHeavyWinter =
+      rawSeasons.includes('winter') ||
+      rawMaterial === 'leather' ||
+      rawMaterial === 'wool' ||
+      /\b(winter|heavy|insulated|quilted|puffer|snow|cold|fleece)\b/.test(combined);
+
+    const isLightJacket =
+      /\b(denim|linen|light|lightweight|shacket|utility|bomber|summer|spring)\b/.test(combined);
+
+    if (isHeavyWinter && !isLightJacket) {
+      return 'outerwear';
+    }
+    return 'top';
+  }
+
+  // 6. Direct alias lookup if defined
+  if (CATEGORY_DIRECT_ALIASES[catStr]) {
+    return CATEGORY_DIRECT_ALIASES[catStr];
+  }
+
+  // 7. Check if already a valid category
+  if (WARDROBE_CATEGORIES.includes(catStr)) {
+    return catStr;
+  }
+
+  return null;
+};
+
 /**
  * Normalizes extracted garment attributes and detects if human review is needed.
  * @param {Object} raw - Raw classifier output
@@ -146,8 +274,20 @@ export const deriveIsNeutral = (colorFamily) => {
 export const normalizeGarmentAttributes = (raw = {}) => {
   let needsReview = false;
 
-  const category = mapToEnum(raw.category, WARDROBE_CATEGORIES);
-  if (!category && raw.category) needsReview = true;
+  // Context-aware category resolution
+  let resolvedCategory = resolveContextualCategory(raw);
+
+  if (!resolvedCategory || !WARDROBE_CATEGORIES.includes(resolvedCategory)) {
+    resolvedCategory = 'others';
+    needsReview = true;
+  }
+
+  // If confidence is explicitly provided and low (< 0.6), assign to 'others' for human triage
+  const confidence = typeof raw.aiConfidence === 'number' ? Math.max(0, Math.min(1, raw.aiConfidence)) : 0.9;
+  if (confidence < 0.6) {
+    resolvedCategory = 'others';
+    needsReview = true;
+  }
 
   const pattern = mapToEnum(raw.pattern, WARDROBE_PATTERNS, PATTERN_ALIASES) || 'solid';
 
@@ -182,7 +322,7 @@ export const normalizeGarmentAttributes = (raw = {}) => {
   const isNeutral = deriveIsNeutral(colorFamily);
 
   const normalized = {
-    category: category || raw.category || 'top',
+    category: resolvedCategory,
     subcategory: sanitizeString(raw.subcategory) || null,
     primaryColor: raw.primaryColor?.trim() || 'Unknown',
     secondaryColors: Array.isArray(raw.secondaryColors)
@@ -201,7 +341,7 @@ export const normalizeGarmentAttributes = (raw = {}) => {
       ? raw.styleTags.map((t) => t.trim().toLowerCase()).filter(Boolean)
       : [],
     aiDescription: raw.aiDescription?.trim() || '',
-    aiConfidence: typeof raw.aiConfidence === 'number' ? Math.max(0, Math.min(1, raw.aiConfidence)) : 0.9,
+    aiConfidence: confidence,
   };
 
   return { normalized, needsReview };

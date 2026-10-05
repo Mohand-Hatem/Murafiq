@@ -158,4 +158,81 @@ describe('Wardrobe Service Unit Tests', () => {
       expect(result).toEqual({ success: true });
     });
   });
+
+  describe('getWardrobeCategorySummary', () => {
+    it('should return all 6 default categories in order plus others fallback', async () => {
+      const mockAggregated = [
+        {
+          category: 'top',
+          count: 5,
+          previewImages: ['https://example.com/top1.jpg', 'https://example.com/top2.jpg'],
+        },
+        {
+          category: 'shoes',
+          count: 3,
+          previewImages: ['https://example.com/shoe1.jpg'],
+        },
+        {
+          category: 'others',
+          count: 2,
+          previewImages: ['https://example.com/other1.jpg'],
+        },
+      ];
+
+      jest
+        .spyOn(wardrobeRepo, 'getCategorySummaryAggregation')
+        .mockResolvedValue(mockAggregated);
+
+      const result = await wardrobeService.getWardrobeCategorySummary(mockUserId);
+
+      expect(wardrobeRepo.getCategorySummaryAggregation).toHaveBeenCalledWith(mockUserId);
+      expect(result.categories).toHaveLength(6);
+
+      // Verify 6 core categories in ordered order
+      const categoryIds = result.categories.map((c) => c.id);
+      expect(categoryIds).toEqual(['top', 'bottom', 'dress', 'outerwear', 'shoes', 'accessory']);
+
+      // Top has count 5
+      const topCat = result.categories.find((c) => c.id === 'top');
+      expect(topCat.itemCount).toBe(5);
+      expect(topCat.previewImages).toEqual(['https://example.com/top1.jpg', 'https://example.com/top2.jpg']);
+      expect(topCat.name).toBe('Top Clothes');
+      expect(topCat.nameAr).toBe('ملابس علوية');
+
+      // Shoes has count 3
+      const shoesCat = result.categories.find((c) => c.id === 'shoes');
+      expect(shoesCat.itemCount).toBe(3);
+
+      // Empty categories have count 0 and empty previews
+      const bottomCat = result.categories.find((c) => c.id === 'bottom');
+      expect(bottomCat.itemCount).toBe(0);
+      expect(bottomCat.previewImages).toEqual([]);
+
+      // Others fallback
+      expect(result.others.id).toBe('others');
+      expect(result.others.itemCount).toBe(2);
+      expect(result.others.previewImages).toEqual(['https://example.com/other1.jpg']);
+      expect(result.others.name).toBe('Others');
+      expect(result.others.nameAr).toBe('أخرى');
+
+      // Totals
+      expect(result.totalItems).toBe(10);
+      expect(result.unclassifiedCount).toBe(2);
+    });
+
+    it('should return all categories with 0 count when wardrobe is empty', async () => {
+      jest.spyOn(wardrobeRepo, 'getCategorySummaryAggregation').mockResolvedValue([]);
+
+      const result = await wardrobeService.getWardrobeCategorySummary(mockUserId);
+
+      expect(result.categories).toHaveLength(6);
+      result.categories.forEach((cat) => {
+        expect(cat.itemCount).toBe(0);
+        expect(cat.previewImages).toEqual([]);
+      });
+      expect(result.others.itemCount).toBe(0);
+      expect(result.totalItems).toBe(0);
+      expect(result.unclassifiedCount).toBe(0);
+    });
+  });
 });

@@ -22,6 +22,7 @@ export const createWardrobeItemSchema = {
         /^murafiq\/wardrobe\/[a-f0-9]{24}\/[a-zA-Z0-9_-]+$/,
         'uploadRef must be a valid namespaced Cloudinary reference from POST /uploads/wardrobe'
       ),
+    category: z.enum(WARDROBE_CATEGORIES).optional(),
   }).strict(),
 };
 

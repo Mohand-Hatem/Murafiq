@@ -55,6 +55,28 @@ describe('Wardrobe Validator Unit Tests', () => {
         expect(result.success).toBe(false);
       }
     });
+
+    it('should allow optional valid category on item creation', () => {
+      const withShoes = createWardrobeItemSchema.body.safeParse({
+        uploadRef: 'murafiq/wardrobe/507f1f77bcf86cd799439011/abc-123_uuid',
+        category: 'shoes',
+      });
+      expect(withShoes.success).toBe(true);
+
+      const withOthers = createWardrobeItemSchema.body.safeParse({
+        uploadRef: 'murafiq/wardrobe/507f1f77bcf86cd799439011/abc-123_uuid',
+        category: 'others',
+      });
+      expect(withOthers.success).toBe(true);
+    });
+
+    it('should reject invalid category on item creation', () => {
+      const result = createWardrobeItemSchema.body.safeParse({
+        uploadRef: 'murafiq/wardrobe/507f1f77bcf86cd799439011/abc-123_uuid',
+        category: 'hoverboard',
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('updateWardrobeItemSchema', () => {
@@ -69,6 +91,13 @@ describe('Wardrobe Validator Unit Tests', () => {
         material: 'cotton',
         styleTags: ['nautical', 'summer'],
         aiDescription: 'Navy blue and white striped nautical cotton polo shirt.',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should allow updating category to others', () => {
+      const result = updateWardrobeItemSchema.body.safeParse({
+        category: 'others',
       });
       expect(result.success).toBe(true);
     });
@@ -94,6 +123,14 @@ describe('Wardrobe Validator Unit Tests', () => {
       expect(result.data.limit).toBe(15);
       expect(result.data.category).toBe('shoes');
       expect(result.data.search).toBe('leather');
+    });
+
+    it('should allow querying by others category', () => {
+      const result = wardrobeQuerySchema.query.safeParse({
+        category: 'others',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.category).toBe('others');
     });
   });
 });

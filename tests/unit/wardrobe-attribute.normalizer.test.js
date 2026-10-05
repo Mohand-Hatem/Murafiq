@@ -2,6 +2,7 @@ import {
   mapToEnum,
   deriveIsNeutral,
   normalizeGarmentAttributes,
+  resolveContextualCategory,
 } from '../../src/modules/wardrobe/wardrobe-attribute.normalizer.js';
 import {
   WARDROBE_CATEGORIES,
@@ -85,14 +86,99 @@ describe('Wardrobe Attribute Normalizer Unit Tests', () => {
       expect(normalized.styleTags).toEqual(['classic', 'preppy']);
     });
 
-    it('should flag needsReview when category is unmappable', () => {
+    it('should flag needsReview and assign others when category is unmappable', () => {
       const raw = {
         category: 'unrecognized_space_suit',
         formality: 'casual',
       };
 
-      const { needsReview } = normalizeGarmentAttributes(raw);
+      const { normalized, needsReview } = normalizeGarmentAttributes(raw);
       expect(needsReview).toBe(true);
+      expect(normalized.category).toBe('others');
+    });
+
+    it('should never default missing category to top, but assign others with needsReview', () => {
+      const raw = {
+        primaryColor: 'Blue',
+        formality: 'casual',
+      };
+
+      const { normalized, needsReview } = normalizeGarmentAttributes(raw);
+      expect(needsReview).toBe(true);
+      expect(normalized.category).toBe('others');
+      expect(normalized.category).not.toBe('top');
+    });
+
+    it('should assign others and flag needsReview when aiConfidence is below 0.6', () => {
+      const raw = {
+        category: 'top',
+        aiConfidence: 0.45,
+      };
+
+      const { normalized, needsReview } = normalizeGarmentAttributes(raw);
+      expect(needsReview).toBe(true);
+      expect(normalized.category).toBe('others');
+    });
+  });
+
+  describe('resolveContextualCategory', () => {
+    it('should classify blazers as top', () => {
+      expect(resolveContextualCategory({ subcategory: 'blazer' })).toBe('top');
+      expect(resolveContextualCategory({ subcategory: 'suit jacket' })).toBe('top');
+      expect(resolveContextualCategory({ aiDescription: 'Navy wool tailored blazer' })).toBe('top');
+    });
+
+    it('should classify light sweaters as top', () => {
+      const lightSweater = {
+        subcategory: 'fine-knit sweater',
+        material: 'cotton',
+        season: ['spring', 'summer'],
+        aiDescription: 'Lightweight crewneck cotton pullover',
+      };
+      expect(resolveContextualCategory(lightSweater)).toBe('top');
+    });
+
+    it('should classify heavy winter sweaters as outerwear', () => {
+      const winterSweater = {
+        subcategory: 'chunky sweater',
+        material: 'wool',
+        season: ['winter'],
+        aiDescription: 'Heavy cable-knit wool winter sweater',
+      };
+      expect(resolveContextualCategory(winterSweater)).toBe('outerwear');
+    });
+
+    it('should classify light denim/utility jackets as top', () => {
+      const denimJacket = {
+        subcategory: 'denim jacket',
+        material: 'denim',
+        season: ['spring', 'summer'],
+        aiDescription: 'Lightweight washed denim jacket',
+      };
+      expect(resolveContextualCategory(denimJacket)).toBe('top');
+    });
+
+    it('should classify winter coats, parkas, and puffers as outerwear', () => {
+      expect(resolveContextualCategory({ subcategory: 'puffer jacket', season: ['winter'] })).toBe('outerwear');
+      expect(resolveContextualCategory({ subcategory: 'trench coat' })).toBe('outerwear');
+      expect(resolveContextualCategory({ aiDescription: 'Heavy down winter parka coat' })).toBe('outerwear');
+    });
+
+    it('should classify full outfits, suits, and matching sets as dress', () => {
+      expect(resolveContextualCategory({ subcategory: 'two-piece suit' })).toBe('dress');
+      expect(resolveContextualCategory({ subcategory: 'co-ord set' })).toBe('dress');
+      expect(resolveContextualCategory({ subcategory: 'jumpsuit' })).toBe('dress');
+      expect(resolveContextualCategory({ category: 'dress' })).toBe('dress');
+    });
+
+    it('should return others for explicit others or other category', () => {
+      expect(resolveContextualCategory({ category: 'others' })).toBe('others');
+      expect(resolveContextualCategory({ category: 'other' })).toBe('others');
+    });
+
+    it('should return null for completely unknown or unresolvable items', () => {
+      expect(resolveContextualCategory({ category: 'spaceship' })).toBeNull();
+      expect(resolveContextualCategory({})).toBeNull();
     });
   });
 });
