@@ -18,6 +18,9 @@ import {
   searchExternalProducts,
   verifyDirectProductUrl,
   verifyProductImageUrl,
+  getKnownRetailerInfo,
+  buildRetailerSearchUrl,
+  buildRetailerLogoUrl,
   setProductSearchRedisOverride,
   clearInMemoryProductCache,
   CACHE_TTL_SECONDS,
@@ -229,7 +232,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to ungrounded LLM and populates sourceUrl and sourceTitle when live search throws', async () => {
+    it('falls back to ungrounded LLM and safely falls back to retailer searchUrl when live search throws', async () => {
       // 1st call (grounded search) throws 429 quota error
       mockGenerateContent.mockRejectedValueOnce(new Error('RESOURCE_EXHAUSTED: quota exceeded'));
 
@@ -265,8 +268,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results[0].title).toBe('Structured Satin Lapel Tuxedo Blazer');
       expect(results[0].retailer).toBe('Zara Egypt');
       expect(results[0].sourceUrl).toBe('https://www.zara.com/eg/en/tuxedo-blazer-p123.html');
-      expect(results[0].sourceTitle).toBe('Zara Egypt Online Store');
-      expect(results[0].citations).toHaveLength(1);
+      expect(results[0].searchUrl).toContain('zara.com/eg/ar/search?searchTerm=');
       expect(results[0].isGrounded).toBe(false); // No live Google Search chunk was attached
     });
 
@@ -376,6 +378,8 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(verifyDirectProductUrl('not-a-valid-url', mockTrousersItem)).toBeNull();
       expect(verifyDirectProductUrl('', mockTrousersItem)).toBeNull();
       expect(verifyDirectProductUrl('ftp://invalidscheme.com', mockTrousersItem)).toBeNull();
+      expect(verifyDirectProductUrl('https://www.lcwaikiki.com/ar-EG/EG/p/8537639', mockTrousersItem)).toBeNull();
+      expect(verifyProductImageUrl('https://img-lcwaikiki.mncdn.com/pim/productimages/8537639.jpg', mockTrousersItem, null)).toBe('https://img-lcwaikiki.mncdn.com/pim/productimages/8537639.jpg');
       expect(verifyProductImageUrl('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA...', mockShoeItem, 'https://zara.com/eg/en/wool-trousers-p1.html')).toBeNull();
       expect(verifyProductImageUrl(null, mockShoeItem, 'https://zara.com/eg/en/wool-trousers-p1.html')).toBeNull();
     });
@@ -458,6 +462,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       // Suggestion 2: homepage was rejected -> sourceUrl is null, stock photo was rejected -> imageUrl is null
       expect(results[1].title).toBe('Italian Wool Tuxedo Trousers');
       expect(results[1].sourceUrl).toBeNull();
+      expect(results[1].searchUrl).toContain('eg.hm.com');
       expect(results[1].imageUrl).toBeNull();
       expect(results[1].isGrounded).toBe(false);
     });
@@ -532,6 +537,185 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results.filter((r) => r.outfitIndex === 2)).toHaveLength(3);
       expect(results[0].outfitTitle).toBe('Look 1');
       expect(results[3].outfitTitle).toBe('Look 2');
+    });
+
+    it('14. Shopping Request with anchor garment applies ANCHOR-COMPLEMENTARY prompt, excludes anchor duplicates, and populates searchUrl', async () => {
+      const mockSuggestions = [
+        { slot: 'bottom', itemType: 'formal trousers', title: 'Navy Wool Trousers', estimatedPriceEgp: 1800, retailer: 'Massimo Dutti', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'shoes', itemType: 'loafers', title: 'Classic Leather Loafers', estimatedPriceEgp: 2200, retailer: 'Jlood', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'top', itemType: 'quarter_zip_sweater', title: 'Cream Quarter Zip Sweater', estimatedPriceEgp: 1400, retailer: 'Antikka', outfitIndex: 1, outfitTitle: 'Look 1' },
+        { slot: 'bottom', itemType: 'chinos', title: 'Beige Chinos', estimatedPriceEgp: 1200, retailer: 'Mobaco', outfitIndex: 2, outfitTitle: 'Look 2' },
+        { slot: 'shoes', itemType: 'shoes', title: 'Leather Brogues', estimatedPriceEgp: 2500, retailer: 'Noon Egypt', outfitIndex: 2, outfitTitle: 'Look 2' },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({ suggestions: mockSuggestions }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 120 },
+      });
+
+      const anchor = {
+        category: 'outerwear',
+        subcategory: 'quarter_zip_sweater',
+        colorFamily: 'beige',
+      };
+
+      const results = await searchExternalProducts({
+        gapDescription: 'pieces to wear with beige quarter_zip_sweater',
+        gapItems: [{ slot: 'bottom' }, { slot: 'shoes' }],
+        isShoppingRequest: true,
+        anchor,
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0][0];
+      expect(callArgs.config.systemInstruction).toContain('ANCHOR-COMPLEMENTARY OUTFIT RULE');
+      expect(callArgs.config.systemInstruction).toContain('STRICT EXCLUSION');
+
+      // The sweater duplicate suggestion was filtered out defensively
+      expect(results.some((r) => r.slot === 'top' || /quarter\s*zip/i.test(r.title))).toBe(false);
+      expect(results).toHaveLength(4);
+
+      // Known retailers without direct sourceUrl receive searchUrl fallback
+      const massimoItem = results.find((r) => r.retailer.includes('Massimo'));
+      expect(massimoItem.sourceUrl).toBeNull();
+      expect(massimoItem.searchUrl).toContain('massimodutti.com');
+
+      const jloodItem = results.find((r) => r.retailer.includes('Jlood'));
+      expect(jloodItem.sourceUrl).toBeNull();
+      expect(jloodItem.searchUrl).toContain('jlood.com');
+    });
+
+    it('15. Arabic retailer names match KNOWN_RETAILERS, populate searchUrl, and generate high-res brand logos', async () => {
+      // Test Arabic brand name matching
+      expect(getKnownRetailerInfo('جوميا مصر')?.domain).toBe('jumia.com.eg');
+      expect(getKnownRetailerInfo('ديفاكتو مصر')?.domain).toBe('defacto.com');
+      expect(getKnownRetailerInfo('لطفي')?.domain).toBe('lotfy.com');
+      expect(getKnownRetailerInfo('زارا')?.domain).toBe('zara.com');
+
+      // Test search URL builders
+      expect(buildRetailerSearchUrl('جوميا مصر', 'حذاء أكسفورد')).toContain('jumia.com.eg');
+      expect(buildRetailerSearchUrl('ديفاكتو مصر', 'بنطلون')).toContain('defacto.com');
+      expect(buildRetailerSearchUrl('لطفي', 'حذاء ديربي')).toContain('lotfy.com');
+
+      // Test brand logo builders
+      expect(buildRetailerLogoUrl('جوميا مصر')).toContain('google.com/s2/favicons?domain=jumia.com.eg');
+      expect(buildRetailerLogoUrl('لطفي')).toContain('google.com/s2/favicons?domain=lotfy.com');
+
+      // Test searchExternalProducts execution with Arabic retailer names
+      const mockSuggestions = [
+        { slot: 'shoes', itemType: 'oxfords', title: 'حذاء أكسفورد', estimatedPriceEgp: 2899, retailer: 'جوميا مصر' },
+        { slot: 'bottom', itemType: 'chinos', title: 'بنطلون تشينو', estimatedPriceEgp: 950, retailer: 'ديفاكتو مصر' },
+        { slot: 'shoes', itemType: 'derbies', title: 'حذاء ديربي', estimatedPriceEgp: 2500, retailer: 'لطفي' },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({ suggestions: mockSuggestions }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 100 },
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'ملابس وأحذية للرجال',
+        isShoppingRequest: true,
+      });
+
+      expect(results).toHaveLength(3);
+      expect(results[0].searchUrl).toContain('jumia.com.eg');
+      expect(results[1].searchUrl).toContain('defacto.com');
+      expect(results[2].searchUrl).toContain('lotfy.com');
+    });
+
+    it('16. Ungrounded LLM recommendations with fabricated deep URLs are rejected in favor of verified store searchUrl', async () => {
+      // Simulate ungrounded response where LLM provides listing page and dead domain
+      const mockSuggestions = [
+        {
+          slot: 'shoes',
+          itemType: 'oxfords',
+          title: 'حذاء أكسفورد كلاسيكي',
+          estimatedPriceEgp: 2899,
+          retailer: 'زارا مصر',
+          sourceUrl: 'https://www.zara.com/eg/ar/men-trousers-l1111.html',
+        },
+        {
+          slot: 'bottom',
+          itemType: 'trousers',
+          title: 'بنطلون قماش كلاسيك',
+          estimatedPriceEgp: 1099,
+          retailer: 'LC Waikiki',
+          sourceUrl: 'https://www.lcwaikiki.com/ar-EG/EG/p/8537639',
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({ suggestions: mockSuggestions }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }], // No grounding chunks!
+        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 100 },
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'حذاء وبنطلون',
+        isShoppingRequest: true,
+      });
+
+      expect(results).toHaveLength(2);
+      // Hallucinated deep product URLs are strictly rejected
+      expect(results[0].sourceUrl).toBeNull();
+      expect(results[0].searchUrl).toContain('zara.com/eg/ar/search?searchTerm=');
+      expect(results[0].isGrounded).toBe(false);
+
+      expect(results[1].sourceUrl).toBeNull();
+      expect(results[1].searchUrl).toContain('lcwaikiki.eg/%D8%A8%D8%AD%D8%AB?q=');
+      expect(results[1].isGrounded).toBe(false);
+
+      // Non-domain retailer strings in buildRetailerLogoUrl return null
+      expect(buildRetailerLogoUrl("DeBacker's")).toBeNull();
+      expect(buildRetailerLogoUrl('Unknown Boutique')).toBeNull();
+      expect(buildRetailerLogoUrl('جوميا مصر')).toContain('google.com/s2/favicons?domain=jumia.com.eg');
+    });
+
+    it('17. Real product pages for Massimo Dutti (-c0p...) and Zara (-p...) populate sourceUrl to buy, and searchUrl to search the site', async () => {
+      const mockSuggestions = [
+        {
+          slot: 'shoes',
+          itemType: 'oxfords',
+          title: 'Leather Oxford Shoes',
+          estimatedPriceEgp: 12000,
+          retailer: 'Massimo Dutti',
+          sourceUrl: 'https://www.massimodutti.com/eg/en/oxford-shoes-c0p127014508.html',
+        },
+        {
+          slot: 'bottom',
+          itemType: 'suit trousers',
+          title: 'Comfort Suit Trousers',
+          estimatedPriceEgp: 1790,
+          retailer: 'Zara Egypt',
+          sourceUrl: 'https://www.zara.com/eg/en/comfort-suit-trousers-p04404332.html',
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({ suggestions: mockSuggestions }),
+        candidates: [{ groundingMetadata: {} }],
+        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 100 },
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'shoes and trousers',
+        isShoppingRequest: true,
+      });
+
+      expect(results).toHaveLength(2);
+
+      // Massimo Dutti: sourceUrl is direct product page to buy, searchUrl searches the same site
+      expect(results[0].sourceUrl).toBe('https://www.massimodutti.com/eg/en/oxford-shoes-c0p127014508.html');
+      expect(results[0].searchUrl).toContain('massimodutti.com/eg/en/search?searchTerm=');
+      expect(results[0].sourceUrl).not.toBe(results[0].searchUrl);
+
+      // Zara: sourceUrl is direct product page to buy, searchUrl searches the same site
+      expect(results[1].sourceUrl).toBe('https://www.zara.com/eg/en/comfort-suit-trousers-p04404332.html');
+      expect(results[1].searchUrl).toContain('zara.com/eg/ar/search?searchTerm=');
+      expect(results[1].sourceUrl).not.toBe(results[1].searchUrl);
     });
   });
 });

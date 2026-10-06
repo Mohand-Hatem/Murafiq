@@ -104,6 +104,7 @@ export const processTryOnJob = async (job) => {
       garmentImages,
       promptVersion: generation.promptVersion,
       resolution: generation.resolution,
+      timeoutMs: env.AI_TRY_ON_TIMEOUT_MS,
     });
 
     // 5. Upload result to Cloudinary authenticated private folder 'try-on-results'
@@ -176,6 +177,7 @@ export const startTryOnWorker = () => {
   tryOnWorker = new Worker('tryon-generation', processTryOnJob, {
     connection: redis,
     concurrency: 2,
+    lockDuration: 300_000,
   });
 
   tryOnWorker.on('completed', (job) => {

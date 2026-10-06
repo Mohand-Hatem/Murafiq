@@ -47,6 +47,38 @@ import cloudinary from '../../../config/cloudinary.config.js';
  * @param {Object} [params.options={}]
  * @returns {Promise<Object>} Rendered user-facing response payload
  */
+/**
+ * Derives appropriate shopping garment slots when searching complementary pieces.
+ * Ensures the anchor category itself is never included (e.g. sweater anchor doesn't ask for tops/sweaters).
+ *
+ * @param {Object|null} anchor
+ * @returns {Array<string>}
+ */
+const resolveShoppingSlots = (anchor) => {
+  if (!anchor) {
+    return ['top', 'bottom', 'shoes'];
+  }
+  const isTopOrKnitwear =
+    anchor.category === 'top' ||
+    (anchor.category === 'outerwear' &&
+      /sweater|pullover|knit|hoodie|cardigan|sweatshirt|quarter[_\s-]*zip/i.test(
+        `${anchor.subcategory || ''} ${anchor.styleTags?.join(' ') || ''}`
+      ));
+  if (isTopOrKnitwear) {
+    return ['bottom', 'shoes'];
+  }
+  if (anchor.category === 'bottom') {
+    return ['top', 'shoes'];
+  }
+  if (anchor.category === 'shoes') {
+    return ['top', 'bottom'];
+  }
+  if (anchor.category === 'dress') {
+    return ['shoes'];
+  }
+  return deriveComplementarySlots(anchor.category).filter((s) => s !== anchor.category);
+};
+
 export const runStylistPipeline = async ({
   userId,
   message,
@@ -203,7 +235,7 @@ export const runStylistPipeline = async ({
   }
 
   // Resolve unified gender presentation:
-  // Explicit message intent takes priority; fallback to registered account gender, then 'unisex'
+  // Explicit message intent takes priority; fallback to registered account gender, then anchor garment gender, then 'unisex'
   const userGender = userProfile?.gender;
   const userGenderPresentation =
     userGender === 'male'
@@ -212,8 +244,15 @@ export const runStylistPipeline = async ({
       ? 'feminine'
       : null;
 
+  const anchorGarmentGender =
+    intent.garmentAnalysis?.genderPresentation === 'masculine'
+      ? 'masculine'
+      : intent.garmentAnalysis?.genderPresentation === 'feminine'
+      ? 'feminine'
+      : null;
+
   const resolvedGenderPresentation =
-    intent.genderPresentation || userGenderPresentation || 'unisex';
+    intent.genderPresentation || userGenderPresentation || anchorGarmentGender || 'unisex';
 
   const resolvedDressCode = resolveDressCode(intent.eventType);
   const season = intent.season || (intent.context && intent.context.season) || deriveSeason(new Date(), BUSINESS_TIMEZONE);
@@ -320,8 +359,14 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest) {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          const anchorDesc = anchor
+            ? [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ')
+            : null;
+          gapQuery = anchorDesc
+            ? (intent.retrievalQueryEn || `pieces to pair with ${anchorDesc}`)
+            : (intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit');
+          const targetSlots = resolveShoppingSlots(anchor);
+          gapItems = targetSlots.map((s) => ({ slot: s }));
         } else {
           const gapDescriptions = capacity.missingSlots.map((s) =>
             renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
@@ -340,6 +385,7 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          anchor,
         });
 
         traceLogger.logTraceStep({
@@ -592,8 +638,14 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest && compResult.sufficiency === 'good') {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          const anchorDesc = anchor
+            ? [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ')
+            : null;
+          gapQuery = anchorDesc
+            ? (intent.retrievalQueryEn || `pieces to pair with ${anchorDesc}`)
+            : (intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit');
+          const targetSlots = resolveShoppingSlots(anchor);
+          gapItems = targetSlots.map((s) => ({ slot: s }));
         } else {
           gapQuery =
             compResult.gapDescriptions?.length > 0
@@ -615,6 +667,7 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          anchor,
         });
 
         traceLogger.logTraceStep({

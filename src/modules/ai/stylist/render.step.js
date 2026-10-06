@@ -6,6 +6,8 @@
  * prompts, preventing prompt injection bypasses (Defense in Depth Layer 3).
  */
 
+import { buildRetailerLogoUrl } from '../products/product-search.service.js';
+
 const ACQUISITION_TEMPLATES = Object.freeze({
   shoes: {
     formal: {
@@ -218,21 +220,25 @@ export const renderStylistResponse = ({
   let suggestedToAcquire = [];
 
   if (Array.isArray(externalSuggestions) && externalSuggestions.length > 0) {
-    suggestedToAcquire = externalSuggestions.map((s) => ({
-      slot: s.slot || 'accessory',
-      itemType: s.itemType || s.title || 'Fashion Garment',
-      title: s.title || 'Suggested Piece',
-      description: s.description || '',
-      estimatedPriceEgp: typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null,
-      retailer: s.retailer || 'Online Retailer',
-      sourceUrl: s.sourceUrl || null,
-      sourceTitle: s.sourceTitle || null,
-      imageUrl: s.imageUrl || null,
-      citations: Array.isArray(s.citations) ? s.citations : [],
-      isGrounded: Boolean(s.isGrounded),
-      outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
-      outfitTitle: s.outfitTitle || null,
-    }));
+    suggestedToAcquire = externalSuggestions.map((s) => {
+      const fallbackLogo = s.retailer ? buildRetailerLogoUrl(s.retailer) : null;
+      return {
+        slot: s.slot || 'accessory',
+        itemType: s.itemType || s.title || 'Fashion Garment',
+        title: s.title || 'Suggested Piece',
+        description: s.description || '',
+        estimatedPriceEgp: typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null,
+        retailer: s.retailer || 'Online Retailer',
+        sourceUrl: s.sourceUrl || null,
+        sourceTitle: s.sourceUrl ? (s.sourceTitle || (s.retailer ? `${s.retailer} - ${s.title}` : s.title)) : null,
+        searchUrl: s.searchUrl || null,
+        imageUrl: s.imageUrl || fallbackLogo || null,
+        citations: Array.isArray(s.citations) ? s.citations : [],
+        isGrounded: Boolean(s.isGrounded),
+        outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
+        outfitTitle: s.outfitTitle || null,
+      };
+    });
   } else if (isShoppingRequest && searchQuotaBlocked) {
     // For explicit shopping requests when quota is blocked, return empty suggestions rather than
     // misleading ungrounded cards with null URLs/retailers, so the UI can clearly present the upgrade CTA.
@@ -252,6 +258,7 @@ export const renderStylistResponse = ({
         retailer: null,
         sourceUrl: null,
         sourceTitle: null,
+        searchUrl: null,
         imageUrl: null,
         citations: [],
         isGrounded: false,
@@ -268,6 +275,7 @@ export const renderStylistResponse = ({
         retailer: null,
         sourceUrl: null,
         sourceTitle: null,
+        searchUrl: null,
         imageUrl: null,
         citations: [],
         isGrounded: false,

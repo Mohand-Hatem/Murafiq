@@ -83,11 +83,9 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
-  AI_IMAGE_PROVIDER: z.enum(['gemini', 'mock', 'openrouter']).default('gemini'),
+  AI_IMAGE_PROVIDER: z.enum(['gemini', 'mock']).default('gemini'),
   AI_MODEL_IMAGE: z.string().default('gemini-3.1-flash-lite-image'),
   AI_IMAGE_RESOLUTION: z.enum(['512x512', '1024x1024']).default('1024x1024'),
-  OPENROUTER_API_KEY: z.string().optional(),
-  AI_TRY_ON_MODEL: z.string().default('google/gemini-3.1-flash-lite-image'),
   AI_TRY_ON_TIMEOUT_MS: z.coerce.number().default(60000),
   // Moderation enforcement switch (see moderation.service.js scanAndEnforce). This field
   // was previously read from `env.MODERATION_MODE` with no schema entry -- Zod's default

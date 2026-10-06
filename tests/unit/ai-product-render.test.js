@@ -123,7 +123,7 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
     expect(result.suggestedToAcquire[0].imageUrl).toBe('https://static.zara.net/photos/sample-oxford.jpg');
     expect(result.suggestedToAcquire[0].citations).toHaveLength(1);
     expect(result.suggestedToAcquire[1].retailer).toBe('Massimo Dutti Egypt');
-    expect(result.suggestedToAcquire[1].imageUrl).toBeNull();
+    expect(result.suggestedToAcquire[1].imageUrl).toContain('google.com/s2/favicons?domain=massimodutti.com');
 
     // Human stylist booking CTA is active
     expect(result.suggestBookStylist).toBe(true);
@@ -153,6 +153,7 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
       retailer: null,
       sourceUrl: null,
       sourceTitle: null,
+      searchUrl: null,
       imageUrl: null,
       citations: [],
       isGrounded: false,
@@ -195,5 +196,36 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
     expect(result.suggestedToAcquire[0].sourceUrl).toBe('https://www.zara.com/eg/en/tuxedo-blazer-p123.html');
     expect(result.suggestedToAcquire[0].sourceTitle).toBe('Zara Egypt Online Store');
     expect(result.stylistBookingCta).toContain('احجز استشارة خاصة مع منسق أزياء معتمد');
+  });
+
+  it('keeps sourceUrl as null when absent, populates searchUrl, and falls back to retailer logo when imageUrl is null', () => {
+    const suggestions = [
+      {
+        slot: 'shoes',
+        itemType: 'shoes',
+        title: 'Leather Oxford Shoes',
+        retailer: 'Lotfy',
+        sourceUrl: null,
+        searchUrl: 'https://lotfy.com/search?q=shoes',
+        imageUrl: null,
+        citations: [],
+        isGrounded: false,
+      },
+    ];
+
+    const result = renderStylistResponse({
+      outfits: [],
+      sufficiency: 'none',
+      missingSlots: ['shoes'],
+      gapDescriptions: ['formal shoes'],
+      externalSuggestions: suggestions,
+      hydratedItemsMap: new Map(),
+      language: 'en',
+    });
+
+    expect(result.suggestedToAcquire).toHaveLength(1);
+    expect(result.suggestedToAcquire[0].sourceUrl).toBeNull();
+    expect(result.suggestedToAcquire[0].searchUrl).toBe('https://lotfy.com/search?q=shoes');
+    expect(result.suggestedToAcquire[0].imageUrl).toContain('google.com/s2/favicons?domain=lotfy.com');
   });
 });

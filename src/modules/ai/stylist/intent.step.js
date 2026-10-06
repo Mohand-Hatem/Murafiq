@@ -161,6 +161,9 @@ ${EVENT_TYPES.map((t) => `   - ${t}`).join('\n')}
 4. "timeOfDay": Extract time context ('morning', 'afternoon', 'evening', 'night') or null.
 5. "setting": Extract location context ('indoor', 'outdoor') or null.
 6. "genderPresentation": Extract target presentation ('men', 'women', 'unisex') or null.
+   - ARABIC GENDER INFLECTION RULE: In Arabic dialects, infer the target gender from verb and noun inflections:
+     * Words like "عايز", "محتاج", "لبسي", "رجالي", "بدلة", "قميص" indicate 'men'.
+     * Words like "عايزة", "محتاجة", "فستاني", "حريمي", "فستان", "بلوزة" indicate 'women'.
 7. "explicitConstraints": List specific user constraints (e.g., "no polyester", "prefer navy or charcoal", "modest long sleeves").
 8. "retrievalQueryEn": A concise, descriptive English search phrase representing the key clothing items and style attributes needed for wardrobe retrieval (e.g., "navy blue formal evening gown", "charcoal two piece business suit oxford shoes"). This is mandatory for both Arabic and English requests.
 9. "confidence": Confidence score between 0.0 and 1.0.
