@@ -102,4 +102,52 @@ describe('Phase 15E Step 2 — LLM Provider Grounding Support (llm.provider.js)'
     expect(result.groundingMetadata).toBeNull();
     expect(result.data).toEqual({ result: 'ok' });
   });
+
+  it('extracts citations from candidate parts annotations (url_citation) and citationMetadata per Google GenAI documentation', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({ items: [{ title: 'Noon Black Shoes' }] }),
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: 'Noon Black Shoes',
+                annotations: [
+                  {
+                    type: 'url_citation',
+                    url: 'https://www.noon.com/egypt-en/p-12345/',
+                    title: 'Noon Egypt Shoes',
+                    start_index: 0,
+                    end_index: 16,
+                  },
+                ],
+              },
+            ],
+          },
+          citationMetadata: {
+            citationSources: [
+              {
+                uri: 'https://www.amazon.eg/dp/B08XYZ1234',
+                title: 'Amazon Egypt Shoes',
+                startIndex: 0,
+                endIndex: 16,
+              },
+            ],
+          },
+        },
+      ],
+      usageMetadata: { promptTokenCount: 60, candidatesTokenCount: 30 },
+    });
+
+    const result = await complete({
+      task: 'reasoning',
+      userParts: 'Search shoes on Noon and Amazon',
+      tools: [{ googleSearch: {} }],
+    });
+
+    expect(result.groundingMetadata).toBeDefined();
+    expect(result.groundingMetadata.groundingChunks).toHaveLength(2);
+    expect(result.groundingMetadata.groundingChunks[0].web.uri).toBe('https://www.noon.com/egypt-en/p-12345/');
+    expect(result.groundingMetadata.groundingChunks[1].web.uri).toBe('https://www.amazon.eg/dp/B08XYZ1234');
+  });
 });

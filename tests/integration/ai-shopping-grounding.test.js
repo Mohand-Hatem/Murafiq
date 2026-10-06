@@ -523,4 +523,76 @@ describe('Integration — Production Google Shopping Grounding & Anti-Fabricatio
       expect(results).toEqual([]);
     });
   });
+
+  describe('6. Retailer Priority Order (Noon, Amazon, Jumia) & Bot Protection Resilience', () => {
+    it('instructs model with Noon -> Amazon -> Jumia priority and preserves sourceUrl when live scraper is blocked by bot protection', async () => {
+      // Mock HTTP fetch to simulate Cloudflare/Amazon bot challenge (403/503)
+      setHttpFetchOverride(async () => ({
+        status: 403,
+        ok: false,
+        url: 'https://www.noon.com/egypt-en/casual-chinos/N53345678A/p/',
+        headers: { get: () => 'text/html' },
+        text: async () => '<html><body>Cloudflare bot challenge</body></html>',
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              slot: 'bottom',
+              itemType: 'chinos',
+              title: 'Noon Egypt Slim Chinos',
+              retailer: 'Noon Egypt',
+              description: 'Dark navy chinos from Noon Egypt.',
+              estimatedPriceEgp: 899,
+              sourceUrl: 'https://www.noon.com/egypt-en/casual-chinos/N53345678A/p/',
+              imageUrl: 'https://f.nooncdn.com/products/tr:n-t_400/chinos.jpg',
+            },
+          ],
+        }),
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [
+                {
+                  web: {
+                    uri: 'https://www.noon.com/egypt-en/casual-chinos/N53345678A/p/',
+                    title: 'Noon Egypt Casual Chinos',
+                  },
+                },
+              ],
+              groundingSupports: [
+                {
+                  segment: { text: 'Noon Egypt Slim Chinos' },
+                  groundingChunkIndices: [0],
+                },
+              ],
+            },
+          },
+        ],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'navy chinos',
+        locale: 'en',
+      });
+
+      // System instruction must specify the mandatory priority order: Noon -> Amazon -> Jumia
+      const sentConfig = mockGenerateContent.mock.calls[0][0].config;
+      expect(sentConfig.systemInstruction).toContain('MANDATORY RETAILER SEARCH PRIORITY (EGYPT)');
+      expect(sentConfig.systemInstruction).toContain('1. Noon Egypt (noon.com)');
+      expect(sentConfig.systemInstruction).toContain('2. Amazon Egypt (amazon.eg)');
+      expect(sentConfig.systemInstruction).toContain('3. Jumia Egypt (jumia.com.eg)');
+
+      expect(results).toHaveLength(1);
+      const item = results[0];
+      expect(item.retailer).toBe('Noon Egypt');
+      // Must NOT be null even though fetch was challenged with 403 bot check!
+      expect(item.sourceUrl).toBe('https://www.noon.com/egypt-en/casual-chinos/N53345678A/p/');
+      expect(item.isGrounded).toBe(true);
+      expect(item.searchUrl).toContain('noon.com/egypt-ar/search/?q=');
+      expect(item.citations).toHaveLength(1);
+    });
+  });
 });

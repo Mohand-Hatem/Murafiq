@@ -18,6 +18,7 @@ import {
   searchExternalProducts,
   verifyDirectProductUrl,
   verifyProductImageUrl,
+  extractProductSku,
   mapSuggestionsToGrounding,
   getKnownRetailerInfo,
   buildRetailerSearchUrl,
@@ -26,6 +27,10 @@ import {
   clearInMemoryProductCache,
   CACHE_TTL_SECONDS,
 } from '../../src/modules/ai/products/product-search.service.js';
+import {
+  setHttpFetchOverride,
+  resetHttpFetchOverride,
+} from '../../src/modules/ai/products/product-page-verifier.js';
 import { setGenAiClient } from '../../src/modules/ai/providers/llm.provider.js';
 
 describe('Phase 15E Step 3 — product-search.service.js', () => {
@@ -57,6 +62,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
   afterEach(() => {
     setProductSearchRedisOverride(null, null);
     clearInMemoryProductCache();
+    resetHttpFetchOverride();
     setGenAiClient(null);
     jest.restoreAllMocks();
   });
@@ -797,6 +803,65 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
 
       // Authentic retailer CDN image accepted
       expect(verifyProductImageUrl('https://static.zara.net/photos/shoes_12345.jpg', mockItem)).toBe('https://static.zara.net/photos/shoes_12345.jpg');
+    });
+
+    it('21. extractProductSku correctly parses Noon, Amazon, Jumia, and Zara identifiers', () => {
+      expect(extractProductSku('https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/')).toBe('Z2B283B355C374C4EC18CZ');
+      expect(extractProductSku('https://f.nooncdn.com/products/tr:n-t_400/Z2B283B355C374C4EC18CZ_1.jpg')).toBe('Z2B283B355C374C4EC18CZ');
+      expect(extractProductSku('https://www.amazon.eg/dp/B08XYZ1234')).toBe('B08XYZ1234');
+      expect(extractProductSku('https://www.jumia.com.eg/mr-joe-shoes-8794031.html')).toBe('8794031');
+      expect(extractProductSku('https://www.zara.com/eg/en/wide-leg-suit-trousers-p02761045.html')).toBe('02761045');
+      expect(extractProductSku('https://example.com/')).toBeNull();
+    });
+
+    it('22. Noon Egypt product link with Cloudflare abort preserves direct sourceUrl and resolves authentic Noon CDN image', async () => {
+      setHttpFetchOverride(async () => {
+        throw new Error('This operation was aborted');
+      });
+
+      const noonProductUrl = 'https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/';
+      const noonSuggestion = {
+        title: 'بنطلون رجالي كلاسيك رسمي كحلي',
+        itemType: 'بنطلون قماش',
+        slot: 'bottom',
+        description: 'بنطلون بدلة رجالي كلاسيكي',
+        retailer: 'نون مصر',
+        sourceUrl: noonProductUrl,
+        imageUrl: null, // Scrape was blocked by Cloudflare
+      };
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [noonSuggestion],
+        }),
+        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 200 },
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [
+                { web: { uri: noonProductUrl, title: 'Noon Egypt Trousers' } },
+              ],
+              groundingSupports: [],
+            },
+          },
+        ],
+      });
+
+      const results = await searchExternalProducts({
+        gapDescription: 'بنطلون رجالي كلاسيك رسمي كحلي',
+        locale: 'ar',
+      });
+
+      expect(results).toHaveLength(1);
+      const item = results[0];
+      expect(item.retailer).toBe('نون مصر');
+      expect(item.sourceUrl).toBe(noonProductUrl);
+      // Resolved to real Noon product CDN image based on SKU, NOT a favicon
+      expect(item.imageUrl).toBe('https://f.nooncdn.com/products/tr:n-t_400/Z2B283B355C374C4EC18CZ_1.jpg');
+      expect(item.imageUrl).not.toContain('favicons');
+      expect(item.isGrounded).toBe(true);
+      expect(item.citations).toHaveLength(1);
+      expect(item.citations[0].url).toBe(noonProductUrl);
     });
   });
 });

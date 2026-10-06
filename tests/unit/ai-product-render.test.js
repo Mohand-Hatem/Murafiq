@@ -123,7 +123,8 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
     expect(result.suggestedToAcquire[0].imageUrl).toBe('https://static.zara.net/photos/sample-oxford.jpg');
     expect(result.suggestedToAcquire[0].citations).toHaveLength(1);
     expect(result.suggestedToAcquire[1].retailer).toBe('Massimo Dutti Egypt');
-    expect(result.suggestedToAcquire[1].imageUrl).toContain('google.com/s2/favicons?domain=massimodutti.com');
+    expect(result.suggestedToAcquire[1].imageUrl).toBeNull();
+    expect(result.suggestedToAcquire[1].retailerLogoUrl).toContain('google.com/s2/favicons?domain=massimodutti.com');
 
     // Human stylist booking CTA is active
     expect(result.suggestBookStylist).toBe(true);
@@ -226,6 +227,52 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
     expect(result.suggestedToAcquire).toHaveLength(1);
     expect(result.suggestedToAcquire[0].sourceUrl).toBeNull();
     expect(result.suggestedToAcquire[0].searchUrl).toBe('https://lotfy.com/search?q=shoes');
-    expect(result.suggestedToAcquire[0].imageUrl).toContain('google.com/s2/favicons?domain=lotfy.com');
+    expect(result.suggestedToAcquire[0].imageUrl).toBeNull();
+    expect(result.suggestedToAcquire[0].retailerLogoUrl).toContain('google.com/s2/favicons?domain=lotfy.com');
+  });
+
+  it('filters out ungrounded suggestions with null sourceUrl during shopping requests when verified items exist', () => {
+    const mixedSuggestions = [
+      {
+        slot: 'top',
+        itemType: 'shirt',
+        title: 'Casual Shirt (Failed category URL)',
+        retailer: 'Noon Egypt',
+        sourceUrl: null, // failed syntax/category verification
+        imageUrl: null,
+        isGrounded: false,
+      },
+      {
+        slot: 'bottom',
+        itemType: 'chino pants',
+        title: 'Classic Chino Pants',
+        retailer: 'Noon Egypt',
+        sourceUrl: 'https://www.noon.com/egypt-en/chino-pants/Z123/p/',
+        imageUrl: 'https://f.nooncdn.com/products/tr:n-t_400/Z123_1.jpg',
+        isGrounded: true,
+      },
+      {
+        slot: 'shoes',
+        itemType: 'loafers',
+        title: 'Leather Loafers',
+        retailer: 'Noon Egypt',
+        sourceUrl: 'https://www.noon.com/egypt-en/leather-loafers/Z456/p/',
+        imageUrl: 'https://f.nooncdn.com/products/tr:n-t_400/Z456_1.jpg',
+        isGrounded: true,
+      },
+    ];
+
+    const result = renderStylistResponse({
+      outfits: [],
+      sufficiency: 'good',
+      externalSuggestions: mixedSuggestions,
+      hydratedItemsMap: new Map(),
+      isShoppingRequest: true,
+      language: 'ar',
+    });
+
+    expect(result.suggestedToAcquire).toHaveLength(2);
+    expect(result.suggestedToAcquire.every((item) => Boolean(item.sourceUrl))).toBe(true);
+    expect(result.suggestedToAcquire.map((item) => item.slot)).toEqual(['bottom', 'shoes']);
   });
 });

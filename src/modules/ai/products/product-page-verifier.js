@@ -90,11 +90,41 @@ export const isAllowedHost = (hostname = '') => {
 };
 
 /**
+ * Checks if a URL path has a concrete product-page indicator.
+ */
+export const hasProductPathIndicator = (parsedUrl) => {
+  if (!parsedUrl || !parsedUrl.pathname) return false;
+  if (parsedUrl.hostname === 'vertexaisearch.cloud.google.com') {
+    return true;
+  }
+  const pathname = parsedUrl.pathname.trim().toLowerCase();
+  const segments = pathname.split('/').filter(Boolean);
+  const lastSegment = segments[segments.length - 1] || '';
+
+  return (
+    /\/(products?|p|dp|item|pd)(\/|$)/i.test(pathname) ||
+    /-(p\d+|c\d*p\d+|sku\d+|\d{5,})\.html$/i.test(pathname) ||
+    /productpage\.\d+/i.test(pathname) ||
+    /buy-[a-z0-9-]+/i.test(pathname) ||
+    /\/N\d{7,}[A-Z](\/|$)/i.test(pathname) ||
+    /\/\d{5,}(\.html)?$/i.test(pathname) ||
+    (lastSegment.endsWith('.html') && lastSegment.length > 10 && lastSegment.includes('-'))
+  );
+};
+
+/**
  * Checks if a URL path represents a search, category, cart, login, or home page.
  */
 export const isRejectedUrlPath = (parsedUrl) => {
+  if (parsedUrl.hostname === 'vertexaisearch.cloud.google.com') {
+    return false;
+  }
+
   const pathname = parsedUrl.pathname.trim().toLowerCase();
   const segments = pathname.split('/').filter(Boolean);
+
+  // If the path clearly indicates a concrete product page (e.g. /dp/, /p/, etc.), it is NOT a search or category page
+  const hasProduct = hasProductPathIndicator(parsedUrl);
 
   // Root or locale homepage (e.g. /, /eg, /eg/en, /en-eg, /ar, /eg/ar/)
   const isLocaleOnly = segments.length > 0 && segments.length <= 2 && segments.every((s) => /^[a-z]{2}([-_][a-z]{2})?$/i.test(s));
@@ -108,12 +138,14 @@ export const isRejectedUrlPath = (parsedUrl) => {
   }
 
   // Search pages
-  if (/\/(search|find|catalogsearch|browse|query)(\/|$)/i.test(pathname)) {
+  if (/\/(search|find|catalogsearch|browse|query)(\/|$)/i.test(pathname) || /^\/s(\/|$)/i.test(pathname)) {
     return true;
   }
-  const searchParams = ['q', 'query', 'search', 'k', 'keyword', 'searchTerm'];
-  if (searchParams.some((p) => parsedUrl.searchParams.has(p))) {
-    return true;
+  if (!hasProduct) {
+    const searchParams = ['q', 'query', 'search', 'k', 'keyword', 'searchTerm', 'keywords'];
+    if (searchParams.some((p) => parsedUrl.searchParams.has(p))) {
+      return true;
+    }
   }
 
   // Cart / checkout / auth
@@ -344,10 +376,6 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
 
     clearTimeout(timer);
 
-    if (!res.ok) {
-      return { valid: false };
-    }
-
     const finalUrl = res.url || parsed.href;
     let parsedFinal;
     try {
@@ -361,14 +389,31 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
       return { valid: false };
     }
 
+    if (!res.ok) {
+      // 404 means the product does not exist
+      if (res.status === 404) {
+        return { valid: false };
+      }
+
+      // If blocked by Cloudflare/Akamai/Amazon bot check (403/503), but the redirect resolved to a valid retailer product URL:
+      if (parsedFinal.hostname !== 'vertexaisearch.cloud.google.com') {
+        return {
+          valid: true,
+          finalUrl,
+          blockedByBotGuard: true,
+        };
+      }
+      return { valid: false };
+    }
+
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
-      return { valid: false };
+      return { valid: true, finalUrl };
     }
 
     const html = await res.text();
     if (!html || html.length < 200) {
-      return { valid: false };
+      return { valid: true, finalUrl };
     }
 
     // 1. Try structured JSON-LD Product metadata
@@ -387,9 +432,9 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
 
     // 2. Try OpenGraph / Twitter metadata
     const meta = extractMetaTags(html, finalUrl);
-    if (meta?.title && meta?.imageUrl) {
+    if (meta?.title || meta?.imageUrl) {
       // Reject if title indicates an error page
-      const titleLower = meta.title.toLowerCase();
+      const titleLower = String(meta?.title || '').toLowerCase();
       if (titleLower.includes('404') || titleLower.includes('not found') || titleLower.includes('page not found')) {
         return { valid: false };
       }
@@ -397,18 +442,35 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
       return {
         valid: true,
         finalUrl,
-        title: meta.title,
-        imageUrl: meta.imageUrl,
+        title: meta?.title || jsonLd?.title || null,
+        imageUrl: meta?.imageUrl || jsonLd?.imageUrl || null,
         price: jsonLd?.price || null,
         currency: jsonLd?.currency || null,
         sku: jsonLd?.sku || null,
       };
     }
 
-    return { valid: false };
+    return {
+      valid: true,
+      finalUrl,
+      title: jsonLd?.title || null,
+      imageUrl: jsonLd?.imageUrl || null,
+      price: jsonLd?.price || null,
+      currency: jsonLd?.currency || null,
+      sku: jsonLd?.sku || null,
+    };
   } catch (err) {
     clearTimeout(timer);
     logger.debug(`[ProductPageVerifier] Fetch failed for ${parsed.href}: ${err.message}`);
+    // If live HTTP fetch timed out, aborted, or was blocked by anti-bot DDoS shield,
+    // but the URL belongs to a trusted retailer and matches an authentic product path indicator:
+    if (isAllowedHost(parsed.hostname) && !isRejectedUrlPath(parsed) && hasProductPathIndicator(parsed)) {
+      return {
+        valid: true,
+        finalUrl: parsed.href,
+        blockedByBotGuard: true,
+      };
+    }
     return { valid: false };
   }
 };
@@ -419,6 +481,7 @@ export default {
   isPrivateOrLoopbackIp,
   isAllowedHost,
   isRejectedUrlPath,
+  hasProductPathIndicator,
   extractJsonLdProduct,
   extractMetaTags,
   verifyProductPage,

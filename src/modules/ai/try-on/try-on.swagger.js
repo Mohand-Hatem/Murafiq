@@ -27,20 +27,20 @@
  *               shapeModelId:
  *                 type: string
  *                 example: 66e5f32b842345001a123456
- *                 description: ObjectId of client's active Shape Model
+ *                 description: "REQUIRED. ObjectId of client's active Shape Model."
  *               outfitId:
  *                 type: string
  *                 example: 66e5f32b842345001a123458
- *                 description: ObjectId of a saved or AI-generated outfit to try on in full (resolves its wardrobe items automatically)
+ *                 description: "OPTIONAL*. ObjectId of a saved or AI-generated outfit to try on in full. When supplied, garments is not needed. (*Must provide at least one of outfitId, itemId, or garments)"
  *               itemId:
  *                 type: string
  *                 example: 66e5f32b842345001a123457
- *                 description: ObjectId of a single wardrobe item to try on
+ *                 description: "OPTIONAL*. ObjectId of a single wardrobe item to try on. (*Must provide at least one of outfitId, itemId, or garments)"
  *               garments:
  *                 type: array
  *                 minItems: 1
  *                 maxItems: 4
- *                 description: Optional explicit list of 1 to 4 garments (when not providing outfitId or itemId)
+ *                 description: "OPTIONAL*. Array of 1 to 4 garments. (*Must provide at least one of outfitId, itemId, or garments)"
  *                 items:
  *                   type: object
  *                   required:
@@ -49,27 +49,32 @@
  *                     source:
  *                       type: string
  *                       enum: [wardrobe, upload]
+ *                       description: "REQUIRED. Must be either 'wardrobe' or 'upload'."
  *                     itemId:
  *                       type: string
  *                       example: 66e5f32b842345001a123457
- *                       description: Required when source is wardrobe
+ *                       description: "CONDITIONAL. Required when source is 'wardrobe'. Must be omitted/ignored when source is 'upload'."
  *                     imageRef:
  *                       type: string
  *                       example: murafiq/ai-chat/507f1f77bcf86cd799439011/item-123
- *                       description: Required when source is upload
+ *                       description: "CONDITIONAL. Required when source is 'upload'. Must start with murafiq/ai-chat/<userId>/."
  *                     slot:
  *                       type: string
  *                       enum: [top, bottom, outerwear, shoes, dress, accessory]
+ *                       description: "OPTIONAL for wardrobe (automatically takes wardrobe item category or defaults to 'top'); REQUIRED for upload."
  *                     label:
  *                       type: string
  *                       example: Navy Blazer
+ *                       description: "OPTIONAL for both. Falls back to wardrobe item title or 'Uploaded item' if omitted."
  *               resolution:
  *                 type: string
  *                 enum: [512x512, 1024x1024]
  *                 default: 1024x1024
+ *                 description: "OPTIONAL. Target try-on image resolution. Defaults to '1024x1024'."
  *               promptVersion:
  *                 type: string
  *                 default: v1
+ *                 description: "OPTIONAL. Internal generation prompt template version. Defaults to 'v1'."
  *     responses:
  *       202:
  *         description: Try-on request accepted for background processing

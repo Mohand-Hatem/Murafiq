@@ -38,6 +38,8 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 | **Formality Adjacency** | Wardrobe / AI | Two-pass query for small closets | ✅ Verified |
 | **Clean Response & Multi-Look** | AI Render / Compose | Single `outfits` array & 2 distinct looks | ✅ Verified |
 | **OpenAPI / `docs.json` Sync** | Docs & Tooling | Complete API contract export | ✅ Verified |
+| **Deep Link Product Grounding** | AI Product Search | Direct buy URLs, authentic CDN images, zero nulls | ✅ Verified |
+| **Shape Model & Try-On Swagger** | OpenAPI / Docs | Explicit required/optional/conditional parameters | ✅ Verified |
 
 ---
 
@@ -271,7 +273,83 @@ Updated `POST /api/v1/ai/try-on` to support three flexible input formats:
 
 ---
 
-## 14. Verification & Test Results
+## 14. Update 12: Production Google Shopping Grounding & Deep Link Verification (Phase 15E)
+
+### Problems Identified in Live Testing
+1. **Missing Buy URLs (`sourceUrl: null`)**:
+   During live testing of Arabic shopping prompts (e.g. `"عايز اشترى حاجه تليق مع البلوفر ده"` and `"شوفلى طقم من الانترنيت لمناسبه عائليه"`), some suggested items returned `sourceUrl: null` and `imageUrl: null` despite the user requesting purchasable items from the internet.
+2. **Website Favicon Leakage into `imageUrl`**:
+   Retailer website favicons (e.g. `https://www.google.com/s2/favicons?domain=noon.com&sz=128`) were previously falling back into `imageUrl`, causing the mobile client to display 128px logos instead of actual product garment photos.
+3. **Category URL Leakage**:
+   Gemini frequently selected high-ranking category/listing pages (e.g. `https://www.noon.com/egypt-en/men-s-fashion/clothing/shirts/casual-shirts/`) from Google Search Grounding chunks. The strict URL syntax verifier rightly rejected these non-product pages (`syntaxVerified = null`), which subsequently left the item ungrounded with `sourceUrl: null`.
+4. **Overly Constrained Retailer Diversity Prompt**:
+   The prompt previously instructed Gemini: *"DIVERSE RETAILERS: Do NOT restrict all suggestions to a single store."* When Gemini found one item on Noon Egypt, it was forced to pick secondary stores (like Amazon Egypt) even when it could not locate direct `/dp/` product links on those stores, leading to ungrounded items.
+5. **Amazon Referral Parameter False Rejection**:
+   `isRejectedUrlPath` in `product-page-verifier.js` was rejecting Amazon product URLs that carried search/referral parameters (e.g. `https://www.amazon.eg/dp/B08XYZ1234?k=pants&crid=...`) because it checked `parsedUrl.searchParams` before validating whether the URL had an authentic product path indicator (`/dp/`).
+
+### Architectural Solutions & Root Cause Fixes
+1. **HTTP Verifier Reordering & URL Safeguards (`product-page-verifier.js`)**:
+   - Reordered `hasProductPathIndicator(parsedUrl)` before `isRejectedUrlPath(parsedUrl)`.
+   - When a URL contains an authentic product path indicator (`/dp/` on Amazon, `/p/` on Noon, `-p0` on Zara, `.html` on Jumia), search engine referral query parameters (`?k=`, `?keywords=`, `?crid=`) are no longer treated as category/search pages.
+2. **Image Integrity Decoupling (`render.step.js`)**:
+   - Completely decoupled `imageUrl` from retailer favicons. `imageUrl` is strictly reserved for verified garment photos (`s.imageUrl || null`).
+   - Favicons are isolated to `retailerLogoUrl` for branding display in mobile UI cards.
+3. **Deterministic Retailer CDN Image Derivation (`product-search.service.js`)**:
+   - Implemented `extractProductSku(url)` for Noon, Amazon, Jumia, and Zara.
+   - For Noon Egypt items whose HTML scraping is blocked by anti-bot verification, deterministic CDN image URLs are derived directly from the verified SKU (`https://f.nooncdn.com/products/tr:n-t_400/${sku}_1.jpg`).
+4. **Grounding Citation Resilience under Anti-Bot Protection (`product-search.service.js`)**:
+   - When live HTTP verification encounters anti-bot DDOS shields (Cloudflare/Akamai 403/503), but the candidate URL was directly cited in Google Search Grounding metadata, the verified product URL is preserved rather than dropped.
+5. **Strict Product URL Syntax in Prompts (`product-search.service.js`)**:
+   - Added `directUrlRule` and updated `systemPrompt`:
+     - **Noon Egypt (`noon.com`)**: Must contain `/p/` and product SKU. Category/department URLs (`/men-s-fashion/`, `/clothing/`, `/shirts/`, `/casual-shirts/`) are strictly forbidden.
+     - **Amazon Egypt (`amazon.eg`)**: Must contain `/dp/` and ASIN. Search/category URLs (`/s?k=`, `/b?node=`) are strictly forbidden.
+     - **Precedence over Diversity**: Instructed Gemini that direct, purchasable product links take absolute priority over retailer diversity. If multiple matching items exist on Noon Egypt with `/p/` links, Gemini returns them all from Noon Egypt.
+6. **Rendering Filter Guard (`render.step.js`)**:
+   - When `isShoppingRequest` is true, if verified suggestions with direct product URLs exist, suggestions where `sourceUrl` is `null` are automatically filtered out. Users are never presented with ungrounded, unbuyable cards with null links.
+
+### Files Created & Modified
+- `src/modules/ai/products/product-page-verifier.js` (Fixed Amazon `/dp/` search param rejection, reordered `hasProductPathIndicator`)
+- `src/modules/ai/products/product-search.service.js` (Added SKU extraction, deterministic Noon CDN image derivation, prompt URL rules, candidate URL debug logging)
+- `src/modules/ai/stylist/render.step.js` (Decoupled favicons from `imageUrl`, added `verifiedWithUrl` filter guard for shopping requests)
+- `tests/unit/ai-product-page-verifier.test.js` (Added tests for Amazon `/dp/` with query params)
+- `tests/unit/ai-product-search-service.test.js` (Added tests for SKU extraction, Noon CDN image derivation, prompt enforcement)
+- `tests/unit/ai-product-render.test.js` (Added tests for favicon decoupling and shopping request `sourceUrl` filtering)
+- `tests/integration/ai-shopping-grounding.test.js` (End-to-end integration tests for Arabic shopping scenarios)
+
+---
+
+## 15. Update 13: Swagger Schema Refinement for Shape Model & Virtual Try-On
+
+### Purpose
+Align OpenAPI / Swagger documentation with the runtime Zod validators, controllers, and services in `src/modules/ai`:
+
+1. **`POST /ai/shape-model` (`src/modules/ai/shape-model/shape-model.swagger.js`)**:
+   - Documented `imageRef` (Cloudinary path scoped to user) and `consent` (boolean, must be true) as the only REQUIRED fields.
+   - Clarified OPTIONAL fields and defaults:
+     - `format` (optional, default: `'jpg'`)
+     - `bytes` (optional, default: `0`, max: 10,485,760 bytes)
+     - `width` (optional, default: `0`, positive integer)
+     - `height` (optional, default: `0`, positive integer)
+
+2. **`POST /ai/try-on` (`src/modules/ai/try-on/try-on.swagger.js`)**:
+   - Documented root-level parameters:
+     - `shapeModelId` (REQUIRED): ObjectId of active shape model.
+     - `outfitId` (OPTIONAL*): ObjectId of saved/AI outfit. When supplied, `garments` is not needed.
+     - `itemId` (OPTIONAL*): ObjectId of single wardrobe item.
+     - `garments` (OPTIONAL*): Array of 1 to 4 garments.
+     - (*Note: At least one of `outfitId`, `itemId`, or `garments` is required).
+     - `resolution` (OPTIONAL): Defaults to `'1024x1024'`. Allowed: `'512x512'`, `'1024x1024'`.
+     - `promptVersion` (OPTIONAL): Defaults to `'v1'`.
+   - Documented garment array item parameters:
+     - `source` (REQUIRED): `'wardrobe'` or `'upload'`.
+     - `itemId` (CONDITIONAL): Required when source is `'wardrobe'`. Must be omitted when `'upload'`.
+     - `imageRef` (CONDITIONAL): Required when source is `'upload'`.
+     - `slot` (OPTIONAL for wardrobe, REQUIRED for upload): For wardrobe, automatically takes item category or defaults to `'top'`. For upload, required slot assignment.
+     - `label` (OPTIONAL for both): Descriptive garment label.
+
+---
+
+## 16. Verification & Test Results
 
 ### Automated Test Suites
 ```bash

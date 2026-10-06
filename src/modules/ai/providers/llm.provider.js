@@ -168,7 +168,62 @@ export const complete = async ({
 
       const inputTokens = response?.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
-      const groundingMetadata = response?.candidates?.[0]?.groundingMetadata || null;
+
+      const candidate = response?.candidates?.[0];
+      let groundingMetadata = candidate?.groundingMetadata || response?.groundingMetadata || null;
+
+      // Extract inline annotations and citations per Google GenAI documentation
+      const extraCitations = [];
+
+      // 1. Content parts annotations (e.g. { type: 'url_citation', url, title })
+      const candidateParts = candidate?.content?.parts || [];
+      for (const part of candidateParts) {
+        if (Array.isArray(part?.annotations)) {
+          for (const ann of part.annotations) {
+            if (ann?.type === 'url_citation' || ann?.url) {
+              extraCitations.push({
+                url: ann.url,
+                title: ann.title || 'Web Citation',
+                startIndex: ann.startIndex ?? ann.start_index,
+                endIndex: ann.endIndex ?? ann.end_index,
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Citation metadata sources
+      if (Array.isArray(candidate?.citationMetadata?.citationSources)) {
+        for (const cs of candidate.citationMetadata.citationSources) {
+          if (cs?.uri) {
+            extraCitations.push({
+              url: cs.uri,
+              title: cs.title || 'Web Citation',
+              startIndex: cs.startIndex,
+              endIndex: cs.endIndex,
+            });
+          }
+        }
+      }
+
+      // Synthesize groundingMetadata if groundingChunks was empty
+      if (extraCitations.length > 0) {
+        if (!groundingMetadata) {
+          groundingMetadata = {
+            groundingChunks: extraCitations.map((c) => ({ web: { uri: c.url, title: c.title } })),
+            groundingSupports: extraCitations.map((c, idx) => ({
+              segment: { startIndex: c.startIndex, endIndex: c.endIndex },
+              groundingChunkIndices: [idx],
+            })),
+          };
+        } else if (!Array.isArray(groundingMetadata.groundingChunks) || groundingMetadata.groundingChunks.length === 0) {
+          groundingMetadata.groundingChunks = extraCitations.map((c) => ({ web: { uri: c.url, title: c.title } }));
+          groundingMetadata.groundingSupports = extraCitations.map((c, idx) => ({
+            segment: { startIndex: c.startIndex, endIndex: c.endIndex },
+            groundingChunkIndices: [idx],
+          }));
+        }
+      }
 
       return {
         data: parsedData,

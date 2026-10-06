@@ -220,8 +220,20 @@ export const renderStylistResponse = ({
   let suggestedToAcquire = [];
 
   if (Array.isArray(externalSuggestions) && externalSuggestions.length > 0) {
-    suggestedToAcquire = externalSuggestions.map((s) => {
-      const fallbackLogo = s.retailer ? buildRetailerLogoUrl(s.retailer) : null;
+    let itemsToRender = externalSuggestions;
+
+    // For shopping requests, filter out any ungrounded suggestions where sourceUrl is null.
+    // When the user asks to shop for pieces online, every returned item must have a verified
+    // direct product page URL and authentic product photo to buy the item.
+    if (isShoppingRequest) {
+      const verifiedWithUrl = itemsToRender.filter((s) => Boolean(s.sourceUrl));
+      if (verifiedWithUrl.length > 0) {
+        itemsToRender = verifiedWithUrl;
+      }
+    }
+
+    suggestedToAcquire = itemsToRender.map((s) => {
+      const retailerLogoUrl = s.retailer ? buildRetailerLogoUrl(s.retailer) : null;
       const isGrounded = Boolean(
         s.isGrounded &&
         (s.sourceUrl || (Array.isArray(s.citations) && s.citations.length > 0))
@@ -236,7 +248,8 @@ export const renderStylistResponse = ({
         sourceUrl: s.sourceUrl || null,
         sourceTitle: s.sourceUrl ? (s.sourceTitle || (s.retailer ? `${s.retailer} - ${s.title}` : s.title)) : null,
         searchUrl: s.searchUrl || null,
-        imageUrl: s.imageUrl || fallbackLogo || null,
+        imageUrl: s.imageUrl || null,
+        retailerLogoUrl: retailerLogoUrl || null,
         citations: isGrounded ? s.citations : [],
         isGrounded,
         outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,

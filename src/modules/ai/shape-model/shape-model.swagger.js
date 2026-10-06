@@ -28,23 +28,31 @@
  *               imageRef:
  *                 type: string
  *                 example: murafiq/shape-models/507f1f77bcf86cd799439011/photo-uuid-123
- *                 description: Authenticated Cloudinary publicId path scoped to user
+ *                 description: "REQUIRED. Authenticated Cloudinary publicId path scoped to user. Must match regex: ^murafiq/shape-models/[a-f0-9]{24}/[a-zA-Z0-9_-]+$"
  *               consent:
  *                 type: boolean
  *                 example: true
- *                 description: Explicit consent to store and process full-body image
+ *                 description: "REQUIRED. Explicit consent to store and process biometric full-body image. Must be true."
  *               format:
  *                 type: string
  *                 example: jpg
+ *                 default: jpg
+ *                 description: "OPTIONAL. Image format (e.g. 'jpg', 'png', 'webp'). Defaults to 'jpg' if omitted."
  *               bytes:
- *                 type: number
+ *                 type: integer
  *                 example: 1048576
+ *                 default: 0
+ *                 description: "OPTIONAL. File size in bytes. Defaults to 0. If provided, must not exceed 10MB (10,485,760 bytes)."
  *               width:
- *                 type: number
+ *                 type: integer
  *                 example: 1080
+ *                 default: 0
+ *                 description: "OPTIONAL. Image width in pixels. Defaults to 0. Must be a positive integer if provided."
  *               height:
- *                 type: number
+ *                 type: integer
  *                 example: 1920
+ *                 default: 0
+ *                 description: "OPTIONAL. Image height in pixels. Defaults to 0. Must be a positive integer if provided."
  *     responses:
  *       201:
  *         description: Shape model created successfully

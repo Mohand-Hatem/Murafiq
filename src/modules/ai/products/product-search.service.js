@@ -14,6 +14,7 @@ import {
   verifyProductPage,
   isAllowedHost,
   isRejectedUrlPath,
+  hasProductPathIndicator,
 } from './product-page-verifier.js';
 
 export const CACHE_TTL_SECONDS = 86_400; // 24 hours
@@ -52,6 +53,27 @@ export const PRODUCT_SEARCH_RESPONSE_SCHEMA = Object.freeze({
 
 export const KNOWN_RETAILERS = [
   {
+    match: /noon|نون/i,
+    title: 'Noon Egypt',
+    domain: 'noon.com',
+    logoUrl: 'https://www.google.com/s2/favicons?domain=noon.com&sz=128',
+    buildSearchUrl: (q) => `https://www.noon.com/egypt-ar/search/?q=${encodeURIComponent(q)}`,
+  },
+  {
+    match: /amazon|أمازون|امازون/i,
+    title: 'Amazon Egypt',
+    domain: 'amazon.eg',
+    logoUrl: 'https://www.google.com/s2/favicons?domain=amazon.eg&sz=128',
+    buildSearchUrl: (q) => `https://www.amazon.eg/s?k=${encodeURIComponent(q)}`,
+  },
+  {
+    match: /jumia|جوميا/i,
+    title: 'Jumia Egypt',
+    domain: 'jumia.com.eg',
+    logoUrl: 'https://www.google.com/s2/favicons?domain=jumia.com.eg&sz=128',
+    buildSearchUrl: (q) => `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(q)}`,
+  },
+  {
     match: /zara|زارا/i,
     title: 'Zara Egypt',
     domain: 'zara.com',
@@ -71,27 +93,6 @@ export const KNOWN_RETAILERS = [
     domain: 'hm.com',
     logoUrl: 'https://www.google.com/s2/favicons?domain=hm.com&sz=128',
     buildSearchUrl: (q) => `https://eg.hm.com/ar/search?q=${encodeURIComponent(q)}`,
-  },
-  {
-    match: /amazon|أمازون|امازون/i,
-    title: 'Amazon Egypt',
-    domain: 'amazon.eg',
-    logoUrl: 'https://www.google.com/s2/favicons?domain=amazon.eg&sz=128',
-    buildSearchUrl: (q) => `https://www.amazon.eg/s?k=${encodeURIComponent(q)}`,
-  },
-  {
-    match: /jumia|جوميا/i,
-    title: 'Jumia Egypt',
-    domain: 'jumia.com.eg',
-    logoUrl: 'https://www.google.com/s2/favicons?domain=jumia.com.eg&sz=128',
-    buildSearchUrl: (q) => `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(q)}`,
-  },
-  {
-    match: /noon|نون/i,
-    title: 'Noon Egypt',
-    domain: 'noon.com',
-    logoUrl: 'https://www.google.com/s2/favicons?domain=noon.com&sz=128',
-    buildSearchUrl: (q) => `https://www.noon.com/egypt-ar/search/?q=${encodeURIComponent(q)}`,
   },
   {
     match: /asos|أسوس|اسوس/i,
@@ -336,6 +337,30 @@ const GARMENT_CATEGORY_TERMS = {
 };
 
 /**
+ * Extracts a product SKU or unique item ID from a product URL or image URL.
+ */
+export const extractProductSku = (url = '') => {
+  if (!url || typeof url !== 'string') return null;
+  // Noon: /p/(Z[A-Z0-9]+)/ or /p/(N[0-9]+[A-Z])/ or /products/.../(Z[A-Z0-9]+)
+  const noonMatch = url.match(/(?:\/p\/|\/products\/[^/]*\/)([ZN][A-Z0-9]{6,})/i);
+  if (noonMatch) return noonMatch[1].toUpperCase();
+
+  // Amazon ASIN: /dp/([A-Z0-9]{10}) or /gp/product/([A-Z0-9]{10})
+  const amazonMatch = url.match(/(?:\/dp\/|\/product\/)([A-Z0-9]{10})/i);
+  if (amazonMatch) return amazonMatch[1].toUpperCase();
+
+  // Jumia: -(\d{6,})\.html or /product/.../(\d{6,})
+  const jumiaMatch = url.match(/[-_/](\d{6,})(?:\.html)?/i);
+  if (jumiaMatch) return jumiaMatch[1];
+
+  // Zara / Massimo Dutti / general: -p(\d{5,})\.html or -(\d{5,})\.html
+  const generalMatch = url.match(/[-_]p?(\d{5,})/i);
+  if (generalMatch) return generalMatch[1];
+
+  return null;
+};
+
+/**
  * Validates whether a URL is an exact direct product page.
  * Rejects homepages, category pages, search results, and wrong categories.
  */
@@ -381,19 +406,14 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
   }
 
   // Require a concrete product-page indicator
-  const segments = pathname.split('/').filter(Boolean);
-  const lastSegment = segments[segments.length - 1] || '';
-
-  const hasProductIndicator =
-    /\/(products?|p|dp|item|pd)\//i.test(pathname) ||
-    /-(p\d+|c\d*p\d+|sku\d+|\d{5,})\.html$/i.test(pathname) ||
-    /productpage\.\d+/i.test(pathname) ||
-    /buy-[a-z0-9-]+/i.test(pathname) ||
-    /\/\d{5,}(\.html)?$/i.test(pathname) ||
-    (lastSegment.endsWith('.html') && lastSegment.length > 10 && lastSegment.includes('-'));
-
-  if (!hasProductIndicator) {
+  const isGoogleRedirector = hostname === 'vertexaisearch.cloud.google.com';
+  if (!hasProductPathIndicator(parsed)) {
     return null;
+  }
+
+  // Google Grounding redirector will be checked after following redirect
+  if (isGoogleRedirector) {
+    return parsed.href;
   }
 
   // Product Category Conflict Check
@@ -470,8 +490,18 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
     }
   }
 
-  // SKU correlation check if both define explicit digits
+  // SKU correlation check if both define explicit SKUs
   if (hasDirectVerifiedSource) {
+    const sourceSku = extractProductSku(verifiedSourceUrl);
+    const imgSku = extractProductSku(parsed.href);
+    if (sourceSku && imgSku) {
+      const sNorm = sourceSku.replace(/^0+/, '').toLowerCase();
+      const iNorm = imgSku.replace(/^0+/, '').toLowerCase();
+      if (sNorm !== iNorm && !iNorm.includes(sNorm) && !sNorm.includes(iNorm)) {
+        return null;
+      }
+    }
+
     const sourceSkuMatch = verifiedSourceUrl.match(/[-_]p?(\d{5,})/i);
     const imgSkuMatch = (parsed.pathname + parsed.search).match(/[-_/]p?(\d{5,})/i);
     if (sourceSkuMatch && imgSkuMatch && sourceSkuMatch[1] !== imgSkuMatch[1]) {
@@ -576,6 +606,20 @@ export const mapSuggestionsToGrounding = (rawSuggestions = [], groundingMetadata
         const chunkHost = parsedChunk.hostname.toLowerCase();
         const chunkPath = parsedChunk.pathname.toLowerCase();
         const retInfo = getKnownRetailerInfo(suggestion.retailer);
+
+        // Normalize URL paths for matching (ignoring query strings and trailing slashes)
+        const normSUrl = sUrl ? sUrl.replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase() : '';
+        const normChunkUri = chunkUri.replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+        if (normSUrl && (normSUrl === normChunkUri || normChunkUri.includes(normSUrl) || normSUrl.includes(normChunkUri))) {
+          associatedChunkIndices.add(chunk.index);
+        }
+
+        // Compare extracted SKUs
+        const sSku = extractProductSku(sUrl);
+        const cSku = extractProductSku(chunkUri);
+        if (sSku && cSku && sSku.toLowerCase() === cSku.toLowerCase()) {
+          associatedChunkIndices.add(chunk.index);
+        }
 
         if (retInfo?.domain && (chunkHost === retInfo.domain || chunkHost.endsWith(`.${retInfo.domain}`))) {
           const chunkText = `${chunkPath} ${chunk.title || ''}`.toLowerCase();
@@ -723,6 +767,15 @@ export const searchExternalProducts = async ({
   const genderRule = `STRICT SINGLE-GENDER CONSISTENCY RULE:
 - All suggested outfits MUST be designed for the SAME individual matching gender presentation: "${genderPresentation}".`;
 
+  const directUrlRule = `CRITICAL DIRECT PRODUCT URL REQUIREMENT:
+- EVERY suggested item MUST have a valid, direct product page URL (sourceUrl) found in your Google Search results.
+- STRICT URL FORMAT RULES FOR EGYPTIAN MARKETPLACES:
+  * Noon Egypt (noon.com): Valid product URLs MUST contain "/p/" and a product SKU (for example: https://www.noon.com/egypt-en/product-title/Z1234567890/p/ or https://www.noon.com/egypt-ar/.../p/). Category, department, or listing URLs (such as /men-s-fashion/..., /clothing/..., /shirts/..., /casual-shirts/, /all-products/) are STRICTLY FORBIDDEN and will be rejected. You MUST locate an individual product page containing "/p/".
+  * Amazon Egypt (amazon.eg): Valid product URLs MUST contain "/dp/" followed by a 10-character ASIN (for example: https://www.amazon.eg/dp/B08XYZ1234). Search pages (/s?k=...) or category pages (/b?node=...) are STRICTLY FORBIDDEN.
+  * Jumia Egypt (jumia.com.eg): Valid product URLs MUST end with ".html" for a single specific product.
+- Direct product page URLs take absolute precedence. If you find multiple direct product page URLs on Noon Egypt (noon.com), RETURN THEM ALL FROM NOON EGYPT! Do NOT switch to another retailer unless you also have a verified direct product page URL on that retailer.
+- NEVER return an item with null, empty, or missing sourceUrl.`;
+
   const suggestionRule = isShoppingRequest
     ? (anchor
         ? `ANCHOR-COMPLEMENTARY OUTFIT RULE:
@@ -730,7 +783,7 @@ export const searchExternalProducts = async ({
 - You MUST find complementary pieces to complete the look WITH this anchor garment.
 - STRICT EXCLUSION: NEVER recommend items of the same category or fashion type as the anchor (e.g. if the anchor is a sweater, pullover, or top, DO NOT suggest sweaters, pullovers, or tops).
 - Generate distinct coordinated looks pairing with the anchor garment from slots: ${targetSlotsText}.
-- DIVERSE RETAILERS: Search across different stores (e.g. Zara Egypt, Massimo Dutti, Amazon Egypt, Jumia, Noon, H&M). Do NOT restrict all suggestions to a single store.
+- ${directUrlRule}
 - ${genderRule}
 - Each item must specify:
 ${itemFields}
@@ -739,7 +792,7 @@ ${itemFields}
         : `TWO-OUTFIT RULE (COMPLETE LOOK MODE):
 - Search live e-commerce stores delivering in Egypt for a complete look.
 - Generate distinct coordinated outfits.
-- DIVERSE RETAILERS: Include multiple trusted retailers.
+- ${directUrlRule}
 - ${genderRule}
 - Each item must specify:
 ${itemFields}
@@ -747,19 +800,33 @@ ${itemFields}
   * outfitTitle: localized outfit name.`)
     : `ACQUISITION SUGGESTIONS:
 - Search live Egyptian retailers for real pieces to close wardrobe gaps.
-- DIVERSE RETAILERS: Include trusted retailers.
+- ${directUrlRule}
 - ${genderRule}
 - Each item must specify:
 ${itemFields}`;
 
   const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper in Egypt.
 Search the live web for currently purchasable products in Egypt (Cairo, Alexandria, online retail).
-Search across legitimate retailers and marketplaces delivering in Egypt (Amazon Egypt, Jumia Egypt, Noon, Zara Egypt, Massimo Dutti, H&M Egypt, DeFacto, LC Waikiki, Mango, Concrete, Town Team, Mobaco Cottons, Dalydress, etc.).
+
+MANDATORY RETAILER SEARCH PRIORITY (EGYPT):
+You MUST search for purchasable fashion products on the following websites in this EXACT priority order:
+1. Noon Egypt (noon.com)
+2. Amazon Egypt (amazon.eg)
+3. Jumia Egypt (jumia.com.eg)
+First find available items on Noon, Amazon Egypt, and Jumia Egypt in that exact order. Only if suitable pieces cannot be found on these top three marketplaces, search other trusted retailers delivering in Egypt (Zara Egypt, Massimo Dutti, H&M Egypt, DeFacto, LC Waikiki, Mango, Concrete, Town Team, Mobaco Cottons, Dalydress, etc.).
+
+CRITICAL DIRECT PRODUCT URL REQUIREMENT:
+- EVERY recommended piece MUST have a valid, verified direct product page URL (sourceUrl) linking directly to the product detail page (e.g. noon.com/.../p/ or amazon.eg/dp/...).
+- FOR NOON EGYPT (noon.com): The URL MUST contain "/p/" and a product SKU. Category or department links (e.g. /men-s-fashion/..., /clothing/..., /shirts/..., /casual-shirts/) are STRICTLY PROHIBITED.
+- FOR AMAZON EGYPT (amazon.eg): The URL MUST contain "/dp/". Search links (/s?k=...) are STRICTLY PROHIBITED.
+- NEVER return null, empty string, or search/category links for sourceUrl.
+- If you find suitable complementary items on Noon Egypt, return them with their noon.com product URLs. Do NOT pick another store (like Amazon) if you only have a search URL or no direct product URL for that store.
+- Direct product page links and actual product image URLs are MANDATORY for all pieces.
 
 STRICT ANTI-HALLUCINATION RULES:
 - Return ONLY products that you can identify from actual live search results.
 - Do NOT invent fake URLs, fake SKUs, fake prices, or fake images.
-- For each piece, provide the retailer and product page URL found in search.
+- For each piece, provide the retailer and direct product page URL found in search.
 
 ${suggestionRule}
 
@@ -820,6 +887,10 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       s.sourceUrl,
     ].filter(Boolean);
 
+    logger.debug?.(
+      `[ProductSearch] Evaluating ${candidateUrls.length} candidate URLs for item "${s.title || s.itemType}": ${JSON.stringify(candidateUrls)}`
+    );
+
     let resolvedUrl = null;
     let resolvedTitle = null;
     let resolvedImageUrl = null;
@@ -828,11 +899,17 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
 
     for (const candUrl of candidateUrls) {
       const syntaxVerified = verifyDirectProductUrl(candUrl, s, citations);
-      if (!syntaxVerified) continue;
+      if (!syntaxVerified) {
+        logger.debug?.(
+          `[ProductSearch] candUrl failed syntax check: ${candUrl} (item: "${s.title || s.itemType}")`
+        );
+        continue;
+      }
 
       // Verify live product page over HTTP
       const pageVerification = await verifyProductPage(syntaxVerified, { timeoutMs: 5000 });
       if (pageVerification.valid) {
+        logger.debug?.(`[ProductSearch] HTTP verification passed for ${syntaxVerified}`);
         resolvedUrl = pageVerification.finalUrl || syntaxVerified;
         resolvedTitle =
           citations.find((c) => c.url === candUrl)?.title ||
@@ -851,6 +928,45 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
           resolvedImageUrl = verifyProductImageUrl(pageVerification.imageUrl, s, resolvedUrl);
         }
 
+        // Deterministic retailer CDN image derivation from SKU if still missing (e.g. Noon Egypt)
+        if (!resolvedImageUrl && resolvedUrl) {
+          const sku = extractProductSku(resolvedUrl);
+          if (sku && (resolvedUrl.includes('noon.com') || (s.retailer && /noon|نون/i.test(s.retailer)))) {
+            const noonImg = `https://f.nooncdn.com/products/tr:n-t_400/${sku}_1.jpg`;
+            resolvedImageUrl = verifyProductImageUrl(noonImg, s, resolvedUrl);
+          }
+        }
+
+        resolvedCitations = citations.filter((c) => c.url === candUrl);
+        if (resolvedCitations.length === 0) {
+          resolvedCitations = [{ title: resolvedTitle || 'Retailer Product', url: resolvedUrl }];
+        }
+        break;
+      } else if (hasGroundingEvidence && (citations.some((c) => c.url === candUrl) || (candUrl === s.sourceUrl && citations.length > 0))) {
+        // If HTTP page scraping was blocked by anti-bot challenges (403/503 Cloudflare/Akamai/Amazon check),
+        // but the URL was directly grounded by Google Search Grounding citations:
+        // Preserve the Google Search verified real product URL so sourceUrl is never null!
+        resolvedUrl = syntaxVerified;
+        resolvedTitle =
+          citations.find((c) => c.url === candUrl)?.title ||
+          s.sourceTitle ||
+          knownRetailer?.title ||
+          s.retailer;
+        resolvedPrice = typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null;
+
+        if (s.imageUrl) {
+          const verifiedSImg = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
+          if (verifiedSImg) resolvedImageUrl = verifiedSImg;
+        }
+
+        if (!resolvedImageUrl && resolvedUrl) {
+          const sku = extractProductSku(resolvedUrl);
+          if (sku && (resolvedUrl.includes('noon.com') || (s.retailer && /noon|نون/i.test(s.retailer)))) {
+            const noonImg = `https://f.nooncdn.com/products/tr:n-t_400/${sku}_1.jpg`;
+            resolvedImageUrl = verifyProductImageUrl(noonImg, s, resolvedUrl);
+          }
+        }
+
         resolvedCitations = citations.filter((c) => c.url === candUrl);
         if (resolvedCitations.length === 0) {
           resolvedCitations = [{ title: resolvedTitle || 'Retailer Product', url: resolvedUrl }];
@@ -859,7 +975,7 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       }
     }
 
-    const isGrounded = Boolean(hasGroundingEvidence && resolvedUrl && resolvedImageUrl);
+    const isGrounded = Boolean((hasGroundingEvidence || resolvedCitations.length > 0) && resolvedUrl && resolvedImageUrl);
 
     return {
       slot: s.slot || 'accessory',

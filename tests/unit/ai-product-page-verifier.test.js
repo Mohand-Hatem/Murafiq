@@ -262,13 +262,24 @@ describe('Phase 15 — product-page-verifier.js', () => {
       expect(result.valid).toBe(false);
     });
 
-    it('returns valid: false when fetch throws or aborts', async () => {
+    it('returns valid: false when fetch throws or aborts for non-product path', async () => {
       setHttpFetchOverride(async () => {
         throw new Error('Connection timed out');
       });
 
-      const result = await verifyProductPage('https://www.zara.com/eg/en/product-p1.html');
+      const result = await verifyProductPage('https://www.zara.com/eg/en/company-info');
       expect(result.valid).toBe(false);
+    });
+
+    it('returns valid: true with blockedByBotGuard: true when fetch aborts for trusted retailer direct product URL', async () => {
+      setHttpFetchOverride(async () => {
+        throw new Error('This operation was aborted');
+      });
+
+      const result = await verifyProductPage('https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/');
+      expect(result.valid).toBe(true);
+      expect(result.blockedByBotGuard).toBe(true);
+      expect(result.finalUrl).toBe('https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/');
     });
   });
 });
