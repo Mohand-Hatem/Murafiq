@@ -1,4 +1,5 @@
 import * as conversationRepo from './ai-conversation.repository.js';
+import ApiError from '../../../common/utils/ApiError.js';
 
 export const createConversation = async (userId, title) => {
   return conversationRepo.createConversation({
@@ -29,7 +30,7 @@ export const getUserConversations = async (userId, options = {}) => {
 export const addMessage = async (conversationId, userId, messageData) => {
   const conversation = await getConversation(conversationId, userId);
   if (!conversation) {
-    throw new Error('Conversation not found or access denied');
+    throw new ApiError(404, 'Conversation not found or access denied');
   }
 
   const message = await conversationRepo.createMessage({
@@ -47,7 +48,7 @@ export const addMessage = async (conversationId, userId, messageData) => {
 export const getConversationMessages = async (conversationId, userId, options = {}) => {
   const conversation = await getConversation(conversationId, userId);
   if (!conversation) {
-    throw new Error('Conversation not found or access denied');
+    throw new ApiError(404, 'Conversation not found or access denied');
   }
 
   const [items, total] = await Promise.all([

@@ -34,7 +34,7 @@ export const getStylistReviews = asyncHandler(async (req, res) => {
 
 export const getMyReviews = asyncHandler(async (req, res) => {
   const { items, meta } = await reviewService.getMyReviews(
-    req.user._id || req.user.id,
+    req.user.id,
     req.query
   );
 

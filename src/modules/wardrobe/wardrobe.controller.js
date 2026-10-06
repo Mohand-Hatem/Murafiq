@@ -56,7 +56,7 @@ export const deleteWardrobeItem = asyncHandler(async (req, res) => {
 
 export const saveFromChat = asyncHandler(async (req, res) => {
   const { messageId } = req.body;
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
 
   const item = await wardrobeService.saveWardrobeItemFromChat(userId, messageId);
 

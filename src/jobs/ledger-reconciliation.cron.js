@@ -6,6 +6,7 @@ import { PAYMENT_STATUS } from '../common/constants/statuses.constant.js';
 import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
+import mailService from '../modules/mail/mail.service.js';
 
 const RECONCILIATION_SCHEDULE = '0 3 * * *'; // Daily at 3:00 AM Cairo time
 
@@ -141,11 +142,64 @@ export const reconcileLedger = async () => {
     );
   }
 
-  return {
+  const summary = {
     checkedBookings: recentBookings.length,
     unbalancedCount,
     missingLedgerCount: paymentOrphans.length + subscriptionOrphans.length,
   };
+
+  if (summary.unbalancedCount > 0 || summary.missingLedgerCount > 0) {
+    await dispatchReconciliationAlert(summary);
+  }
+
+  return summary;
+};
+
+/**
+ * Dispatches alerts via configured email and/or HTTPS webhook when reconciliation detects discrepancies.
+ * Failure to dispatch alerts is isolated in a non-fatal try/catch to avoid breaking the cron task.
+ */
+export const dispatchReconciliationAlert = async (summary) => {
+  if (!env.ALERT_EMAIL && !env.ALERT_WEBHOOK_URL) {
+    logger.warn('[Ledger Alerting] Imbalance detected but no ALERT_EMAIL or ALERT_WEBHOOK_URL configured.');
+    return;
+  }
+
+  try {
+    if (env.ALERT_EMAIL) {
+      await mailService.sendMail({
+        to: env.ALERT_EMAIL,
+        subject: 'CRITICAL: Ledger Reconciliation Failure Detected',
+        html: `<h2>Ledger Reconciliation Alert</h2>
+<p>The automated ledger reconciliation job detected discrepancies:</p>
+<ul>
+  <li><strong>Checked Bookings:</strong> ${summary.checkedBookings}</li>
+  <li><strong>Unbalanced Transactions:</strong> ${summary.unbalancedCount}</li>
+  <li><strong>Missing Ledger Entries:</strong> ${summary.missingLedgerCount}</li>
+</ul>
+<p>Timestamp: ${new Date().toISOString()}</p>`,
+      });
+    }
+
+    if (env.ALERT_WEBHOOK_URL) {
+      const res = await fetch(env.ALERT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'LEDGER_RECONCILIATION_FAILED',
+          summary,
+          timestamp: new Date().toISOString(),
+        }),
+        signal: globalThis.AbortSignal?.timeout?.(5000),
+      });
+
+      if (!res.ok) {
+        logger.warn(`[Ledger Alerting] Alert webhook returned HTTP ${res.status}`);
+      }
+    }
+  } catch (alertErr) {
+    logger.warn(`[Ledger Alerting] Failed to dispatch alert: ${alertErr.message}`);
+  }
 };
 
 export const startLedgerReconciliationCron = () => {
@@ -172,4 +226,4 @@ export const startLedgerReconciliationCron = () => {
   logger.info(`Ledger reconciliation cron scheduled (${RECONCILIATION_SCHEDULE}).`);
 };
 
-export default { reconcileLedger, startLedgerReconciliationCron };
+export default { reconcileLedger, startLedgerReconciliationCron, dispatchReconciliationAlert };

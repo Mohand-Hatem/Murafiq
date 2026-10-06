@@ -140,12 +140,12 @@
  *                 type: string
  *               phone:
  *                 type: string
- *               bio:
+ *               gender:
  *                 type: string
- *               lat:
- *                 type: number
- *               lng:
- *                 type: number
+ *                 enum: [male, female]
+ *               profileImage:
+ *                 type: string
+ *                 format: uri
  *               country:
  *                 type: string
  *               governorate:
@@ -154,6 +154,10 @@
  *                 type: string
  *               area:
  *                 type: string
+ *               lat:
+ *                 type: number
+ *               lng:
+ *                 type: number
  *     responses:
  *       200:
  *         description: Profile updated successfully

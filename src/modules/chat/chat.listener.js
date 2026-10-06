@@ -2,6 +2,7 @@ import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import chatService from './chat.service.js';
 import logger from '../../config/logger.config.js';
+import { safeListener } from '../../common/events/safeListener.js';
 
 class ChatListener {
   constructor() {
@@ -11,6 +12,17 @@ class ChatListener {
   register() {
     if (this.registered) return;
     this.registered = true;
+
+    eventBus.on(EVENTS.BOOKING_CREATED, safeListener('ChatListener.BOOKING_CREATED', async (payload) => {
+      if (payload?.bookingId) {
+        const participants = [payload.clientId, payload.stylistId].filter(Boolean);
+        await chatService.createConversation(
+          payload.bookingId,
+          participants,
+          { isOpen: Boolean(payload.isDemo) }
+        );
+      }
+    }));
 
     eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async (payload) => {
       try {

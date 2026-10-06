@@ -88,6 +88,7 @@
  *   post:
  *     summary: Register a new user
  *     tags: [Auth]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -108,6 +109,10 @@
  *               confirmpassword:
  *                 type: string
  *                 minLength: 8
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female]
+ *                 example: female
  *               role:
  *                 type: string
  *                 enum: [client, stylist]
@@ -145,6 +150,7 @@
  *   post:
  *     summary: Verify email via OTP
  *     tags: [Auth]
+ *     security: []
  *     parameters:
  *       - in: header
  *         name: X-Client-Type
@@ -192,6 +198,7 @@
  *   post:
  *     summary: Resend email verification OTP
  *     tags: [Auth]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -236,6 +243,7 @@
  *   post:
  *     summary: Log in with email and password
  *     tags: [Auth]
+ *     security: []
  *     parameters:
  *       - in: header
  *         name: X-Client-Type
@@ -289,6 +297,7 @@
  *   post:
  *     summary: Authenticate via Google Sign-In ID Token
  *     tags: [Auth]
+ *     security: []
  *     parameters:
  *       - in: header
  *         name: X-Client-Type
@@ -360,6 +369,7 @@
  *   post:
  *     summary: Issue a new access token using a refresh token
  *     tags: [Auth]
+ *     security: []
  *     parameters:
  *       - in: header
  *         name: X-Client-Type
@@ -398,6 +408,7 @@
  *   post:
  *     summary: Request password reset OTP
  *     tags: [Auth]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -436,6 +447,7 @@
  *   post:
  *     summary: Reset password using OTP
  *     tags: [Auth]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:

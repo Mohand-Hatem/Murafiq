@@ -1,9 +1,10 @@
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import auditLogService from './audit-log.service.js';
+import { safeListener } from '../../common/events/safeListener.js';
 
 export const register = () => {
-  eventBus.on(EVENTS.USER_VERIFIED, async (payload) => {
+  eventBus.on(EVENTS.USER_VERIFIED, safeListener('audit.user_verified', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.reviewedBy,
       actorRole: 'admin',
@@ -11,9 +12,9 @@ export const register = () => {
       targetType: 'User',
       targetId: payload.userId,
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.USER_VERIFICATION_REJECTED, async (payload) => {
+  eventBus.on(EVENTS.USER_VERIFICATION_REJECTED, safeListener('audit.user_verification_rejected', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.reviewedBy,
       actorRole: 'admin',
@@ -22,9 +23,9 @@ export const register = () => {
       targetId: payload.userId,
       metadata: { reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYMENT_REFUNDED, async (payload) => {
+  eventBus.on(EVENTS.PAYMENT_REFUNDED, safeListener('audit.payment_refunded', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.refundedBy || null,
       actorRole: payload.refundedBy ? 'admin' : 'system',
@@ -33,9 +34,9 @@ export const register = () => {
       targetId: payload.paymentId || payload.bookingId,
       metadata: { refundAmount: payload.refundAmount, reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.ADMIN_CHAT_ACCESSED, async (payload) => {
+  eventBus.on(EVENTS.ADMIN_CHAT_ACCESSED, safeListener('audit.admin_chat_accessed', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -44,9 +45,9 @@ export const register = () => {
       targetId: payload.conversationId,
       metadata: { bookingId: payload.bookingId },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.USER_SUSPENDED, async (payload) => {
+  eventBus.on(EVENTS.USER_SUSPENDED, safeListener('audit.user_suspended', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -55,9 +56,9 @@ export const register = () => {
       targetId: payload.userId,
       metadata: { reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.USER_REACTIVATED, async (payload) => {
+  eventBus.on(EVENTS.USER_REACTIVATED, safeListener('audit.user_reactivated', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -65,9 +66,9 @@ export const register = () => {
       targetType: 'User',
       targetId: payload.userId,
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.REVIEW_HIDDEN, async (payload) => {
+  eventBus.on(EVENTS.REVIEW_HIDDEN, safeListener('audit.review_hidden', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -76,9 +77,9 @@ export const register = () => {
       targetId: payload.reviewId,
       metadata: { reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.REVIEW_UNHIDDEN, async (payload) => {
+  eventBus.on(EVENTS.REVIEW_UNHIDDEN, safeListener('audit.review_unhidden', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -87,9 +88,9 @@ export const register = () => {
       targetId: payload.reviewId,
       metadata: { reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYOUT_CREATED, async (payload) => {
+  eventBus.on(EVENTS.PAYOUT_CREATED, safeListener('audit.payout_created', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.processedBy || null,
       actorRole: 'admin',
@@ -98,9 +99,9 @@ export const register = () => {
       targetId: payload.payoutId,
       metadata: { amount: payload.amount, stylistId: payload.stylistId },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYOUT_PROCESSING, async (payload) => {
+  eventBus.on(EVENTS.PAYOUT_PROCESSING, safeListener('audit.payout_processing', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.processedBy || null,
       actorRole: 'admin',
@@ -109,9 +110,9 @@ export const register = () => {
       targetId: payload.payoutId,
       metadata: { stylistId: payload.stylistId },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYOUT_PAID, async (payload) => {
+  eventBus.on(EVENTS.PAYOUT_PAID, safeListener('audit.payout_paid', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.processedBy || null,
       actorRole: 'admin',
@@ -120,9 +121,9 @@ export const register = () => {
       targetId: payload.payoutId,
       metadata: { amount: payload.amount, stylistId: payload.stylistId, reference: payload.reference },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYOUT_FAILED, async (payload) => {
+  eventBus.on(EVENTS.PAYOUT_FAILED, safeListener('audit.payout_failed', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.processedBy || null,
       actorRole: 'admin',
@@ -131,9 +132,9 @@ export const register = () => {
       targetId: payload.payoutId,
       metadata: { stylistId: payload.stylistId, failureReason: payload.failureReason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.DISPUTE_RAISED, async (payload) => {
+  eventBus.on(EVENTS.DISPUTE_RAISED, safeListener('audit.dispute_raised', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.raisedBy,
       actorRole: 'client',
@@ -142,9 +143,9 @@ export const register = () => {
       targetId: payload.bookingId,
       metadata: { reason: payload.reason, type: payload.type },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.DISPUTE_RESOLVED, async (payload) => {
+  eventBus.on(EVENTS.DISPUTE_RESOLVED, safeListener('audit.dispute_resolved', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.resolvedBy,
       actorRole: 'admin',
@@ -157,13 +158,13 @@ export const register = () => {
         resolutionNotes: payload.resolutionNotes,
       },
     });
-  });
+  }));
 
   // AGENTS.md: "if a new money/admin-affecting event is added, add it to AUDIT_EVENT_MAP."
   // The five below all move money or terminate a booking and were previously unaudited —
   // a cancellation could issue a refund and assess a penalty with no audit trail at all.
 
-  eventBus.on(EVENTS.BOOKING_CANCELLED, async (payload) => {
+  eventBus.on(EVENTS.BOOKING_CANCELLED, safeListener('audit.booking_cancelled', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.cancelledByUserId || null,
       actorRole: payload.cancelledBy || 'system',
@@ -178,9 +179,9 @@ export const register = () => {
         tier: payload.tier,
       },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.NO_SHOW_REPORTED, async (payload) => {
+  eventBus.on(EVENTS.NO_SHOW_REPORTED, safeListener('audit.no_show_reported', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.reportedBy,
       actorRole: payload.reportedAgainst === 'stylist' ? 'client' : 'stylist',
@@ -189,9 +190,9 @@ export const register = () => {
       targetId: payload.bookingId,
       metadata: { reportedAgainst: payload.reportedAgainst },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.NO_SHOW_RESOLVED, async (payload) => {
+  eventBus.on(EVENTS.NO_SHOW_RESOLVED, safeListener('audit.no_show_resolved', async (payload) => {
     await auditLogService.recordAction({
       actorId: null,
       actorRole: 'system',
@@ -205,9 +206,9 @@ export const register = () => {
         platformPercentage: payload.platformPercentage,
       },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async (payload) => {
+  eventBus.on(EVENTS.PAYMENT_SUCCEEDED, safeListener('audit.payment_succeeded', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.clientId,
       actorRole: 'client',
@@ -216,9 +217,9 @@ export const register = () => {
       targetId: payload.paymentId,
       metadata: { bookingId: payload.bookingId, amount: payload.amount },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.PAYMENT_FAILED, async (payload) => {
+  eventBus.on(EVENTS.PAYMENT_FAILED, safeListener('audit.payment_failed', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.clientId,
       actorRole: 'client',
@@ -227,9 +228,9 @@ export const register = () => {
       targetId: payload.paymentId,
       metadata: { bookingId: payload.bookingId, reason: payload.reason },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.SUBSCRIPTION_ACTIVATED, async (payload) => {
+  eventBus.on(EVENTS.SUBSCRIPTION_ACTIVATED, safeListener('audit.subscription_activated', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.userId,
       actorRole: 'system',
@@ -238,12 +239,12 @@ export const register = () => {
       targetId: payload.userId,
       metadata: { planCode: payload.planCode, billingCycle: payload.billingCycle },
     });
-  });
+  }));
 
   // Separate action from 'subscription.activated' on purpose: an admin comp and a paid
   // activation must stay distinguishable in the audit trail, and this one has a human actor
   // who has to answer for it.
-  eventBus.on(EVENTS.SUBSCRIPTION_ADMIN_GRANTED, async (payload) => {
+  eventBus.on(EVENTS.SUBSCRIPTION_ADMIN_GRANTED, safeListener('audit.subscription_admin_granted', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.adminId,
       actorRole: 'admin',
@@ -260,9 +261,9 @@ export const register = () => {
         reason: payload.reason,
       },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.SUBSCRIPTION_CANCELLED, async (payload) => {
+  eventBus.on(EVENTS.SUBSCRIPTION_CANCELLED, safeListener('audit.subscription_cancelled', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.userId,
       actorRole: 'system',
@@ -271,9 +272,9 @@ export const register = () => {
       targetId: payload.userId,
       metadata: { planCode: payload.planCode, currentPeriodEnd: payload.currentPeriodEnd },
     });
-  });
+  }));
 
-  eventBus.on(EVENTS.SUBSCRIPTION_EXPIRED, async (payload) => {
+  eventBus.on(EVENTS.SUBSCRIPTION_EXPIRED, safeListener('audit.subscription_expired', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.userId,
       actorRole: 'system',
@@ -282,7 +283,7 @@ export const register = () => {
       targetId: payload.userId,
       metadata: { previousPlanCode: payload.previousPlanCode, downgradedTo: payload.downgradedTo },
     });
-  });
+  }));
 };
 
 export default { register };

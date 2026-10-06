@@ -30,7 +30,7 @@ export const addBlockedDomain = asyncHandler(async (req, res) => {
   const domainDoc = await blockedDomainRepository.create({
     domain: req.body.domain,
     category: req.body.category || 'external_communication',
-    addedBy: req.user.id || req.user._id,
+    addedBy: req.user.id,
   });
 
   return ApiResponse.success(res, {
@@ -125,7 +125,7 @@ export const deleteBlockedWord = asyncHandler(async (req, res) => {
 });
 
 export const forgiveViolationStrike = asyncHandler(async (req, res) => {
-  const updated = await moderationService.forgiveStrike(req.params.id, req.user.id || req.user._id);
+  const updated = await moderationService.forgiveStrike(req.params.id, req.user.id);
   return ApiResponse.success(res, {
     message: 'Policy violation strike forgiven successfully',
     data: updated,

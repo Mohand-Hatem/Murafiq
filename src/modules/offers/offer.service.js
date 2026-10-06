@@ -189,7 +189,12 @@ export const acceptOffer = async (clientUser, offerId, options = {}) => {
   }
 
   eventBus.emit(EVENTS.OFFER_ACCEPTED, { offerId });
-  eventBus.emit(EVENTS.BOOKING_CREATED, { bookingId: bookingDoc.id || bookingDoc._id });
+  eventBus.emit(EVENTS.BOOKING_CREATED, {
+    bookingId: bookingDoc.id || bookingDoc._id,
+    clientId: bookingDoc.clientId,
+    stylistId: bookingDoc.stylistId,
+    isDemo: bookingDoc.bookingMode === 'demo',
+  });
 
   return bookingDoc;
 };

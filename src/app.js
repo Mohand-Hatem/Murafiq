@@ -23,7 +23,9 @@ import notificationListener from './modules/notifications/notification.listener.
 import auditLogListener from './modules/audit-log/audit-log.listener.js';
 import stylistListener from './modules/stylists/stylist.listener.js';
 import chatListener from './modules/chat/chat.listener.js';
+import { getHealth } from './modules/health/health.controller.js';
 import reviewListener from './modules/reviews/review.listener.js';
+import correlationIdMiddleware from './common/middlewares/correlation-id.middleware.js';
 
 // Initialize domain event listeners
 notificationListener.register();
@@ -36,6 +38,9 @@ const app = express();
 
 // Trust single reverse-proxy hop (Render, Railway, Nginx) for accurate client IP resolution
 app.set('trust proxy', 1);
+
+// Request correlation tracking (AsyncLocalStorage context)
+app.use(correlationIdMiddleware);
 
 // Security & utility middlewares
 app.use(helmet());
@@ -117,6 +122,9 @@ if (env.NODE_ENV === 'production') {
     res.send(swaggerSpec);
   });
 }
+
+// Root Health Check (unversioned infrastructure probe)
+app.get('/health', getHealth);
 
 // API Routes
 app.use('/api/v1', routes);

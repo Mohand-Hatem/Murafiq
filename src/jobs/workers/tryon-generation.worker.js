@@ -183,7 +183,14 @@ export const startTryOnWorker = () => {
   });
 
   tryOnWorker.on('failed', (job, err) => {
-    logger.error(`Try-on worker failed job ${job?.id}: ${err.message}`);
+    logger.error('Try-on worker job failed', {
+      queue: 'tryon-generation',
+      jobId: job?.id,
+      generationId: job?.data?.generationId,
+      userId: job?.data?.userId,
+      attemptsMade: job?.attemptsMade,
+      error: err.message,
+    });
   });
 
   return tryOnWorker;

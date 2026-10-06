@@ -14,7 +14,9 @@ import createRateLimitStore from './rate-limit-store.js';
 // an order stuck 'pending' after money was actually taken. See
 // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X27.
 export const EXEMPT_PATHS = new Set([
+  '/health',
   '/api/v1/health',
+  '/api/demo/health',
   '/api/v1/payments/callback',
   '/api/v1/subscriptions/webhook',
 ]);

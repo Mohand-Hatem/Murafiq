@@ -71,7 +71,7 @@ export const findDisputedBookings = async (queryString = {}) => {
   const limit = Math.max(1, Math.min(100, parseInt(queryString.limit, 10) || 20));
   const skip = (page - 1) * limit;
 
-  const query = { status: 'disputed' };
+  const query = { status: BOOKING_STATUS.DISPUTED };
 
   const [items, total] = await Promise.all([
     Booking.find(query)
@@ -113,7 +113,7 @@ export const setCompletionConfirmation = async (bookingId, field, session = null
   if (session) options.session = session;
 
   return Booking.findOneAndUpdate(
-    { _id: bookingId, status: 'in-progress' },
+    { _id: bookingId, status: BOOKING_STATUS.IN_PROGRESS },
     { $set: { [field]: new Date() } },
     options
   ).populate([
@@ -130,8 +130,8 @@ export const promoteToCompleted = async (bookingId, session = null) => {
   if (session) options.session = session;
 
   return Booking.findOneAndUpdate(
-    { _id: bookingId, status: 'in-progress' },
-    { $set: { status: 'completed', completedAt: new Date() } },
+    { _id: bookingId, status: BOOKING_STATUS.IN_PROGRESS },
+    { $set: { status: BOOKING_STATUS.COMPLETED, completedAt: new Date() } },
     options
   ).populate([
     { path: 'clientId', select: 'name profileImage' },
@@ -151,7 +151,7 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
   if (session) options.session = session;
 
   return Booking.findOneAndUpdate(
-    { _id: bookingId, status: { $in: ['confirmed', 'in-progress'] } },
+    { _id: bookingId, status: { $in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS] } },
     { $set: patch },
     options
   ).populate([
@@ -233,8 +233,8 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
 const PAYOUT_ELIGIBILITY = (cutoffDate) => ({
   payoutStatus: 'unpaid',
   $or: [
-    { status: 'completed', completedAt: { $ne: null, $lte: cutoffDate } },
-    { status: 'no-show-client', 'noShowDetails.confirmedAt': { $ne: null, $lte: cutoffDate } },
+    { status: BOOKING_STATUS.COMPLETED, completedAt: { $ne: null, $lte: cutoffDate } },
+    { status: BOOKING_STATUS.NO_SHOW_CLIENT, 'noShowDetails.confirmedAt': { $ne: null, $lte: cutoffDate } },
   ],
 });
 
@@ -263,11 +263,11 @@ export const updateManyPayoutStatus = async (bookingIds, data, session = null) =
 export const getBookingStats = async () => {
   const [total, confirmed, inProgress, completed, cancelled, disputed] = await Promise.all([
     Booking.countDocuments(),
-    Booking.countDocuments({ status: 'confirmed' }),
-    Booking.countDocuments({ status: 'in-progress' }),
-    Booking.countDocuments({ status: 'completed' }),
-    Booking.countDocuments({ status: 'cancelled' }),
-    Booking.countDocuments({ status: 'disputed' }),
+    Booking.countDocuments({ status: BOOKING_STATUS.CONFIRMED }),
+    Booking.countDocuments({ status: BOOKING_STATUS.IN_PROGRESS }),
+    Booking.countDocuments({ status: BOOKING_STATUS.COMPLETED }),
+    Booking.countDocuments({ status: BOOKING_STATUS.CANCELLED }),
+    Booking.countDocuments({ status: BOOKING_STATUS.DISPUTED }),
   ]);
 
   return {
@@ -287,7 +287,7 @@ export const getBookingStats = async () => {
 export const findCompletedAndCancelledByStylistId = async (stylistId, session = null) => {
   const query = Booking.find({
     stylistId,
-    status: { $in: ['completed', 'cancelled'] },
+    status: { $in: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCELLED] },
   }).select('status cancelledBy checkInAt scheduledDate scheduledStartMinute');
   if (session) query.session(session);
   return query;
@@ -302,7 +302,7 @@ export const findPendingNoShowReports = async (cutoff) => {
     'noShowDetails.reportedAt': { $lte: cutoff, $ne: null },
     'noShowDetails.respondedAt': null,
     'noShowDetails.confirmedAt': null,
-    status: { $in: ['confirmed', 'in-progress'] },
+    status: { $in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS] },
   });
 };
 
@@ -314,7 +314,7 @@ export const claimSettlementResume = async (bookingId) =>
   Booking.findOneAndUpdate(
     {
       _id: bookingId,
-      status: { $in: ['no-show-stylist', 'no-show-client'] },
+      status: { $in: [BOOKING_STATUS.NO_SHOW_STYLIST, BOOKING_STATUS.NO_SHOW_CLIENT] },
       'noShowDetails.settlementCompletedAt': null,
       'noShowDetails.isResuming': { $ne: true },
       'noShowDetails.settlementExhausted': { $ne: true },
@@ -406,7 +406,7 @@ export const stampSettlementCompleted = async (bookingId) =>
  */
 export const findUnfinishedNoShowSettlements = async (maxAttempts = 5, batchSize = 50) =>
   Booking.find({
-    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    status: { $in: [BOOKING_STATUS.NO_SHOW_STYLIST, BOOKING_STATUS.NO_SHOW_CLIENT] },
     'noShowDetails.settlementCompletedAt': null,
     'noShowDetails.settlementAttempts': { $lt: maxAttempts },
     'noShowDetails.isResuming': { $ne: true },
@@ -420,7 +420,7 @@ export const findUnfinishedNoShowSettlements = async (maxAttempts = 5, batchSize
  */
 export const findExhaustedNoShowSettlements = async () =>
   Booking.find({
-    status: { $in: ['no-show-stylist', 'no-show-client'] },
+    status: { $in: [BOOKING_STATUS.NO_SHOW_STYLIST, BOOKING_STATUS.NO_SHOW_CLIENT] },
     'noShowDetails.settlementCompletedAt': null,
     'noShowDetails.settlementExhausted': true,
   }).populate(['clientId', 'stylistId']);
@@ -437,7 +437,7 @@ export const findExhaustedNoShowSettlements = async () =>
  */
 export const findStaleBookingCandidates = async (coarseDateEnd, batchSize = 50) =>
   Booking.find({
-    status: { $in: ['confirmed', 'in-progress'] },
+    status: { $in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS] },
     scheduledDate: { $lte: coarseDateEnd },
   })
     .sort({ scheduledDate: 1 })
@@ -460,17 +460,17 @@ export const findPendingRefundRecoveryCandidates = async (batchSize = 50) =>
   Booking.find({
     $or: [
       {
-        status: 'cancelled',
+        status: BOOKING_STATUS.CANCELLED,
         cancelledBy: 'system',
         payoutStatus: 'unpaid',
       },
       {
-        status: { $in: ['no-show-stylist', 'no-show-client'] },
+        status: { $in: [BOOKING_STATUS.NO_SHOW_STYLIST, BOOKING_STATUS.NO_SHOW_CLIENT] },
         'noShowDetails.isSystemDetected': true,
         'noShowDetails.settlementCompletedAt': null,
       },
       {
-        status: 'completed',
+        status: BOOKING_STATUS.COMPLETED,
         completionFinalizedAt: null,
         completedAt: { $ne: null, $lte: new Date(Date.now() - 30 * 1000) },
       },

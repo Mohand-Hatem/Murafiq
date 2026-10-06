@@ -168,7 +168,7 @@
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/ApiResponseOfferSuccess'
+ *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
  *       400:
  *         description: Offer expired or invalid status
  *         content:

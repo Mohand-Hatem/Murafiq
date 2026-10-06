@@ -307,6 +307,18 @@
  *               type:
  *                 type: string
  *                 example: "no_show"
+ *               evidence:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     text:
+ *                       type: string
+ *                     images:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                         format: uri
  *     responses:
  *       200:
  *         description: Dispute filed successfully

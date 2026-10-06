@@ -1,4 +1,5 @@
 import * as outfitRepository from './outfit.repository.js';
+import ApiError from '../../../common/utils/ApiError.js';
 
 export const recordOutfit = async (data) => {
   return outfitRepository.createOutfit(data);
@@ -26,7 +27,7 @@ export const getUserOutfits = async (userId, options = {}) => {
 export const setUserFeedback = async (id, userId, feedback) => {
   const allowed = ['liked', 'disliked', null];
   if (!allowed.includes(feedback)) {
-    throw new Error(`Invalid feedback value: ${feedback}. Must be 'liked', 'disliked', or null.`);
+    throw new ApiError(400, `Invalid feedback value: ${feedback}. Must be 'liked', 'disliked', or null.`);
   }
   return outfitRepository.updateFeedback(id, userId, feedback);
 };

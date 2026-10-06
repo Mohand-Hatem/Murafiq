@@ -5,7 +5,7 @@ import shapeModelService from './shape-model.service.js';
  * Endpoint: POST /api/v1/ai/shape-model
  */
 export const createShapeModel = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   const result = await shapeModelService.createOrReplace(userId, req.body);
 
   return ApiResponse.success(res, {
@@ -20,7 +20,7 @@ export const createShapeModel = asyncHandler(async (req, res) => {
  * Endpoint: GET /api/v1/ai/shape-model
  */
 export const getActiveShapeModel = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   const result = await shapeModelService.getActive(userId);
 
   return ApiResponse.success(res, {
@@ -35,7 +35,7 @@ export const getActiveShapeModel = asyncHandler(async (req, res) => {
  * Endpoint: DELETE /api/v1/ai/shape-model
  */
 export const deleteShapeModel = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   await shapeModelService.deleteActive(userId);
 
   return ApiResponse.success(res, {

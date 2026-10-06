@@ -4,6 +4,9 @@ import bookingRepository from '../bookings/booking.repository.js';
 import paymentRepository from '../payments/payment.repository.js';
 import subscriptionService from '../subscriptions/subscription.service.js';
 import { getBusinessMonthRange } from '../../common/utils/businessDay.util.js';
+import { getWardrobeQueue } from '../../jobs/queues/wardrobe.queue.js';
+import { getTryOnQueue } from '../../jobs/queues/tryon.queue.js';
+import { logger } from '../../config/logger.config.js';
 
 export const getVerifications = async (queryString) => {
   return userService.getVerifications(queryString);
@@ -31,6 +34,25 @@ export const getAllUsers = async (queryString) => {
 
 export const getDashboardStats = async () => {
   const { startOfMonth, endOfMonth } = getBusinessMonthRange();
+
+  let queues = {
+    wardrobe: { waiting: 0, active: 0, failed: 0, delayed: 0 },
+    tryon: { waiting: 0, active: 0, failed: 0, delayed: 0 },
+  };
+
+  try {
+    const [wardrobeCounts, tryonCounts] = await Promise.all([
+      getWardrobeQueue().getJobCounts('waiting', 'active', 'failed', 'delayed'),
+      getTryOnQueue().getJobCounts('waiting', 'active', 'failed', 'delayed'),
+    ]);
+    queues = {
+      wardrobe: wardrobeCounts,
+      tryon: tryonCounts,
+    };
+  } catch (queueErr) {
+    logger.warn('Failed to retrieve queue job counts for admin dashboard stats:', queueErr);
+  }
+
   const [users, bookings, revenueThisMonth] = await Promise.all([
     userRepository.getUserStats(),
     bookingRepository.getBookingStats(),
@@ -41,6 +63,7 @@ export const getDashboardStats = async () => {
     users,
     bookings,
     revenueThisMonth,
+    queues,
   };
 };
 

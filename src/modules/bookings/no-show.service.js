@@ -132,7 +132,7 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
 
   const updated = await bookingRepository.transitionStatus(
     bookingId,
-    ['confirmed', 'in-progress'],
+    REPORTABLE_STATUSES,
     {
       noShowDetails: {
         reportedBy: userId,
@@ -185,7 +185,7 @@ export const respondToNoShow = async (user, bookingId, { contest, message = '' }
   if (contest) {
     const updated = await bookingRepository.transitionStatus(
       bookingId,
-      ['confirmed', 'in-progress'],
+      REPORTABLE_STATUSES,
       {
         status: BOOKING_STATUS.DISPUTED,
         // Snapshot the pre-dispute status so adminResolveNoShow can restore it exactly on
@@ -226,7 +226,7 @@ export const respondToNoShow = async (user, bookingId, { contest, message = '' }
   // Not contested — the accused accepts it, so settle immediately.
   const updated = await bookingRepository.transitionStatus(
     bookingId,
-    ['confirmed', 'in-progress'],
+    REPORTABLE_STATUSES,
     {
       'noShowDetails.respondedAt': new Date(),
       'noShowDetails.response': message,

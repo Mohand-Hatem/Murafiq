@@ -25,7 +25,7 @@ export const getPlans = asyncHandler(async (req, res) => {
 });
 
 export const getMySubscription = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
   const role = req.user.role;
 
   const data = await subscriptionService.getSubscriptionStatus(userId, role);
@@ -54,7 +54,7 @@ export const getMySubscription = asyncHandler(async (req, res) => {
 });
 
 export const getMyEntitlements = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
   const role = req.user.role;
 
   const isDemo = req.bookingMode === 'demo' || req.baseUrl?.startsWith('/api/demo');
@@ -84,7 +84,7 @@ export const getMyEntitlements = asyncHandler(async (req, res) => {
 });
 
 export const subscribe = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
   const role = req.user.role;
   const { planCode, billingCycle } = req.body;
 
@@ -102,7 +102,7 @@ export const subscribe = asyncHandler(async (req, res) => {
 });
 
 export const cancel = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
 
   const subscription = await subscriptionService.cancelSubscription(userId);
 
@@ -113,7 +113,7 @@ export const cancel = asyncHandler(async (req, res) => {
 });
 
 export const checkout = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
   const role = req.user.role;
   const { planCode, billingCycle } = req.body;
 
@@ -145,7 +145,7 @@ export const webhook = asyncHandler(async (req, res) => {
 });
 
 export const getOrderStatus = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.sub || req.user.id;
+  const userId = req.user.id;
 
   const order = await subscriptionService.getOrderStatus(req.params.orderId, userId);
 

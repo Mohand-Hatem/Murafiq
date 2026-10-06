@@ -114,7 +114,14 @@ export const startWardrobeWorker = () => {
   });
 
   wardrobeWorker.on('failed', (job, err) => {
-    logger.error(`Worker failed wardrobe job ${job?.id}: ${err.message}`);
+    logger.error('Wardrobe classification worker job failed', {
+      queue: 'wardrobe-classification',
+      jobId: job?.id,
+      itemId: job?.data?.itemId,
+      userId: job?.data?.userId,
+      attemptsMade: job?.attemptsMade,
+      error: err.message,
+    });
   });
 
   return wardrobeWorker;

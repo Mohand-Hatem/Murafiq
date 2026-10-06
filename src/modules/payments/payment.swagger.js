@@ -113,6 +113,7 @@
  *   post:
  *     summary: Payment gateway webhook (Paymob / Mock provider)
  *     tags: [Payments]
+ *     security: []
  *     description: Public webhook endpoint called by Paymob to verify transaction completion and unlock booking escrow.
  *     responses:
  *       200:
@@ -141,6 +142,19 @@
  *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               couponCode:
+ *                 type: string
+ *                 minLength: 4
+ *                 maxLength: 32
+ *                 example: "SAVE20"
+ *                 description: Optional coupon code to apply discount
  *     responses:
  *       200:
  *         description: Payment session initialized

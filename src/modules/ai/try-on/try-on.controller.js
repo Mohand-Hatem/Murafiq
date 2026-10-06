@@ -6,7 +6,7 @@ import tryOnService from './try-on.service.js';
  * Returns 202 Accepted (or 200 OK on deduplicated 24-hour cache match).
  */
 export const createTryOn = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   const { isDuplicate, statusCode, generation } = await tryOnService.createTryOnRequest(
     userId,
     req.body
@@ -28,7 +28,7 @@ export const createTryOn = asyncHandler(async (req, res) => {
  * Endpoint: GET /api/v1/ai/try-on/:id
  */
 export const getTryOnById = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   const generation = await tryOnService.getGenerationById(userId, req.params.id);
 
   return ApiResponse.success(res, {
@@ -43,7 +43,7 @@ export const getTryOnById = asyncHandler(async (req, res) => {
  * Endpoint: GET /api/v1/ai/try-on
  */
 export const listTryOns = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   const { page, limit } = req.query;
   const result = await tryOnService.listGenerations(userId, { page, limit });
 
@@ -60,7 +60,7 @@ export const listTryOns = asyncHandler(async (req, res) => {
  * Endpoint: DELETE /api/v1/ai/try-on/:id
  */
 export const deleteTryOn = asyncHandler(async (req, res) => {
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
   await tryOnService.deleteGeneration(userId, req.params.id);
 
   return ApiResponse.success(res, {

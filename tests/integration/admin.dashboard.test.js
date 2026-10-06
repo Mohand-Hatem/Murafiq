@@ -181,6 +181,10 @@ describe('Admin Dashboard Statistics Integration Tests', () => {
     // Stylist payouts: 850 + 1275 = 2125
     expect(data.revenueThisMonth.stylistPayouts).toBe(2125);
     expect(data.revenueThisMonth.transactionCount).toBe(2);
+
+    expect(data.queues).toBeDefined();
+    expect(data.queues.wardrobe).toEqual({ waiting: 0, active: 0, failed: 0, delayed: 0 });
+    expect(data.queues.tryon).toEqual({ waiting: 0, active: 0, failed: 0, delayed: 0 });
   });
 
   it('forbids Operator and Client from accessing GET /admin/dashboard/stats', async () => {

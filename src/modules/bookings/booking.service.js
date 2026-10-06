@@ -164,20 +164,6 @@ export const createBookingFromOffer = async (
     await offerRepository.rejectSiblingOffers(requestDoc._id, offer._id, session);
   }
 
-  // Initialize chat room: demo opens immediately; V1 unlocked upon payment
-  try {
-    await chatService.createConversation(
-      bookingDoc._id,
-      [
-        offer.clientId._id || offer.clientId,
-        offer.stylistId._id || offer.stylistId,
-      ],
-      { isOpen: isDemo }
-    );
-  } catch (_err) {
-    // Non-fatal in dev/test environments if Firebase is not configured
-  }
-
   return bookingDoc;
 };
 
@@ -265,7 +251,7 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
 
   const updated = await bookingRepository.transitionStatus(
     bookingId,
-    ['confirmed', 'in-progress'],
+    [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS],
     updateData
   );
 
@@ -378,7 +364,7 @@ export const fileDispute = async (user, bookingId, disputeData) => {
 
   const updated = await bookingRepository.transitionStatus(
     bookingId,
-    ['completed', 'in-progress'],
+    [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.IN_PROGRESS],
     {
       status: 'disputed',
       disputeDetails: {
@@ -398,8 +384,11 @@ export const fileDispute = async (user, bookingId, disputeData) => {
   // Re-open chat so parties can communicate during dispute
   try {
     await chatService.openConversation(bookingId);
-  } catch (_err) {
-    // Non-fatal
+  } catch (err) {
+    logger.warn('Failed to open chat conversation on dispute filing', {
+      bookingId: booking._id.toString(),
+      error: err.message,
+    });
   }
 
   eventBus.emit(EVENTS.DISPUTE_RAISED, {
@@ -441,7 +430,7 @@ export const addDisputeEvidence = async (user, bookingId, { text, images = [] })
     submittedAt: new Date(),
   };
 
-  const updated = await bookingRepository.transitionStatus(bookingId, ['disputed'], {
+  const updated = await bookingRepository.transitionStatus(bookingId, [BOOKING_STATUS.DISPUTED], {
     $push: { 'disputeDetails.evidence': evidenceEntry },
   });
 
@@ -533,7 +522,7 @@ export const resolveDispute = async (
 
   const updated = await bookingRepository.transitionStatus(
     bookingId,
-    ['disputed'],
+    [BOOKING_STATUS.DISPUTED],
     {
       status: targetStatus,
       // Only set completedAt if this booking has never completed before (it can reach
@@ -764,7 +753,7 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
     // Preserved for system-coherence: BOOKING_TERMINAL_STATUSES.includes(currentBooking.status)
     const res = await bookingRepository.transitionStatus(
       bookingId,
-      ['confirmed'],
+      [BOOKING_STATUS.CONFIRMED],
       {
         status: 'cancelled',
         cancelledBy,
@@ -939,7 +928,7 @@ export const resolveAbandonedConfirmedBooking = async (
   const updated = await withTransaction(async (session) => {
     const res = await bookingRepository.transitionStatus(
       bookingId,
-      ['confirmed', 'in-progress'],
+      [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS],
       {
         status: 'cancelled',
         cancelledBy: 'system',

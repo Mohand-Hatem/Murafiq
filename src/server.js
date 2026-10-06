@@ -63,4 +63,20 @@ const gracefulShutdown = (signal) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+// Top-level defensive process safeguards
+process.on('unhandledRejection', (reason) => {
+  logger.error('CRITICAL: Unhandled Promise Rejection detected:', {
+    reason: reason instanceof Error ? reason.message : reason,
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('FATAL: Uncaught Exception detected. Initiating graceful shutdown:', {
+    error: error.message,
+    stack: error.stack,
+  });
+  gracefulShutdown('uncaughtException');
+});
+
 export { server, startServer };

@@ -123,9 +123,15 @@
  *         application/json:
  *           schema:
  *             type: object
+ *             description: Either text notes or images must be provided as evidence
  *             properties:
- *               evidence:
+ *               text:
+ *                 type: string
+ *                 maxLength: 2000
+ *                 example: "Client did not attend session."
+ *               images:
  *                 type: array
+ *                 maxItems: 10
  *                 items: { type: string, format: uri }
  *     responses:
  *       200: { description: Evidence attached }

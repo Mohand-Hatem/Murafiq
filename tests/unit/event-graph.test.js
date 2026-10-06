@@ -20,7 +20,6 @@ const SRC_DIR = path.resolve(__dirname, '../../src');
 // that's a forward-looking hook, not a bug. Keep this list short and reviewed; every entry
 // is a deliberate exception, not a place to silently accumulate orphans.
 const ALLOWED_EMIT_WITHOUT_LISTENER = new Set([
-  'BOOKING_CREATED', // reserved for a future booking-created listener (e.g. analytics)
   'SESSION_DISPUTED', // superseded by DISPUTE_RAISED, kept for external/webhook consumers
   'USER_REGISTERED', // reserved for a future welcome-sequence listener
   // Emitted when a superseded refresh token is replayed. Consumed by log-based alerting

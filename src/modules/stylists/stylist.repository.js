@@ -20,6 +20,16 @@ export const findByUserId = async (userId, session = null) => {
   return query.exec();
 };
 
+export const findByUserIds = async (userIds, session = null) => {
+  if (!Array.isArray(userIds) || userIds.length === 0) return [];
+  const query = StylistProfile.find({ userId: { $in: userIds } }).populate(
+    'userId',
+    'name profileImage verification accountStatus'
+  );
+  if (session) query.session(session);
+  return query.exec();
+};
+
 export const findById = async (id) => {
   return StylistProfile.findById(id).populate(
     'userId',
@@ -116,6 +126,7 @@ export const findVerifiedInArea = async ({
 export default {
   create,
   findByUserId,
+  findByUserIds,
   findById,
   updateByUserId,
   findVerifiedInArea,

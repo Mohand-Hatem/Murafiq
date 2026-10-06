@@ -1,4 +1,5 @@
 import Penalty from './penalty.model.js';
+import { PENALTY_ACTIVE_STATUSES } from '../../common/constants/statuses.constant.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -21,8 +22,18 @@ export const findByBookingId = async (bookingId, session = null) => {
 export const findOutstandingByStylistId = async (stylistId, session = null) => {
   const query = Penalty.find({
     stylistId,
-    status: { $in: ['OUTSTANDING', 'PARTIALLY_SETTLED'] },
+    status: { $in: PENALTY_ACTIVE_STATUSES },
   }).sort({ createdAt: 1 }); // Oldest debt first
+  if (session) query.session(session);
+  return query;
+};
+
+export const findOutstandingByStylistIds = async (stylistIds, session = null) => {
+  if (!Array.isArray(stylistIds) || stylistIds.length === 0) return [];
+  const query = Penalty.find({
+    stylistId: { $in: stylistIds },
+    status: { $in: PENALTY_ACTIVE_STATUSES },
+  }).sort({ createdAt: 1 });
   if (session) query.session(session);
   return query;
 };
@@ -73,6 +84,7 @@ export default {
   findById,
   findByBookingId,
   findOutstandingByStylistId,
+  findOutstandingByStylistIds,
   updateById,
   settlePenalty,
 };

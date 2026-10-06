@@ -141,6 +141,7 @@
  *   get:
  *     summary: Search and list stylists (Public multi-filter & geo-nearby)
  *     tags: [Stylists]
+ *     security: []
  *     parameters:
  *       - in: query
  *         name: search
@@ -255,6 +256,7 @@
  *   get:
  *     summary: Get public stylist profile by ID
  *     tags: [Stylists]
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -282,6 +284,7 @@
  *   get:
  *     summary: Get public reviews for a stylist
  *     tags: [Stylists]
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: id

@@ -27,11 +27,13 @@ export class ResendProvider extends MailProviderInterface {
     });
 
     if (error) {
-      logger.error(`Failed to send email to ${to}: ${error.message}`);
+      logger.error('Failed to send email', {
+        error: error.message,
+      });
       throw new ApiError(502, 'Failed to send email. Please try again later.');
     }
 
-    logger.info(`Email sent to ${actualRecipient} (original: ${to})`);
+    logger.info('Email sent successfully');
     return data;
   }
 }

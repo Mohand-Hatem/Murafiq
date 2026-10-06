@@ -6,7 +6,7 @@ import orchestrator from './stylist/stylist.orchestrator.js';
  */
 export const handleStylistRequest = asyncHandler(async (req, res) => {
   const { message, conversationId, imageRef } = req.body;
-  const userId = req.user.id || req.user._id;
+  const userId = req.user.id;
 
   if (imageRef) {
     const parts = imageRef.split('/');

@@ -7,12 +7,12 @@
 
 /**
  * @swagger
- * /api/v1/payouts/account:
+ * /payouts/account:
  *   get:
  *     summary: Get stylist payout account credentials
  *     tags: [Payouts]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Payout account details
@@ -20,7 +20,7 @@
  *     summary: Update stylist payout account credentials
  *     tags: [Payouts]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -47,12 +47,12 @@
 
 /**
  * @swagger
- * /api/v1/payouts/mine:
+ * /payouts/mine:
  *   get:
  *     summary: List stylist's own historical payouts
  *     tags: [Payouts]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of stylist payouts
@@ -60,12 +60,12 @@
 
 /**
  * @swagger
- * /api/v1/payouts/admin/pending-balances:
+ * /payouts/admin/pending-balances:
  *   get:
  *     summary: Admin summary of eligible unpaid balances per stylist
  *     tags: [Payouts]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Summary of eligible balances
@@ -73,12 +73,12 @@
 
 /**
  * @swagger
- * /api/v1/payouts/admin/batch:
+ * /payouts/admin/batch:
  *   post:
  *     summary: Generate batch payouts for eligible stylists
  *     tags: [Payouts]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:

@@ -56,6 +56,22 @@ export const getRedisClient = () => {
 
 export const isRedisConnected = () => isConnected;
 
+export const checkRedisHealth = async () => {
+  if (!isConnected || !redisInstance) {
+    return false;
+  }
+  try {
+    const pingPromise = redisInstance.ping();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Redis ping timeout')), 500);
+    });
+    const result = await Promise.race([pingPromise, timeoutPromise]);
+    return result === 'PONG';
+  } catch {
+    return false;
+  }
+};
+
 export const closeRedisConnection = async () => {
   if (redisInstance) {
     try {

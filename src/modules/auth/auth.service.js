@@ -110,7 +110,10 @@ const register = async ({ name, email, password, role, gender }) => {
     const { subject, html } = verifyEmailTemplate({ name: user.name, otp });
     await mailService.sendMail({ to: user.email, subject, html });
   } catch (mailErr) {
-    logger.error(`Registration verification email failed for user ${user._id} (${user.email}): ${mailErr.message}`);
+    logger.error('Registration verification email failed', {
+      userId: user._id.toString(),
+      error: mailErr.message,
+    });
   }
 
   try {
@@ -175,23 +178,53 @@ const resendOtp = async ({ email }) => {
 const login = async ({ email, password }, { deviceLabel } = {}) => {
   const user = await authRepository.findByEmail(email, { withSecrets: true });
   if (!user) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'user_not_found',
+      userId: null,
+    });
     throw new ApiError(401, 'Invalid credentials');
   }
   if (user.accountStatus === ACCOUNT_STATUS.SUSPENDED) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'account_suspended',
+      userId: user._id.toString(),
+    });
     throw new ApiError(403, 'Account suspended. Contact support.');
   }
   if (user.accountStatus === ACCOUNT_STATUS.BLOCKED) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'account_blocked',
+      userId: user._id.toString(),
+    });
     throw new ApiError(403, 'Account blocked. Contact support.');
   }
   if (!user.isEmailVerified) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'email_unverified',
+      userId: user._id.toString(),
+    });
     throw new ApiError(403, 'Account not verified. Please check your email.');
   }
   if (!user.passwordHash) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'social_account_password_attempt',
+      userId: user._id.toString(),
+    });
     throw new ApiError(400, 'This account uses Google Sign-In. Continue with Google instead of a password.');
   }
 
   const passwordMatches = await bcrypt.compare(password, user.passwordHash);
   if (!passwordMatches) {
+    logger.warn('Authentication failure', {
+      event: 'AUTH_LOGIN_FAILED',
+      reason: 'invalid_password',
+      userId: user._id.toString(),
+    });
     throw new ApiError(401, 'Invalid credentials');
   }
 

@@ -22,10 +22,10 @@ export const BOOKING_STATUS = {
 // no-show to be cancelled afterwards and assess a SECOND penalty for the same incident
 // (the {bookingId, reasonType} unique index permits it, since the reason differs).
 export const BOOKING_TERMINAL_STATUSES = [
-  'completed',
-  'cancelled',
-  'no-show-stylist',
-  'no-show-client',
+  BOOKING_STATUS.COMPLETED,
+  BOOKING_STATUS.CANCELLED,
+  BOOKING_STATUS.NO_SHOW_STYLIST,
+  BOOKING_STATUS.NO_SHOW_CLIENT,
 ];
 
 // Request lifecycle — see §F.1. Note there is deliberately no 'OFFERED' state:
@@ -168,6 +168,18 @@ export const SYSTEM_NO_SHOW_POLICY = Object.freeze({
   }),
 });
 
+export const PENALTY_STATUS = Object.freeze({
+  OUTSTANDING: 'OUTSTANDING',
+  PARTIALLY_SETTLED: 'PARTIALLY_SETTLED',
+  SETTLED: 'SETTLED',
+  WAIVED: 'WAIVED',
+});
+
+export const PENALTY_ACTIVE_STATUSES = Object.freeze([
+  PENALTY_STATUS.OUTSTANDING,
+  PENALTY_STATUS.PARTIALLY_SETTLED,
+]);
+
 export default {
   ACCOUNT_STATUS,
   BOOKING_STATUS,
@@ -177,6 +189,8 @@ export default {
   OFFER_STATUS,
   PAYMENT_STATUS,
   PAYOUT_STATUS,
+  PENALTY_STATUS,
+  PENALTY_ACTIVE_STATUSES,
   CANCELLATION_POLICY,
   NO_SHOW_POLICY,
   COUPON_POLICY,

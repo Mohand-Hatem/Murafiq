@@ -5,7 +5,7 @@ Welcome to the comprehensive API documentation and lifecycle reference for **Mur
 > **What this document owns.** It is the *narrative* API reference: the end-to-end business
 > cycles and how the endpoints compose into real user journeys. It is **not** the authority on
 > the exact request/response shape of any single endpoint — the generated OpenAPI spec is
-> (`npm run validate:openapi` proves 137 documented operations against 137 live routes), with
+> (`npm run validate:openapi` proves 147 documented operations against 147 live routes), with
 > [`ROUTES.md`](ROUTES.md) as the quick index. When this guide and the spec disagree about a
 > payload, the spec is right.
 
@@ -39,7 +39,7 @@ This document breaks down:
   - `admin`: Full platform control (payouts, financial ledger, disputes, blocking, configuration).
 - **Financial Architecture:**
   - Double-entry ledger journal guaranteeing mathematical balance (\(\sum \text{debits} = \sum \text{credits}\)).
-  - Client funds are held in platform **Escrow** until service completion verified via a 6-digit OTP.
+  - Client funds are held in platform **Escrow** until service completion verified via mutual dual-party confirmation (`clientConfirmedAt` and `stylistConfirmedAt`).
   - Stylist payouts are netted against any historical debt before disbursement.
   - Platform absorbs promotional discounts (stylist always receives their agreed quote minus platform commission).
 
@@ -55,8 +55,8 @@ This document breaks down:
                                                                      |
                                                                      v
    +-------------------+       +-------------------+       +-------------------+
-   | 6. Review & Payout| <---- | 5. Check-in & OTP | <---- | 4. Escrow Payment |
-   | Reliability & Cash|       | Service Completion|       | Paymob / Webhook  |
+   | 6. Review & Payout| <---- | 5. Check-in & Confirm| <--- | 4. Escrow Payment |
+   | Reliability & Cash|       | Mutual Completion |       | Paymob / Webhook  |
    +-------------------+       +-------------------+       +-------------------+
 ```
 
@@ -90,13 +90,15 @@ This document breaks down:
    - Booking transitions to `CONFIRMED`.
    - Double-entry ledger records `ESCROW_HOLD` and `COMMISSION_ACCRUED`.
 
-### Cycle 5: In-Person Service, Check-In & OTP Completion Flow
-1. **Check-In:** When arriving at the appointment location, both client and stylist check in (`PATCH /api/v1/bookings/:id/check-in`).
-2. **In-Progress:** Once checked in, booking becomes `IN_PROGRESS`.
-3. **OTP Security:** A secret 6-digit completion OTP is generated and given to the client.
-4. **Completion:** The stylist performs the service, obtains the OTP from the client, and submits it (`PATCH /api/v1/bookings/:id/confirm-completion`).
-   - OTP match triggers release of Escrow funds into the stylist's available payout balance.
-   - Booking transitions to `COMPLETED`.
+### Cycle 5: In-Person Service, Check-In & Mutual Completion Flow
+1. **Check-In:** When arriving at the appointment location within the allowed temporal window (opens 30 min before start, closes at session end), both client and stylist check in (`PATCH /api/v1/bookings/:id/check-in`). Payment must be completed prior to check-in.
+2. **In-Progress:** Once checked in, booking transitions to `in-progress`.
+3. **Mutual Completion:** Both parties must confirm completion of the appointment via `PATCH /api/v1/bookings/:id/confirm-completion`.
+   - When the client confirms, `clientConfirmedAt` timestamp is recorded.
+   - When the stylist confirms, `stylistConfirmedAt` timestamp is recorded.
+   - Atomic CAS transitions the booking to `completed` only when both timestamps exist, emitting `SESSION_COMPLETED`.
+   - Completion marks the stylist payout as eligible (held for dispute arbitration before batch admin disbursement).
+   - *Note on OTPs:* 6-digit OTP codes are used exclusively during authentication for email verification (`/auth/verify-email`) and password resets (`/auth/reset-password`). Booking completion relies entirely on mutual dual-party confirmation.
 
 ### Cycle 6: Reviews, Reliability Scoring & Stylist Payout Flow
 1. **Mutual Reviews:** Client reviews stylist and stylist reviews client (`POST /api/v1/bookings/:bookingId/review`).
@@ -215,7 +217,7 @@ This document breaks down:
 
 ---
 
-### 📅 3.7 Bookings, Scheduling & OTP Completion (/api/v1/bookings)
+### 📅 3.7 Bookings, Scheduling & Mutual Completion (/api/v1/bookings)
 
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
@@ -224,7 +226,7 @@ This document breaks down:
 | GET | /bookings/:id | Authenticated | Get full booking details, service address, status, and participants. |
 | GET | /bookings/:id/cancellation-quote | Authenticated | Calculate exact refund and penalty breakdown before cancelling. |
 | PATCH | /bookings/:id/check-in | Authenticated | Check in upon arrival at appointment location. |
-| PATCH | /bookings/:id/confirm-completion | Stylist | Submit client's 6-digit OTP to complete job and unlock Escrow funds. |
+| PATCH | /bookings/:id/confirm-completion | Authenticated | Mutual session confirmation (both client and stylist confirm to complete job). |
 | PATCH | /bookings/:id/cancel | Authenticated | Cancel confirmed booking per platform cancellation policy. |
 | POST | /bookings/:id/no-show | Authenticated | File a no-show report after 30-min grace window expires. |
 | POST | /bookings/:id/no-show/respond | Authenticated | Accused party submits explanation within 2-hour window. |

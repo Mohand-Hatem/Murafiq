@@ -7,10 +7,11 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/plans:
+ * /subscriptions/plans:
  *   get:
  *     summary: List active subscription plans
  *     tags: [Subscriptions]
+ *     security: []
  *     parameters:
  *       - in: query
  *         name: role
@@ -25,7 +26,7 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/me:
+ * /subscriptions/me:
  *   get:
  *     summary: Get current user's active subscription, entitlements, and usage meters
  *     tags: [Subscriptions]
@@ -38,7 +39,7 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/me/entitlements:
+ * /subscriptions/me/entitlements:
  *   get:
  *     summary: Get current user's flat entitlement map
  *     tags: [Subscriptions]
@@ -51,12 +52,12 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/subscribe:
+ * /subscriptions/subscribe:
  *   post:
  *     summary: Switch to a FREE plan, or schedule a downgrade
  *     description: >
  *       Does not collect payment. Any plan with a price is rejected with 402 -- use
- *       POST /api/v1/subscriptions/checkout to buy one. A move to a cheaper plan is
+ *       POST /subscriptions/checkout to buy one. A move to a cheaper plan is
  *       scheduled for the end of the paid period rather than applied immediately.
  *     tags: [Subscriptions]
  *     security:
@@ -92,7 +93,7 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/checkout:
+ * /subscriptions/checkout:
  *   post:
  *     summary: Initiate a Paymob checkout session for upgrading to a paid subscription plan
  *     tags: [Subscriptions]
@@ -118,7 +119,7 @@
  *       200:
  *         description: >
  *           Checkout intention initialized. Open `paymentUrl` in a browser; poll
- *           GET /api/v1/subscriptions/orders/{orderId} after the redirect returns.
+ *           GET /subscriptions/orders/{orderId} after the redirect returns.
  *       400:
  *         description: Free plan, or the plan has no yearly billing option
  *       403:
@@ -128,7 +129,7 @@
  *           Plan not found, or retired .yearly code. If an old .yearly plan code is passed,
  *           returns 404 naming the replacement parent planCode and billingCycle: yearly.
  *
- * /api/v1/subscriptions/orders/{orderId}:
+ * /subscriptions/orders/{orderId}:
  *   get:
  *     summary: Read the status of a subscription checkout order
  *     description: >
@@ -154,10 +155,11 @@
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *
- * /api/v1/subscriptions/webhook:
+ * /subscriptions/webhook:
  *   post:
  *     summary: Webhook callback for Paymob subscription order payments
  *     tags: [Subscriptions]
+ *     security: []
  *     responses:
  *       200:
  *         description: Webhook processed and subscription activated
@@ -165,7 +167,7 @@
 
 /**
  * @swagger
- * /api/v1/subscriptions/cancel:
+ * /subscriptions/cancel:
  *   post:
  *     summary: Schedule active subscription cancellation at period end
  *     tags: [Subscriptions]

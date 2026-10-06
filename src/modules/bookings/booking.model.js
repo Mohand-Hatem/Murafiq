@@ -60,7 +60,6 @@ const bookingSchema = new Schema(
     reminderSentAt: Date,
     clientConfirmedAt: Date,
     stylistConfirmedAt: Date,
-    liveTrackingEnabled: { type: Boolean, default: false },
     cancelledBy: { type: String, enum: ['client', 'stylist', 'admin', 'system'] },
     cancellationReason: String,
     cancelledAt: Date,

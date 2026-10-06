@@ -189,7 +189,9 @@ murafiq-backend/
 │   │   │   └── upload.swagger.js
 │   │   │
 │   │   ├── mail/
-│   │   │   └── mail.service.js              # typed ApiError(502) shim (🔲 Phase 9)
+│   │   │   ├── mail.service.js              # Resend provider integration (Phase 9)
+│   │   │   ├── mail.templates.js            # HTML verification & transactional templates
+│   │   │   └── providers/                   # resend.provider.js, mock.provider.js
 │   │   │
 │   │   ├── audit-log/
 │   │   │   ├── audit-log.routes.js
@@ -206,9 +208,42 @@ murafiq-backend/
 │   │   │   ├── admin.validator.js
 │   │   │   └── admin.swagger.js
 │   │   │
-│   │   ├── safety/                          # 🔲 Planned (Phase 11)
-│   │   ├── wardrobe/                        # 🔲 Planned (Phase 14)
-│   │   └── ai/                              # 🔲 Planned (Phase 15)
+│   │   ├── moderation/                      # content & off-platform contact safety
+│   │   │   ├── moderation.routes.js
+│   │   │   ├── moderation.controller.js
+│   │   │   ├── moderation.service.js
+│   │   │   └── blocked-word.validator.js
+│   │   │
+│   │   ├── subscriptions/                   # ✅ Built (Phase 11 + Hardening)
+│   │   │   ├── subscription.routes.js       # plans, checkout, subscribe, webhook
+│   │   │   ├── subscription.controller.js
+│   │   │   ├── subscription.service.js      # plan grants, replaceActivePlanCAS
+│   │   │   ├── entitlement.service.js       # daily Cairo business-day quota resolution
+│   │   │   └── subscription.model.js
+│   │   │
+│   │   ├── coupons/                         # ✅ Built: promotional discounts & validation
+│   │   │   ├── coupon.routes.js
+│   │   │   ├── coupon.controller.js
+│   │   │   └── coupon.service.js
+│   │   │
+│   │   ├── wardrobe/                        # ✅ Built (Phase 14: BullMQ, Upstash Vector)
+│   │   │   ├── wardrobe.routes.js
+│   │   │   ├── wardrobe.controller.js
+│   │   │   ├── wardrobe.service.js
+│   │   │   └── wardrobe-item.model.js
+│   │   │
+│   │   ├── ai/                              # ✅ Built (Phase 15A–15F: Stylist, RAG, Try-On)
+│   │   │   ├── ai.routes.js                 # /ai/stylist, /ai/shape-model, /ai/try-on
+│   │   │   ├── ai.controller.js
+│   │   │   ├── stylist/                     # intent, scope guard, compose, match steps
+│   │   │   ├── knowledge/                   # fashion RAG Upstash vector index
+│   │   │   ├── products/                    # external product search with Redis caching
+│   │   │   └── try-on/                      # BullMQ try-on generation worker
+│   │   │
+│   │   ├── health/                          # ✅ Built: dependency readiness probes
+│   │   │   └── health.controller.js
+│   │   │
+│   │   └── safety/                          # ⛔ Cancelled (Product Decision P1 / Simplification)
 │   │
 │   ├── common/
 │   │   ├── middlewares/

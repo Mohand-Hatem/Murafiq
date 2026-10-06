@@ -16,7 +16,7 @@ describe('Booking Controller (Unit)', () => {
       });
 
       const req = {
-        user: { _id: 'admin_user_999' },
+        user: { id: 'admin_user_999' },
         params: { id: 'bkg_123' },
         body: {
           outcome: 'completed',
@@ -50,7 +50,7 @@ describe('Booking Controller (Unit)', () => {
       );
     });
 
-    it('falls back to req.user.id if _id is not present', async () => {
+    it('resolves dispute with cancelled outcome using canonical req.user.id', async () => {
       const spy = jest.spyOn(bookingService, 'resolveDispute').mockResolvedValue({
         _id: 'bkg_456',
         status: 'cancelled',

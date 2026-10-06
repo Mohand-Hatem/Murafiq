@@ -59,6 +59,10 @@
  *           type: array
  *           items:
  *             type: string
+ *         preferredStylistGender:
+ *           type: string
+ *           enum: [male, female, any]
+ *           example: any
  *         visibility:
  *           type: string
  *           enum: [direct, broadcast]
@@ -108,7 +112,7 @@
  *               type: integer
  *             totalPages:
  *               type: integer
- */
+ *  */
 
 /**
  * @swagger
@@ -145,6 +149,10 @@
  *                     type: string
  *                   budgetRange:
  *                     type: object
+ *                   preferredStylistGender:
+ *                     type: string
+ *                     enum: [male, female, any]
+ *                     example: any
  *                   images:
  *                     type: array
  *                     items:
@@ -168,6 +176,10 @@
  *                     type: string
  *                   budgetRange:
  *                     type: object
+ *                   preferredStylistGender:
+ *                     type: string
+ *                     enum: [male, female, any]
+ *                     example: any
  *                   images:
  *                     type: array
  *                     items:
@@ -368,6 +380,23 @@
  *                 format: date-time
  *               time:
  *                 type: string
+ *               meetingLocation:
+ *                 type: object
+ *                 properties:
+ *                   address:
+ *                     type: string
+ *                   country:
+ *                     type: string
+ *                   governorate:
+ *                     type: string
+ *                   city:
+ *                     type: string
+ *                   area:
+ *                     type: string
+ *                   lat:
+ *                     type: number
+ *                   lng:
+ *                     type: number
  *               budgetRange:
  *                 type: object
  *               images:

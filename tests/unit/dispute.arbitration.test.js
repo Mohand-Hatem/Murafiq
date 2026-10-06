@@ -122,6 +122,36 @@ describe('Dispute & Arbitration Engine (Unit)', () => {
       );
     });
 
+    it('logs a non-fatal warning when chatService.openConversation fails during dispute filing', async () => {
+      const activeBooking = {
+        _id: bookingId,
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+        status: 'completed',
+        completedAt: new Date(Date.now() - 10 * 3600 * 1000),
+      };
+      mockBookingFindById.mockResolvedValueOnce(activeBooking);
+      mockBookingUpdateById.mockResolvedValueOnce({
+        ...activeBooking,
+        status: 'disputed',
+        disputeDetails: { reason: 'Cut was uneven' },
+      });
+      mockChatOpen.mockRejectedValueOnce(new Error('Firestore unavailable'));
+      const loggerModule = (await import('../../src/config/logger.config.js')).default;
+      const warnSpy = jest.spyOn(loggerModule, 'warn').mockImplementation(() => {});
+
+      const res = await fileDispute(clientUser, bookingId, { reason: 'Cut was uneven' });
+      expect(res.status).toBe('disputed');
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Failed to open chat conversation on dispute filing',
+        expect.objectContaining({
+          bookingId: bookingId.toString(),
+          error: 'Firestore unavailable',
+        })
+      );
+      warnSpy.mockRestore();
+    });
+
     it('refuses to file dispute if booking is no longer disputable after the read (CAS race)', async () => {
       const activeBooking = {
         _id: bookingId,

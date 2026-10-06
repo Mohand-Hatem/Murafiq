@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import env from '../../config/env.config.js';
 import { getRedisClient } from '../../config/redis.config.js';
 import { logger } from '../../config/logger.config.js';
+import { getRequestId } from '../../common/utils/request-context.js';
 
 let tryOnQueue = null;
 
@@ -18,8 +19,9 @@ export const getTryOnQueue = () => {
   if (!tryOnQueue) {
     if (env.NODE_ENV === 'test') {
       tryOnQueue = {
-        add: async (name, data) => ({ id: 'mock-tryon-job-id', name, data }),
+        add: async (name, data, opts) => ({ id: 'mock-tryon-job-id', name, data, opts }),
         close: async () => {},
+        getJobCounts: async () => ({ waiting: 0, active: 0, failed: 0, delayed: 0 }),
       };
       return tryOnQueue;
     }
@@ -53,15 +55,26 @@ export const getTryOnQueue = () => {
  * @param {string|import('mongoose').Types.ObjectId} params.generationId
  * @param {string} params.jobId
  * @param {string|import('mongoose').Types.ObjectId} params.userId
+ * @param {Object} [opts={}]
  * @returns {Promise<import('bullmq').Job>}
  */
-export const addTryOnJob = async ({ generationId, jobId, userId }) => {
+export const addTryOnJob = async ({ generationId, jobId, userId }, opts = {}) => {
   const queue = getTryOnQueue();
-  return queue.add('generate-tryon', {
+  const requestId = getRequestId();
+  const jobOpts = {
+    ...opts,
+    ...(requestId ? { custom: { requestId, ...(opts.custom || {}) } } : {}),
+  };
+  const data = {
     generationId: generationId.toString(),
     jobId,
     userId: userId.toString(),
-  });
+  };
+
+  if (Object.keys(jobOpts).length > 0) {
+    return queue.add('generate-tryon', data, jobOpts);
+  }
+  return queue.add('generate-tryon', data);
 };
 
 export default {

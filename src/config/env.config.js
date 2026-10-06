@@ -96,6 +96,12 @@ const envSchema = z.object({
   // `undefined` and enforcement could never leave DRY_RUN regardless of the actual
   // environment variable. See docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X2.
   MODERATION_MODE: z.enum(['DRY_RUN', 'ENFORCE']).default('DRY_RUN'),
+  // External alerting for critical ledger reconciliation failures (OBS-04)
+  ALERT_EMAIL: z.preprocess((val) => (val === '' ? undefined : val), z.string().email().optional()),
+  ALERT_WEBHOOK_URL: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.string().url().refine((val) => val.startsWith('https://'), { message: 'Alert webhook must use HTTPS' }).optional()
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

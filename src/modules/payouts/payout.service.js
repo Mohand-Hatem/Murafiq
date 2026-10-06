@@ -42,33 +42,54 @@ class PayoutService {
     const cutoffDate = new Date(Date.now() - holdWindowHours * 3600 * 1000);
     const summaries = await payoutRepository.getPendingBalancesSummary(cutoffDate);
 
-    // Populate stylist profile details & outstanding penalties for netting preview
-    const populated = await Promise.all(
-      summaries.map(async (item) => {
-        const profile = await stylistRepository.findByUserId(item.stylistId);
-        const outstandingPenalties = await penaltyRepository.findOutstandingByStylistId(
-          item.stylistId
-        );
+    if (!summaries || summaries.length === 0) {
+      return [];
+    }
 
-        let totalDebtMinor = 0;
-        for (const p of outstandingPenalties) {
-          totalDebtMinor += (p.assessedMinor || 0) - (p.settledMinor || 0);
-        }
-        const outstandingPenaltyAmount = piastresToEgp(totalDebtMinor);
-        const grossAmount = item.totalAmount || 0;
-        const netAmount = Math.max(0, Math.round((grossAmount - outstandingPenaltyAmount) * 100) / 100);
+    const stylistIds = summaries.map((s) => s.stylistId);
+    const [profiles, allPenalties] = await Promise.all([
+      stylistRepository.findByUserIds(stylistIds),
+      penaltyRepository.findOutstandingByStylistIds(stylistIds),
+    ]);
 
-        return {
-          stylistId: item.stylistId,
-          eligibleBookingsCount: item.count,
-          grossAmount,
-          totalEligibleAmount: grossAmount,
-          outstandingPenaltyAmount,
-          netAmount,
-          payoutAccount: profile?.payoutAccount || null,
-        };
-      })
-    );
+    const profilesMap = new Map();
+    for (const p of profiles) {
+      const uId = p.userId?._id ? p.userId._id.toString() : (p.userId?.toString() || String(p.userId));
+      profilesMap.set(uId, p);
+    }
+
+    const penaltiesByStylist = new Map();
+    for (const p of allPenalties) {
+      const sId = p.stylistId.toString();
+      if (!penaltiesByStylist.has(sId)) {
+        penaltiesByStylist.set(sId, []);
+      }
+      penaltiesByStylist.get(sId).push(p);
+    }
+
+    const populated = summaries.map((item) => {
+      const sId = item.stylistId.toString();
+      const profile = profilesMap.get(sId);
+      const outstandingPenalties = penaltiesByStylist.get(sId) || [];
+
+      let totalDebtMinor = 0;
+      for (const p of outstandingPenalties) {
+        totalDebtMinor += (p.assessedMinor || 0) - (p.settledMinor || 0);
+      }
+      const outstandingPenaltyAmount = piastresToEgp(totalDebtMinor);
+      const grossAmount = item.totalAmount || 0;
+      const netAmount = Math.max(0, Math.round((grossAmount - outstandingPenaltyAmount) * 100) / 100);
+
+      return {
+        stylistId: item.stylistId,
+        eligibleBookingsCount: item.count,
+        grossAmount,
+        totalEligibleAmount: grossAmount,
+        outstandingPenaltyAmount,
+        netAmount,
+        payoutAccount: profile?.payoutAccount || null,
+      };
+    });
 
     return populated;
   }

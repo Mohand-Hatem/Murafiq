@@ -305,6 +305,31 @@
  *                           type: number
  *                         transactionCount:
  *                           type: integer
+ *                     queues:
+ *                       type: object
+ *                       properties:
+ *                         wardrobe:
+ *                           type: object
+ *                           properties:
+ *                             waiting:
+ *                               type: integer
+ *                             active:
+ *                               type: integer
+ *                             failed:
+ *                               type: integer
+ *                             delayed:
+ *                               type: integer
+ *                         tryon:
+ *                           type: object
+ *                           properties:
+ *                             waiting:
+ *                               type: integer
+ *                             active:
+ *                               type: integer
+ *                             failed:
+ *                               type: integer
+ *                             delayed:
+ *                               type: integer
  *       401:
  *         description: Unauthorized
  *         content:
