@@ -1,15 +1,20 @@
 /**
- * Phase 15E — External Product Search Service (product-search.service.js).
+ * Phase 15E — Production External Product Search Service (product-search.service.js).
  *
  * Implements gap-closing product search using Google Search Grounding with Gemini 3.1 Flash Lite.
- * Integrates 24-hour Redis caching (ai:product-search:{season}:{gender}:{queryHash})
- * and citation extraction to return cited, purchasable external garment recommendations.
+ * Integrates 24-hour Redis caching (ai:product-search:{season}:{gender}:{queryHash}),
+ * true grounding support association, and live HTTP product page verification.
  */
 
 import crypto from 'crypto';
 import * as llmProvider from '../providers/llm.provider.js';
 import { getRedisClient, isRedisConnected } from '../../../config/redis.config.js';
 import { logger } from '../../../config/logger.config.js';
+import {
+  verifyProductPage,
+  isAllowedHost,
+  isRejectedUrlPath,
+} from './product-page-verifier.js';
 
 export const CACHE_TTL_SECONDS = 86_400; // 24 hours
 
@@ -225,17 +230,13 @@ export const getKnownRetailerInfo = (retailerName = '') => {
 
 export const cleanSearchQuery = (title = '', itemType = '') => {
   const raw = `${title || ''} ${itemType || ''}`
-    // Remove punctuation, hyphens, parenthesis, slashes, numbers, symbols
     .replace(/[-–—/\\(),.:_#0-9]/g, ' ')
-    // Remove filler adjectives and marketing buzzwords in Arabic & English
     .replace(/\b(فاخر|مميز|أنيق|عصري|كلاسيك|كلاسيكي|طبيعي|جداً|مريح|رسمي|للرجال|للنساء|رجالي|حريمي|موديل|تشكيلة)\b/g, ' ')
     .replace(/\b(luxury|classic|formal|comfortable|elegant|men|women|stylish|collection|genuine)\b/gi, ' ')
-    // Collapse multiple spaces
     .replace(/\s+/g, ' ')
     .trim();
 
   const words = raw.split(' ').filter(Boolean);
-  // Pick up to 4 most descriptive keywords (e.g. "حذاء أكسفورد أسود" or "بنطلون تشينو رمادي")
   if (words.length <= 4) return raw;
   return words.slice(0, 4).join(' ');
 };
@@ -247,6 +248,10 @@ export const buildRetailerSearchUrl = (retailerName = '', query = '') => {
     return known.buildSearchUrl(cleanQ);
   }
   const cleanRetailer = String(retailerName || '').trim();
+  const domain = known?.domain;
+  if (domain) {
+    return `https://www.google.com/search?q=${encodeURIComponent(`site:${domain} ${cleanQ}`)}`;
+  }
   const fullSearch = [cleanRetailer, cleanQ, 'مصر'].filter(Boolean).join(' ');
   return `https://www.google.com/search?q=${encodeURIComponent(fullSearch)}`;
 };
@@ -282,7 +287,6 @@ export const STOCK_AND_PLACEHOLDER_DOMAINS = Object.freeze([
   'picsum.photos',
 ]);
 
-// Recognized authentic retailer CDN image domains permitted even when deep product sourceUrl falls back to store search
 export const AUTHENTIC_RETAILER_IMAGE_DOMAINS = Object.freeze([
   'static.zara.net',
   'mncdn.com',
@@ -322,7 +326,6 @@ export const AUTHENTIC_RETAILER_IMAGE_DOMAINS = Object.freeze([
   'www.google.com',
 ]);
 
-// Garment categories mapping for cross-category conflict detection
 const GARMENT_CATEGORY_TERMS = {
   shoes: ['shoes', 'shoe', 'oxford', 'oxfords', 'loafer', 'loafers', 'sneaker', 'sneakers', 'boot', 'boots', 'derby', 'derbies', 'heel', 'heels', 'sandals', 'footwear'],
   top: ['shirt', 'shirts', 'tshirt', 't-shirt', 'blouse', 'polo', 'sweater', 'pullover', 'cardigan', 'hoodie', 'top', 'turtleneck'],
@@ -333,13 +336,8 @@ const GARMENT_CATEGORY_TERMS = {
 };
 
 /**
- * Validates whether a URL is an exact verified direct product page.
- * Rejects homepages, category pages, search results, utility pages, and wrong product pages.
- *
- * @param {string} rawUrl
- * @param {Object} [item={}] - The recommended item { title, itemType, slot, retailer }
- * @param {Array} [citations=[]] - Grounding citations returned from Google Search
- * @returns {string|null}
+ * Validates whether a URL is an exact direct product page.
+ * Rejects homepages, category pages, search results, and wrong categories.
  */
 export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
@@ -353,26 +351,16 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
     return null;
   }
 
-  // 1. Protocol validation: must be http or https
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return null;
   }
 
-  // 2. Domain validation: reject localhost, bare IP addresses, or non-FQDN
   const hostname = parsed.hostname.toLowerCase();
-  if (!hostname.includes('.') || hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+  if (!isAllowedHost(hostname)) {
     return null;
   }
 
-  // 2b. Allow authentic Google Grounding redirect URLs directly
-  if (
-    hostname === 'vertexaisearch.cloud.google.com' &&
-    parsed.pathname.toLowerCase().startsWith('/grounding-api-redirect/')
-  ) {
-    return parsed.href;
-  }
-
-  // 2c. Reject dead/redirecting domains that lead to Akamai Access Denied portals (e.g. lcwaikiki.com -> lcw.com)
+  // Reject dead lcwaikiki.com portal (Egyptian store uses lcwaikiki.eg)
   if (
     hostname === 'lcwaikiki.com' ||
     hostname.endsWith('.lcwaikiki.com') ||
@@ -382,46 +370,17 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
     return null;
   }
 
-  const pathname = parsed.pathname.trim().toLowerCase();
+  if (isRejectedUrlPath(parsed)) {
+    return null;
+  }
 
-  // Reject image or asset URLs mistakenly passed as sourceUrl
+  // Reject image or asset URLs
+  const pathname = parsed.pathname.trim().toLowerCase();
   if (/\.(jpg|jpeg|png|webp|gif|avif|svg)(\?.*)?$/i.test(pathname)) {
     return null;
   }
 
-  // 3. Reject root, home, index, default, or locale-only roots
-  // Matches /, /en-eg, /en_eg, /en_eg/, /en-eg/, /eg/, /en/, /ar/, /home, /default, /index.html, /en_eg/index.html, /home.html, /default.html, etc.
-  const isHomepageOrLocaleRoot =
-    /^\/?$/i.test(pathname) ||
-    /^\/([a-z]{2}([-_][a-z]{2})?)?\/?(index|home|default)?(\.[a-z0-9]+)?\/?$/i.test(pathname) ||
-    /\/(index|home|default)\.[a-z0-9]+$/i.test(pathname);
-
-  if (isHomepageOrLocaleRoot) {
-    return null;
-  }
-
-  // 4. Reject search / find / catalogsearch URLs
-  if (/\/(search|find|catalogsearch|browse|query)(\/|$)/i.test(pathname)) {
-    return null;
-  }
-  const searchParamNames = ['q', 'query', 'search', 'k', 'keyword', 'searchTerm'];
-  for (const param of searchParamNames) {
-    if (parsed.searchParams.has(param)) {
-      return null;
-    }
-  }
-
-  // 5. Reject generic utility / checkout / cart / account pages
-  if (/\/(cart|checkout|bag|account|login|signin|register|contact|about|terms|privacy|help|faq)(\/|$)/i.test(pathname)) {
-    return null;
-  }
-
-  // 6. Explicitly reject category codes like -c358017.html, /c/ paths, or Zara listing codes like -l706.html
-  if (/-(c\d+|cat\d+|l\d+)\.html$/i.test(pathname) || /^\/c\/[a-z0-9-]+$/i.test(pathname)) {
-    return null;
-  }
-
-  // 7. Require a concrete product-page indicator or a sufficiently deep product slug
+  // Require a concrete product-page indicator
   const segments = pathname.split('/').filter(Boolean);
   const lastSegment = segments[segments.length - 1] || '';
 
@@ -437,16 +396,7 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
     return null;
   }
 
-  // 8. Reject generic category / collection / department pages
-  const isGenericCategory =
-    /^\/(collections?|categories|category|department|all|shop|clothing)(\/[a-z0-9_-]+)*\/?$/i.test(pathname) ||
-    /^\/([a-z]{2}([-_][a-z]{2})?)?\/?(men|women|kids)\/(shoes|clothing|accessories|bottoms|tops|sale)\/?$/i.test(pathname);
-
-  if (isGenericCategory) {
-    return null;
-  }
-
-  // 9. Product Correspondence / Conflict Check
+  // Product Category Conflict Check
   const targetSlot = String(item.slot || '').toLowerCase();
   const itemText = `${item.title || ''} ${item.itemType || ''}`.toLowerCase();
   const citationForUrl = citations.find((c) => c.url === trimmed);
@@ -460,7 +410,7 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
         const urlHasOtherCategory = terms.some((t) => urlAndCitationText.includes(t));
         const urlHasTargetCategory = targetTerms.some((t) => urlAndCitationText.includes(t));
         if (urlHasOtherCategory && !urlHasTargetCategory && targetTerms.length > 0) {
-          return null; // Product mismatch / wrong product page!
+          return null; // Mismatch
         }
       }
     }
@@ -471,13 +421,6 @@ export const verifyDirectProductUrl = (rawUrl, item = {}, citations = []) => {
 
 /**
  * Validates whether an image URL is an exact verified direct product image.
- * Rejects stock photos, placeholders, lookbook/campaign/editorial images, and mismatched garment images.
- * If verifiedSourceUrl is absent or rejected, image URL is ungrounded and rejected.
- *
- * @param {string} rawImageUrl
- * @param {Object} [item={}]
- * @param {string|null} [verifiedSourceUrl=null]
- * @returns {string|null}
  */
 export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl = null) => {
   if (!rawImageUrl || typeof rawImageUrl !== 'string') return null;
@@ -491,12 +434,10 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
     return null;
   }
 
-  // 1. Protocol validation: must be http or https
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return null;
   }
 
-  // 2. Reject stock photography and placeholder domains
   const hostname = parsed.hostname.toLowerCase();
   const isStockOrPlaceholder = STOCK_AND_PLACEHOLDER_DOMAINS.some(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
@@ -505,18 +446,15 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
     return null;
   }
 
-  // 3. Reject generic placeholder, icon, banner, logo, lookbook, campaign, editorial, and LLM-fabricated dummy images
   const fullImgTarget = `${parsed.pathname} ${parsed.search}`.toLowerCase();
   const isRejectedPattern =
-    /lookbook|campaign|editorial|placeholder|default[-_]?image|no[-_]?image|missing[-_]?image|banner|logo|avatar|icon|fallback|chatgpt|dummy|sample|1710000000|download_[a-f0-9-]{10,}|\.svg$/i.test(
+    /lookbook|campaign|editorial|placeholder|default[-_]?image|no[-_]?image|missing[-_]?image|banner|logo|avatar|icon|fallback|chatgpt|dummy|sample|download_[a-f0-9-]{10,}|\.svg$/i.test(
       fullImgTarget
     );
   if (isRejectedPattern) {
     return null;
   }
 
-  // 3b. Source URL correlation check:
-  // If verifiedSourceUrl is absent or a Google Grounding redirect URL, only permit authentic fashion retailer CDN domains
   const hasDirectVerifiedSource = Boolean(
     verifiedSourceUrl &&
     typeof verifiedSourceUrl === 'string' &&
@@ -532,22 +470,20 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
     }
   }
 
-  // 4. Check for conflicting SKU if both image and sourceUrl have distinct product identifiers
+  // SKU correlation check if both define explicit digits
   if (hasDirectVerifiedSource) {
     const sourceSkuMatch = verifiedSourceUrl.match(/[-_]p?(\d{5,})/i);
     const imgSkuMatch = (parsed.pathname + parsed.search).match(/[-_/]p?(\d{5,})/i);
     if (sourceSkuMatch && imgSkuMatch && sourceSkuMatch[1] !== imgSkuMatch[1]) {
-      // Both define an explicit multi-digit SKU and they do not match
-      // Check if source SKU digits are contained in the image path (e.g. 02761045 vs 2761045)
       const sDigits = sourceSkuMatch[1].replace(/^0+/, '');
       const iDigits = imgSkuMatch[1].replace(/^0+/, '');
       if (sDigits !== iDigits && !iDigits.includes(sDigits) && !sDigits.includes(iDigits)) {
-        return null; // Mismatched product image / SKU
+        return null;
       }
     }
   }
 
-  // 5. Product Correspondence / Conflict Check
+  // Category conflict check
   const targetSlot = String(item.slot || '').toLowerCase();
   const itemText = `${item.title || ''} ${item.itemType || ''}`.toLowerCase();
   const imgUrlText = `${parsed.pathname} ${parsed.search}`.toLowerCase();
@@ -560,7 +496,7 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
         const imgHasOtherCategory = terms.some((t) => imgUrlText.includes(t));
         const imgHasTargetCategory = targetTerms.some((t) => imgUrlText.includes(t));
         if (imgHasOtherCategory && !imgHasTargetCategory && targetTerms.length > 0) {
-          return null; // Product mismatch / wrong product image!
+          return null;
         }
       }
     }
@@ -569,24 +505,135 @@ export const verifyProductImageUrl = (rawImageUrl, item = {}, verifiedSourceUrl 
   return parsed.href;
 };
 
-// Mock/test overrides
+/**
+ * Maps generated suggestions to their supporting Google Grounding chunks.
+ * Avoids assuming array index alignment.
+ */
+export const mapSuggestionsToGrounding = (rawSuggestions = [], groundingMetadata = {}, rawResponseText = '') => {
+  const chunks = Array.isArray(groundingMetadata?.groundingChunks)
+    ? groundingMetadata.groundingChunks
+    : [];
+  const supports = Array.isArray(groundingMetadata?.groundingSupports)
+    ? groundingMetadata.groundingSupports
+    : [];
+
+  const chunkList = chunks.map((c, idx) => ({
+    index: idx,
+    title: c.web?.title || 'Web Retailer',
+    url: c.web?.uri || null,
+  })).filter((c) => Boolean(c.url));
+
+  return rawSuggestions.map((suggestion) => {
+    const associatedChunkIndices = new Set();
+    const sTitle = String(suggestion.title || '').trim().toLowerCase();
+    const sType = String(suggestion.itemType || '').trim().toLowerCase();
+    const sUrl = String(suggestion.sourceUrl || '').trim();
+
+    let sStart = -1;
+    let sEnd = -1;
+    if (rawResponseText && sTitle) {
+      sStart = rawResponseText.toLowerCase().indexOf(sTitle);
+      if (sStart !== -1) {
+        sEnd = sStart + sTitle.length + 300;
+      }
+    }
+
+    for (const sup of supports) {
+      const seg = sup.segment;
+      const chunkIndices = sup.groundingChunkIndices || [];
+      const segText = String(seg?.text || '').toLowerCase();
+
+      const hasTextMatch =
+        (sTitle && segText.includes(sTitle)) ||
+        (sType && segText.includes(sType)) ||
+        (sUrl && segText.includes(sUrl.toLowerCase()));
+
+      const hasOffsetOverlap =
+        sStart !== -1 &&
+        typeof seg?.startIndex === 'number' &&
+        typeof seg?.endIndex === 'number' &&
+        seg.startIndex >= sStart &&
+        seg.startIndex <= sEnd;
+
+      if (hasTextMatch || hasOffsetOverlap) {
+        for (const idx of chunkIndices) {
+          if (idx >= 0 && idx < chunkList.length) {
+            associatedChunkIndices.add(idx);
+          }
+        }
+      }
+    }
+
+    // Direct domain / URL correlation with chunks
+    for (const chunk of chunkList) {
+      try {
+        const chunkUri = chunk.url;
+        if (sUrl && sUrl.toLowerCase() === chunkUri.toLowerCase()) {
+          associatedChunkIndices.add(chunk.index);
+        }
+
+        const parsedChunk = new URL(chunkUri);
+        const chunkHost = parsedChunk.hostname.toLowerCase();
+        const chunkPath = parsedChunk.pathname.toLowerCase();
+        const retInfo = getKnownRetailerInfo(suggestion.retailer);
+
+        if (retInfo?.domain && (chunkHost === retInfo.domain || chunkHost.endsWith(`.${retInfo.domain}`))) {
+          const chunkText = `${chunkPath} ${chunk.title || ''}`.toLowerCase();
+          const words = `${sTitle} ${sType}`
+            .replace(/[^a-z0-9\u0600-\u06FF]/g, ' ')
+            .split(/\s+/)
+            .filter((w) => w.length >= 3 && !['men', 'the', 'and', 'for', 'with', 'egypt', 'store', 'shop'].includes(w));
+          const hasWordMatch = words.some((w) => chunkText.includes(w));
+          const retailerChunkCount = chunkList.filter((c) => c.url.includes(retInfo.domain)).length;
+          if (hasWordMatch || retailerChunkCount === 1) {
+            associatedChunkIndices.add(chunk.index);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const citations = Array.from(associatedChunkIndices)
+      .map((idx) => chunkList[idx])
+      .filter(Boolean)
+      .map((c) => ({ title: c.title, url: c.url }));
+
+    return {
+      suggestion,
+      citations,
+      hasGroundingEvidence: citations.length > 0,
+    };
+  });
+};
+
+// Controlled concurrency helper
+export const mapConcurrent = async (items, concurrency, fn) => {
+  const results = [];
+  const executing = new Set();
+  for (const item of items) {
+    const p = Promise.resolve().then(() => fn(item));
+    results.push(p);
+    executing.add(p);
+    const clean = () => executing.delete(p);
+    p.then(clean, clean);
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+  return Promise.all(results);
+};
+
+// Mock overrides
 let redisOverride = null;
 let isConnectedOverride = null;
 const inMemoryProductCache = new Map();
 
-/**
- * Injects a mock Redis client for isolated unit testing.
- * @param {Object|null} client
- * @param {Function|null} isConnFn
- */
 export const setProductSearchRedisOverride = (client, isConnFn = null) => {
   redisOverride = client;
   isConnectedOverride = isConnFn;
 };
 
-/**
- * Clears the in-memory fallback cache (for testing).
- */
 export const clearInMemoryProductCache = () => {
   inMemoryProductCache.clear();
 };
@@ -595,15 +642,6 @@ const resolveRedisClient = () => redisOverride || getRedisClient();
 const resolveIsConnected = () =>
   isConnectedOverride ? isConnectedOverride() : isRedisConnected();
 
-/**
- * Computes a deterministic normalized 24-hour Redis cache key for product searches.
- *
- * @param {string} query
- * @param {Object} [options={}]
- * @param {string} [options.season='all']
- * @param {string} [options.genderPresentation='unisex']
- * @returns {string}
- */
 export const computeCacheKey = (
   query,
   { season = 'all', genderPresentation = 'unisex', locale = 'en' } = {}
@@ -619,17 +657,6 @@ export const computeCacheKey = (
 
 /**
  * Executes an external product search using Google Search Grounding to close wardrobe gaps.
- *
- * @param {Object} params
- * @param {string} params.gapDescription - Concrete missing item description (e.g. "navy formal trousers")
- * @param {Array<Object>} [params.gapItems=[]] - Structured gap items
- * @param {string} [params.occasion='formal'] - Event/occasion context
- * @param {string} [params.formality='formal'] - Dress code formality
- * @param {string} [params.season='all'] - Season context
- * @param {string} [params.genderPresentation='unisex'] - Target gender presentation
- * @param {'ar'|'en'} [params.locale='en'] - Output language
- * @param {number} [params.budget] - Optional budget in EGP
- * @returns {Promise<Array<Object>>} Array of acquisition suggestions with citations
  */
 export const searchExternalProducts = async ({
   gapDescription,
@@ -669,7 +696,7 @@ export const searchExternalProducts = async ({
     logger.warn(`[ProductSearch] Cache read failed for key ${cacheKey}:`, cacheErr.message);
   }
 
-  // 2. Perform Grounded Product Search using Gemini 3.1 Flash Lite + Google Search Tool
+  // 2. Perform Grounded Product Search using Gemini + Google Search Tool
   const langPrompt =
     locale === 'ar'
       ? 'CRITICAL ARABIC REQUIREMENT: The user speaks Arabic. You MUST formulate the response entirely in elegant, modern Arabic (العربية). All product titles (title), item types (itemType), detailed styling descriptions (description), and retailer names or translations MUST be in Arabic. Do not output English words unless referring to international brand names.'
@@ -679,10 +706,10 @@ export const searchExternalProducts = async ({
   * itemType: specific fashion garment type
   * title: exact descriptive title
   * retailer: retailer name in Egypt
-  * estimatedPriceEgp: estimated price in EGP
-  * sourceUrl: exact verified direct product page/purchase URL found in search results (e.g. https://www.zara.com/eg/en/wool-trousers-p12345.html). Return null if no exact direct product page is found. NEVER provide a retailer homepage, category page, or search page.
+  * estimatedPriceEgp: estimated price in EGP (only if verified in search results)
+  * sourceUrl: exact verified direct product page URL from search results. NEVER provide a homepage, search page, or category page.
   * sourceTitle: store product title
-  * imageUrl: exact verified product image URL found in search results, metadata, or retailer CDN (e.g. static.zara.net, img-lcwaikiki.mncdn.com, eg.jumia.is, f.nooncdn.com, m.media-amazon.com, static.massimodutti.net, shopify CDN). Return null only if no authentic product image can be located. NEVER invent an image URL, never use Unsplash/stock photography, and never use placeholder images.
+  * imageUrl: product image URL from the store catalog or CDN. NEVER use stock photos, Unsplash, or placeholders.
   * description: detailed styling description.`;
 
   const anchorDesc = anchor
@@ -694,63 +721,45 @@ export const searchExternalProducts = async ({
     : 'bottom, shoes';
 
   const genderRule = `STRICT SINGLE-GENDER CONSISTENCY RULE:
-- Both Outfit 1 and Outfit 2 MUST be designed for the SAME individual matching gender presentation: "${genderPresentation}".
-- NEVER mix genders across the outfits (e.g. NEVER make Outfit 1 for men and Outfit 2 for women). Both outfits must be exclusively for the same user (${genderPresentation}).`;
-
-  const imageRule = `MANDATORY PRODUCT PHOTO REQUIREMENT:
-- For EVERY suggested piece, you MUST locate and provide the authentic product image URL (imageUrl) from the store's CDN or catalog.
-- Prioritize pieces that have real product photography available so that cards do not have missing or null images.`;
+- All suggested outfits MUST be designed for the SAME individual matching gender presentation: "${genderPresentation}".`;
 
   const suggestionRule = isShoppingRequest
     ? (anchor
         ? `ANCHOR-COMPLEMENTARY OUTFIT RULE:
 - The user already owns this anchor piece: "${anchorDesc || 'anchor garment'}".
 - You MUST find complementary pieces to complete the look WITH this anchor garment.
-- STRICT EXCLUSION: NEVER recommend or suggest items of the same category or fashion type as the anchor (e.g. if the anchor is a sweater, pullover, or top, DO NOT suggest sweaters, pullovers, or tops to buy).
-- Generate exactly 2 distinct coordinated looks that PAIR WITH the anchor garment.
-- Each look should contain complementary items from: ${targetSlotsText}.
-- Outfit 1 and Outfit 2 must represent DIFFERENT styling directions (e.g. formal vs smart-casual).
+- STRICT EXCLUSION: NEVER recommend items of the same category or fashion type as the anchor (e.g. if the anchor is a sweater, pullover, or top, DO NOT suggest sweaters, pullovers, or tops).
+- Generate distinct coordinated looks pairing with the anchor garment from slots: ${targetSlotsText}.
+- DIVERSE RETAILERS: Search across different stores (e.g. Zara Egypt, Massimo Dutti, Amazon Egypt, Jumia, Noon, H&M). Do NOT restrict all suggestions to a single store.
 - ${genderRule}
-- ${imageRule}
 - Each item must specify:
 ${itemFields}
   * outfitIndex: outfit group number (1 or 2)
-  * outfitTitle: localized outfit name describing the style direction (e.g. "الإطلالة الأولى (رسمية كلاسيكية)" or "Look 1 (Classic Formal)").
-- Never duplicate products or suggest identical items under different names.`
+  * outfitTitle: localized outfit name.`
         : `TWO-OUTFIT RULE (COMPLETE LOOK MODE):
-- The user explicitly asked to shop for a COMPLETE outfit from the internet.
-- Generate exactly 2 COMPLETE coordinated outfits. Each outfit MUST contain 3 items: one top, one bottom, and one pair of shoes.
-- Total: 6 items. Outfit 1 and Outfit 2 must represent DIFFERENT styling directions (e.g. casual vs smart casual, streetwear vs classic, sporty vs elegant).
+- Search live e-commerce stores delivering in Egypt for a complete look.
+- Generate distinct coordinated outfits.
+- DIVERSE RETAILERS: Include multiple trusted retailers.
 - ${genderRule}
-- ${imageRule}
 - Each item must specify:
 ${itemFields}
   * outfitIndex: outfit group number (1 or 2)
-  * outfitTitle: localized outfit name describing the style direction (e.g. "الإطلالة الأولى (كاجوال يومي)" or "Look 1 (Casual Daily)").
-- Never duplicate products or suggest identical items under different names.`)
-    : `TWO-SUGGESTION RULE:
-- Generate up to 2 distinct acquisition suggestions representing different aesthetic choices or price alternatives.
+  * outfitTitle: localized outfit name.`)
+    : `ACQUISITION SUGGESTIONS:
+- Search live Egyptian retailers for real pieces to close wardrobe gaps.
+- DIVERSE RETAILERS: Include trusted retailers.
 - ${genderRule}
-- ${imageRule}
-- Each suggestion must specify:
-${itemFields}
-- Never duplicate products or suggest identical items under different names.`;
+- Each item must specify:
+${itemFields}`;
 
-  const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper and Acquisition Assistant.
-Your duty is to recommend real, purchasable clothing and footwear pieces available for the Egyptian market (Cairo, Alexandria, online retail in Egypt) to close specific wardrobe gaps for clients.
-Search across ANY legitimate fashion retailer, marketplace, or brand delivering in Egypt (including but not limited to Amazon Egypt, Jumia, Noon, ASOS, Zara, H&M, Mango, DeFacto, LC Waikiki, Massimo Dutti, Pull&Bear, Bershka, Stradivarius, Max, and Egyptian brands like Concrete, Town Team, Mobaco Cottons, Dalydress, Tie House, local boutiques, etc.). DO NOT restrict recommendations to only Zara or H&M; explore diverse online stores and find the exact piece the user needs wherever it is purchasable online.
+  const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper in Egypt.
+Search the live web for currently purchasable products in Egypt (Cairo, Alexandria, online retail).
+Search across legitimate retailers and marketplaces delivering in Egypt (Amazon Egypt, Jumia Egypt, Noon, Zara Egypt, Massimo Dutti, H&M Egypt, DeFacto, LC Waikiki, Mango, Concrete, Town Team, Mobaco Cottons, Dalydress, etc.).
 
-STRICT RETAILER REQUIREMENT (MANDATORY):
-- You MUST select and recommend items ONLY from legitimate, verified retailers operating in Egypt:
-  * Major Online Stores: Jumia Egypt, Amazon Egypt, Noon Egypt
-  * Global Fashion in Egypt: Zara, Massimo Dutti, H&M, DeFacto, LC Waikiki, Mango, Pull&Bear, Bershka, Stradivarius
-  * Egyptian Brands: Town Team, Tie House, Lotfy, Concrete, Mobaco Cottons, Dalydress, Jlood, Antikka, Dejavu
-- NEVER recommend or invent fictitious, unknown, or fabricated brands or boutiques (e.g. NEVER suggest invented names like "DeBacker's").
-
-DIRECT PRODUCT PAGE URL REQUIREMENT:
-- For the "sourceUrl" field, provide ONLY the direct product purchase page URL on the official retailer website where the user can buy that exact piece (e.g. "https://www.massimodutti.com/eg/en/..." or "https://www.zara.com/eg/en/...-p04404332.html" or "https://eg.hm.com/en/buy-...html").
-- NEVER provide a search URL, listing page, or homepage in "sourceUrl".
-- If you do not have the verified direct product page URL, leave "sourceUrl" as null (our system automatically generates the dedicated retailer store search link).
+STRICT ANTI-HALLUCINATION RULES:
+- Return ONLY products that you can identify from actual live search results.
+- Do NOT invent fake URLs, fake SKUs, fake prices, or fake images.
+- For each piece, provide the retailer and product page URL found in search.
 
 ${suggestionRule}
 
@@ -774,10 +783,8 @@ Season: ${season}
 Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
 
   let result;
-  let isGrounded = true;
 
   try {
-    // Primary execution: Live Google Search Grounding (active for production)
     result = await llmProvider.complete({
       task: 'reasoning',
       systemPrompt,
@@ -788,134 +795,116 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       timeoutMs: 25_000,
     });
   } catch (searchErr) {
-    logger.warn('[ProductSearch] Grounded search execution failed, falling back to ungrounded LLM recommendations:', searchErr.message);
-    isGrounded = false;
-
-    try {
-      // Resilient fallback: Query Gemini without search tool to close gaps with real items & prices
-      result = await llmProvider.complete({
-        task: 'reasoning',
-        systemPrompt,
-        userParts,
-        responseSchema: PRODUCT_SEARCH_RESPONSE_SCHEMA,
-        tools: null,
-        temperature: 0.2,
-        timeoutMs: 15_000,
-      });
-    } catch (fallbackErr) {
-      logger.error('[ProductSearch] Fallback ungrounded search failed:', fallbackErr.message);
-      return [];
-    }
+    logger.warn('[ProductSearch] Grounded search execution failed. Failing closed without fabricating products:', searchErr.message);
+    return []; // Fail closed per Section 20
   }
 
-  // 3. Extract Citations & Map to Suggestions with Strict Grounding & Association
+  // 3. Map Suggestions to Grounding Evidence
   const groundingMetadata = result?.groundingMetadata || {};
-  const chunks = Array.isArray(groundingMetadata.groundingChunks)
-    ? groundingMetadata.groundingChunks
-    : [];
-
-  const citations = chunks
-    .map((chunk) => {
-      const uri = chunk.web?.uri;
-      const title = chunk.web?.title || 'Web Retailer';
-      return uri ? { title, url: uri } : null;
-    })
-    .filter(Boolean);
-
   const maxSuggestions = isShoppingRequest ? 6 : 2;
   const rawSuggestions = Array.isArray(result?.data?.suggestions)
     ? result.data.suggestions.slice(0, maxSuggestions)
     : [];
+  const rawText = JSON.stringify(result?.data || {});
 
-  const suggestions = rawSuggestions.map((s, index) => {
-    const primaryCitation = citations[index] || citations[0] || null;
+  const mappedGrounding = mapSuggestionsToGrounding(rawSuggestions, groundingMetadata, rawText);
+
+  // 4. Verify Candidate URLs & Product Pages in Parallel with Concurrency Control
+  const verifiedSuggestions = await mapConcurrent(mappedGrounding, 3, async ({ suggestion: s, citations, hasGroundingEvidence }) => {
     const knownRetailer = getKnownRetailerInfo(s.retailer);
+    const searchUrl = buildRetailerSearchUrl(s.retailer, s.title || s.itemType || '');
 
-    // Evaluate candidate product URLs in order: primary citation from grounding, then candidate sourceUrl
-    const candidateUrls = [primaryCitation?.url, s.sourceUrl].filter(Boolean);
+    // Gather candidate URLs in priority: grounded citations first, then candidate sourceUrl
+    const candidateUrls = [
+      ...citations.map((c) => c.url),
+      s.sourceUrl,
+    ].filter(Boolean);
+
     let resolvedUrl = null;
     let resolvedTitle = null;
+    let resolvedImageUrl = null;
+    let resolvedPrice = null;
+    let resolvedCitations = [];
 
     for (const candUrl of candidateUrls) {
-      const verified = verifyDirectProductUrl(candUrl, s, citations);
-      if (verified) {
-        resolvedUrl = verified;
+      const syntaxVerified = verifyDirectProductUrl(candUrl, s, citations);
+      if (!syntaxVerified) continue;
+
+      // Verify live product page over HTTP
+      const pageVerification = await verifyProductPage(syntaxVerified, { timeoutMs: 5000 });
+      if (pageVerification.valid) {
+        resolvedUrl = pageVerification.finalUrl || syntaxVerified;
         resolvedTitle =
-          (candUrl === primaryCitation?.url ? primaryCitation?.title : s.sourceTitle) ||
+          citations.find((c) => c.url === candUrl)?.title ||
+          pageVerification.title ||
+          s.sourceTitle ||
           knownRetailer?.title ||
-          s.retailer ||
-          null;
+          s.retailer;
+        resolvedPrice = pageVerification.price || (typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null);
+
+        // Validate image URL
+        if (s.imageUrl) {
+          const verifiedSImg = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
+          if (verifiedSImg) resolvedImageUrl = verifiedSImg;
+        }
+        if (!resolvedImageUrl && pageVerification.imageUrl) {
+          resolvedImageUrl = verifyProductImageUrl(pageVerification.imageUrl, s, resolvedUrl);
+        }
+
+        resolvedCitations = citations.filter((c) => c.url === candUrl);
+        if (resolvedCitations.length === 0) {
+          resolvedCitations = [{ title: resolvedTitle || 'Retailer Product', url: resolvedUrl }];
+        }
         break;
       }
     }
 
-    const isDirectGrounded = Boolean(
-      resolvedUrl && (
-        primaryCitation?.url === resolvedUrl ||
-        resolvedUrl.includes('vertexaisearch.cloud.google.com') ||
-        (Array.isArray(citations) && citations.some((c) => c.url === resolvedUrl))
-      )
-    );
-
-    // Verify candidate product image URL with strict anti-fabrication / anti-stock rules
-    const resolvedImageUrl = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
-
-    const itemCitations = citations.length > 0
-      ? citations
-      : (resolvedUrl ? [{ title: resolvedTitle || 'Retailer', url: resolvedUrl }] : []);
-
-    // Always provide the store searchUrl on the retailer's official website as a dedicated search link
-    const searchUrl = buildRetailerSearchUrl(s.retailer, s.title || s.itemType || '');
+    const isGrounded = Boolean(hasGroundingEvidence && resolvedUrl && resolvedImageUrl);
 
     return {
       slot: s.slot || 'accessory',
       itemType: s.itemType || s.title || 'Fashion Garment',
-      title: s.title || 'Suggested Piece',
+      title: s.title || resolvedTitle || 'Suggested Piece',
       description: s.description || '',
-      estimatedPriceEgp: typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null,
-      retailer: s.retailer || knownRetailer?.title || resolvedTitle || 'Online Retailer',
+      estimatedPriceEgp: resolvedPrice,
+      retailer: s.retailer || knownRetailer?.title || 'Online Retailer',
       sourceUrl: resolvedUrl,
-      sourceTitle: resolvedTitle,
+      sourceTitle: resolvedTitle || s.sourceTitle || null,
       searchUrl,
       imageUrl: resolvedImageUrl,
-      citations: itemCitations,
-      isGrounded: Boolean(isGrounded && isDirectGrounded),
+      citations: isGrounded ? resolvedCitations : [],
+      isGrounded,
       outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
       outfitTitle: s.outfitTitle || null,
       cacheHit: false,
     };
   });
 
-  // Defensive post-processing: If user provided an anchor garment, exclude any suggested
-  // item that matches the anchor category or type (e.g. do not suggest sweaters if anchor is a sweater)
-  const finalSuggestions = anchor
-    ? suggestions.filter((item) => {
-        const isAnchorTop =
-          anchor.category === 'top' ||
-          (anchor.category === 'outerwear' &&
-            /sweater|pullover|knit|hoodie|cardigan|sweatshirt|quarter[_\s-]*zip/i.test(
-              `${anchor.subcategory || ''} ${anchor.styleTags?.join(' ') || ''}`
-            ));
+  // 5. Post-Processing & Deduplication
+  const finalSuggestions = verifiedSuggestions.filter((item) => {
+    // If anchor is provided, strictly exclude anchor category & duplicates
+    if (anchor) {
+      const isAnchorTop =
+        anchor.category === 'top' ||
+        (anchor.category === 'outerwear' &&
+          /sweater|pullover|knit|hoodie|cardigan|sweatshirt|quarter[_\s-]*zip/i.test(
+            `${anchor.subcategory || ''} ${anchor.styleTags?.join(' ') || ''}`
+          ));
 
-        if (isAnchorTop && item.slot === 'top') {
-          return false;
-        }
-        if (item.slot === anchor.category) {
-          return false;
-        }
+      if (isAnchorTop && item.slot === 'top') return false;
+      if (item.slot === anchor.category) return false;
 
-        const text = `${item.title} ${item.itemType} ${item.description}`.toLowerCase();
-        if (isAnchorTop && /كنزة|بلوفر|سترة صوفية|سويتر|sweater|pullover|knitwear|quarter[_\s-]*zip/i.test(text)) {
-          return false;
-        }
+      const text = `${item.title} ${item.itemType}`.toLowerCase();
+      if (isAnchorTop && /كنزة|بلوفر|سترة صوفية|سويتر|sweater|pullover|knitwear|quarter[_\s-]*zip/i.test(text)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
-        return true;
-      })
-    : suggestions;
-
-  // 4. Cache in 24-hour Redis Store only when search was grounded and verified
-  const shouldCache = Boolean(isGrounded && finalSuggestions.length > 0);
-  if (shouldCache) {
+  // 6. Cache only when verified results exist
+  const verifiedCount = finalSuggestions.filter((s) => s.isGrounded).length;
+  if (verifiedCount > 0) {
     try {
       if (resolveIsConnected()) {
         const redis = resolveRedisClient();
@@ -938,9 +927,16 @@ export default {
   CACHE_TTL_SECONDS,
   PRODUCT_SEARCH_RESPONSE_SCHEMA,
   STOCK_AND_PLACEHOLDER_DOMAINS,
+  AUTHENTIC_RETAILER_IMAGE_DOMAINS,
+  KNOWN_RETAILERS,
   getKnownRetailerInfo,
+  cleanSearchQuery,
+  buildRetailerSearchUrl,
+  buildRetailerLogoUrl,
   verifyDirectProductUrl,
   verifyProductImageUrl,
+  mapSuggestionsToGrounding,
+  mapConcurrent,
   setProductSearchRedisOverride,
   clearInMemoryProductCache,
   computeCacheKey,

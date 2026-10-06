@@ -388,12 +388,19 @@ export const runStylistPipeline = async ({
           anchor,
         });
 
+        const verifiedCount = externalSuggestions.filter((s) => s.isGrounded).length;
+        const rejectedCount = externalSuggestions.length - verifiedCount;
+
         traceLogger.logTraceStep({
           traceId,
           step: 'external_product_search',
           userId,
           groundedQueriesCount: 1,
           suggestionsCount: externalSuggestions.length,
+          candidateProducts: externalSuggestions.length,
+          verifiedProducts: verifiedCount,
+          rejectedProducts: rejectedCount,
+          cacheHit: externalSuggestions[0]?.cacheHit || false,
         });
 
         if (externalSuggestions.length > 0) {
@@ -670,12 +677,19 @@ export const runStylistPipeline = async ({
           anchor,
         });
 
+        const verifiedCount = externalSuggestions.filter((s) => s.isGrounded).length;
+        const rejectedCount = externalSuggestions.length - verifiedCount;
+
         traceLogger.logTraceStep({
           traceId,
           step: 'external_product_search',
           userId,
           groundedQueriesCount: 1,
           suggestionsCount: externalSuggestions.length,
+          candidateProducts: externalSuggestions.length,
+          verifiedProducts: verifiedCount,
+          rejectedProducts: rejectedCount,
+          cacheHit: externalSuggestions[0]?.cacheHit || false,
         });
 
         if (externalSuggestions.length > 0) {

@@ -222,6 +222,10 @@ export const renderStylistResponse = ({
   if (Array.isArray(externalSuggestions) && externalSuggestions.length > 0) {
     suggestedToAcquire = externalSuggestions.map((s) => {
       const fallbackLogo = s.retailer ? buildRetailerLogoUrl(s.retailer) : null;
+      const isGrounded = Boolean(
+        s.isGrounded &&
+        (s.sourceUrl || (Array.isArray(s.citations) && s.citations.length > 0))
+      );
       return {
         slot: s.slot || 'accessory',
         itemType: s.itemType || s.title || 'Fashion Garment',
@@ -233,8 +237,8 @@ export const renderStylistResponse = ({
         sourceTitle: s.sourceUrl ? (s.sourceTitle || (s.retailer ? `${s.retailer} - ${s.title}` : s.title)) : null,
         searchUrl: s.searchUrl || null,
         imageUrl: s.imageUrl || fallbackLogo || null,
-        citations: Array.isArray(s.citations) ? s.citations : [],
-        isGrounded: Boolean(s.isGrounded),
+        citations: isGrounded ? s.citations : [],
+        isGrounded,
         outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
         outfitTitle: s.outfitTitle || null,
       };

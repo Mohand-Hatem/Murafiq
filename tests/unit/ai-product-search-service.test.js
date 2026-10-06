@@ -18,6 +18,7 @@ import {
   searchExternalProducts,
   verifyDirectProductUrl,
   verifyProductImageUrl,
+  mapSuggestionsToGrounding,
   getKnownRetailerInfo,
   buildRetailerSearchUrl,
   buildRetailerLogoUrl,
@@ -158,7 +159,8 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
 
       expect(results[1].title).toBe('Classic Chino Suit Pants');
       expect(results[1].sourceUrl).toBe('https://massimodutti.com/eg/suit-pants.html');
-      expect(results[1].citations).toHaveLength(2);
+      expect(results[1].citations).toHaveLength(1);
+      expect(results[1].citations[0].url).toBe('https://massimodutti.com/eg/suit-pants.html');
 
       // 24h Redis cache was populated
       expect(mockRedis.set).toHaveBeenCalledWith(
@@ -215,61 +217,52 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
               itemType: 'formal shirt',
               slot: 'top',
               description: 'Crisp white poplin shirt.',
+              retailer: 'Zara Egypt',
+              sourceUrl: 'https://zara.com/eg/en/french-cuff-shirt-p999.html',
             },
           ],
         }),
-        candidates: [{ groundingMetadata: {} }],
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [
+                {
+                  web: {
+                    uri: 'https://zara.com/eg/en/french-cuff-shirt-p999.html',
+                    title: 'Zara French Cuff Shirt',
+                  },
+                },
+              ],
+            },
+          },
+        ],
         usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
       });
 
       // First call caches in-memory
       const res1 = await searchExternalProducts({ gapDescription: 'white dress shirt' });
+      expect(res1).toHaveLength(1);
       expect(res1[0].cacheHit).toBe(false);
 
       // Second call hits in-memory cache
       const res2 = await searchExternalProducts({ gapDescription: 'white dress shirt' });
+      expect(res2).toHaveLength(1);
       expect(res2[0].cacheHit).toBe(true);
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to ungrounded LLM and safely falls back to retailer searchUrl when live search throws', async () => {
-      // 1st call (grounded search) throws 429 quota error
-      mockGenerateContent.mockRejectedValueOnce(new Error('RESOURCE_EXHAUSTED: quota exceeded'));
-
-      // 2nd call (ungrounded fallback) returns suggestions
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          suggestions: [
-            {
-              title: 'Structured Satin Lapel Tuxedo Blazer',
-              itemType: 'blazer',
-              slot: 'outerwear',
-              description: 'Tailored black tuxedo blazer with satin lapels.',
-              estimatedPriceEgp: 4590,
-              retailer: 'Zara Egypt',
-              sourceUrl: 'https://www.zara.com/eg/en/tuxedo-blazer-p123.html',
-              sourceTitle: 'Zara Egypt Online Store',
-            },
-          ],
-        }),
-        candidates: [{ groundingMetadata: {} }],
-        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60 },
-      });
+    it('fails closed and returns empty array without fabricating items when live search throws (Section 20 policy)', async () => {
+      // Live search throws non-transient error
+      mockGenerateContent.mockRejectedValueOnce(new Error('INVALID_ARGUMENT: Google Search tool failure'));
 
       const results = await searchExternalProducts({
         gapDescription: 'formal black blazer',
         locale: 'ar',
       });
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-      expect(mockGenerateContent.mock.calls[0][0].config.systemInstruction).toContain('CRITICAL ARABIC REQUIREMENT');
-      expect(mockGenerateContent.mock.calls[0][0].contents[0].parts[0].text).toContain('Required Language: Arabic');
-      expect(results).toHaveLength(1);
-      expect(results[0].title).toBe('Structured Satin Lapel Tuxedo Blazer');
-      expect(results[0].retailer).toBe('Zara Egypt');
-      expect(results[0].sourceUrl).toBe('https://www.zara.com/eg/en/tuxedo-blazer-p123.html');
-      expect(results[0].searchUrl).toContain('zara.com/eg/ar/search?searchTerm=');
-      expect(results[0].isGrounded).toBe(false); // No live Google Search chunk was attached
+      // Fails closed per Section 20 policy: exactly 1 call, zero fabricated results
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([]);
     });
 
     it('fails open and returns empty array if LLM provider throws completely (soft degradation)', async () => {
@@ -716,6 +709,94 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results[1].sourceUrl).toBe('https://www.zara.com/eg/en/comfort-suit-trousers-p04404332.html');
       expect(results[1].searchUrl).toContain('zara.com/eg/ar/search?searchTerm=');
       expect(results[1].sourceUrl).not.toBe(results[1].searchUrl);
+    });
+
+    it('18. Grounding mapping order independence (suggestion 0 -> chunk 3, suggestion 1 -> chunk 0)', () => {
+      const mockSuggestions = [
+        {
+          title: 'Slim Chino Pants',
+          itemType: 'chinos',
+          slot: 'bottom',
+          description: 'Slim fit navy chinos.',
+          retailer: 'Massimo Dutti',
+          sourceUrl: 'https://www.massimodutti.com/eg/en/chino-pants-c0p123.html',
+        },
+        {
+          title: 'Classic Derby Shoes',
+          itemType: 'derbies',
+          slot: 'shoes',
+          description: 'Black leather derbies.',
+          retailer: 'Zara Egypt',
+          sourceUrl: 'https://www.zara.com/eg/en/derby-shoes-p456.html',
+        },
+      ];
+
+      const groundingMetadata = {
+        groundingChunks: [
+          { web: { uri: 'https://www.zara.com/eg/en/derby-shoes-p456.html', title: 'Zara Derby Shoes' } },
+          { web: { uri: 'https://www.zara.com/eg/en/overview', title: 'Zara Overview' } },
+          { web: { uri: 'https://www.massimodutti.com/eg/en/about', title: 'About Massimo Dutti' } },
+          { web: { uri: 'https://www.massimodutti.com/eg/en/chino-pants-c0p123.html', title: 'MD Chinos' } },
+        ],
+        groundingSupports: [
+          {
+            segment: { text: 'Slim Chino Pants' },
+            groundingChunkIndices: [3],
+          },
+          {
+            segment: { text: 'Classic Derby Shoes' },
+            groundingChunkIndices: [0],
+          },
+        ],
+      };
+
+      const mapped = mapSuggestionsToGrounding(mockSuggestions, groundingMetadata, JSON.stringify(mockSuggestions));
+      expect(mapped).toHaveLength(2);
+
+      // Suggestion 0 mapped to chunk 3 (Massimo Dutti)
+      expect(mapped[0].citations).toHaveLength(1);
+      expect(mapped[0].citations[0].url).toBe('https://www.massimodutti.com/eg/en/chino-pants-c0p123.html');
+      expect(mapped[0].citations[0].title).toBe('MD Chinos');
+
+      // Suggestion 1 mapped to chunk 0 (Zara)
+      expect(mapped[1].citations).toHaveLength(1);
+      expect(mapped[1].citations[0].url).toBe('https://www.zara.com/eg/en/derby-shoes-p456.html');
+      expect(mapped[1].citations[0].title).toBe('Zara Derby Shoes');
+    });
+
+    it('19. Section 29 URL validation: valid deep link vs homepage, category, search, and fake', () => {
+      // Valid deep product URL
+      expect(verifyDirectProductUrl('https://www.zara.com/eg/en/product-name-p123456.html', { slot: 'bottom' })).toBe('https://www.zara.com/eg/en/product-name-p123456.html');
+
+      // Invalid: Homepage
+      expect(verifyDirectProductUrl('https://www.zara.com/', { slot: 'bottom' })).toBeNull();
+
+      // Invalid: Search page
+      expect(verifyDirectProductUrl('https://www.zara.com/eg/en/search?searchTerm=trousers', { slot: 'bottom' })).toBeNull();
+
+      // Invalid: Category page
+      expect(verifyDirectProductUrl('https://www.zara.com/eg/en/men/trousers-c123.html', { slot: 'bottom' })).toBeNull();
+
+      // Invalid: Fake / untrusted domain
+      expect(verifyDirectProductUrl('https://example.com/fake-product', { slot: 'bottom' })).toBeNull();
+    });
+
+    it('20. Section 29 Image validation: reject stock photos and placeholders, accept verified retailer image', () => {
+      const mockItem = { slot: 'shoes', title: 'Oxford Shoes', itemType: 'shoes' };
+
+      // Stock photography rejected
+      expect(verifyProductImageUrl('https://unsplash.com/photos/shoes.jpg', mockItem)).toBeNull();
+      expect(verifyProductImageUrl('https://images.pexels.com/photos/shoes.jpg', mockItem)).toBeNull();
+      expect(verifyProductImageUrl('https://www.shutterstock.com/image-photo/shoes.jpg', mockItem)).toBeNull();
+      expect(verifyProductImageUrl('https://via.placeholder.com/300', mockItem)).toBeNull();
+
+      // Placeholders / banners / logos rejected
+      expect(verifyProductImageUrl('https://static.zara.net/photos/logo.png', mockItem)).toBeNull();
+      expect(verifyProductImageUrl('https://static.zara.net/photos/campaign_banner.jpg', mockItem)).toBeNull();
+      expect(verifyProductImageUrl('https://static.zara.net/photos/avatar.jpg', mockItem)).toBeNull();
+
+      // Authentic retailer CDN image accepted
+      expect(verifyProductImageUrl('https://static.zara.net/photos/shoes_12345.jpg', mockItem)).toBe('https://static.zara.net/photos/shoes_12345.jpg');
     });
   });
 });

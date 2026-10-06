@@ -91,6 +91,12 @@ export const logTraceStep = (entry = {}) => {
     sufficiency: sufficiency ? String(sufficiency) : null,
     refusalCategory: refusalCategory ? String(refusalCategory) : null,
     groundedQueriesCount: typeof groundedQueriesCount === 'number' ? groundedQueriesCount : 0,
+    groundingChunksCount: typeof entry.groundingChunksCount === 'number' ? entry.groundingChunksCount : undefined,
+    groundingSupportsCount: typeof entry.groundingSupportsCount === 'number' ? entry.groundingSupportsCount : undefined,
+    candidateProducts: typeof entry.candidateProducts === 'number' ? entry.candidateProducts : undefined,
+    verifiedProducts: typeof entry.verifiedProducts === 'number' ? entry.verifiedProducts : undefined,
+    rejectedProducts: typeof entry.rejectedProducts === 'number' ? entry.rejectedProducts : undefined,
+    cacheHit: typeof entry.cacheHit === 'boolean' ? entry.cacheHit : undefined,
   };
 
   logger.info(`[AI_TRACE] ${JSON.stringify(payload)}`);

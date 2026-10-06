@@ -1,0 +1,427 @@
+/**
+ * Phase 15 — Production Product Page Verifier (product-page-verifier.js).
+ *
+ * Verifies candidate product URLs by fetching the live page with strict timeouts,
+ * enforcing SSRF guards and trusted domain allowlists, and extracting real metadata
+ * (JSON-LD Product, OpenGraph, Twitter cards, title, image, and price).
+ */
+
+import net from 'net';
+import { logger } from '../../../config/logger.config.js';
+
+export const VERIFIER_TIMEOUT_MS = 6000;
+
+export const TRUSTED_RETAILER_DOMAINS = Object.freeze([
+  'amazon.eg',
+  'amazon.com',
+  'jumia.com.eg',
+  'jumia.is',
+  'noon.com',
+  'zara.com',
+  'massimodutti.com',
+  'hm.com',
+  'mango.com',
+  'defacto.com',
+  'defacto.com.tr',
+  'lcwaikiki.eg',
+  'lcwaikiki.com',
+  'pullandbear.com',
+  'bershka.com',
+  'stradivarius.com',
+  'townteam.com',
+  'tie-house.com',
+  'lotfy.com',
+  'dejavu.shoes',
+  'concrete.me',
+  'mobaco.com',
+  'dalydress.com',
+  'jlood.com',
+  'antikkaeg.com',
+  'asos.com',
+  'namshi.com',
+]);
+
+// Test override seam for deterministic offline unit testing
+let fetchOverride = null;
+
+export const setHttpFetchOverride = (fn) => {
+  fetchOverride = fn;
+};
+
+export const resetHttpFetchOverride = () => {
+  fetchOverride = null;
+};
+
+/**
+ * Checks whether an IP address is private, loopback, link-local, or invalid.
+ * Prevents SSRF attacks.
+ */
+export const isPrivateOrLoopbackIp = (ip = '') => {
+  if (!ip || !net.isIP(ip)) return false;
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts[0] === 127) return true; // 127.0.0.0/8
+    if (parts[0] === 10) return true; // 10.0.0.0/8
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12
+    if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true; // 169.254.0.0/16
+    if (parts[0] === 0) return true; // 0.0.0.0
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const norm = ip.toLowerCase();
+    if (norm === '::1' || norm === '::' || norm.startsWith('fe80:') || norm.startsWith('fc') || norm.startsWith('fd')) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Validates that a hostname belongs to a recognized, trusted retailer.
+ */
+export const isAllowedHost = (hostname = '') => {
+  const h = String(hostname || '').toLowerCase().trim();
+  if (!h || h === 'localhost' || isPrivateOrLoopbackIp(h)) return false;
+  if (h === 'vertexaisearch.cloud.google.com') return true; // Google Grounding redirector
+  return TRUSTED_RETAILER_DOMAINS.some(
+    (domain) => h === domain || h.endsWith(`.${domain}`)
+  );
+};
+
+/**
+ * Checks if a URL path represents a search, category, cart, login, or home page.
+ */
+export const isRejectedUrlPath = (parsedUrl) => {
+  const pathname = parsedUrl.pathname.trim().toLowerCase();
+  const segments = pathname.split('/').filter(Boolean);
+
+  // Root or locale homepage (e.g. /, /eg, /eg/en, /en-eg, /ar, /eg/ar/)
+  const isLocaleOnly = segments.length > 0 && segments.length <= 2 && segments.every((s) => /^[a-z]{2}([-_][a-z]{2})?$/i.test(s));
+  if (segments.length === 0 || isLocaleOnly) {
+    return true;
+  }
+
+  const lastSegment = segments[segments.length - 1];
+  if (/^(index|home|default)(\.[a-z0-9]+)?$/i.test(lastSegment)) {
+    return true;
+  }
+
+  // Search pages
+  if (/\/(search|find|catalogsearch|browse|query)(\/|$)/i.test(pathname)) {
+    return true;
+  }
+  const searchParams = ['q', 'query', 'search', 'k', 'keyword', 'searchTerm'];
+  if (searchParams.some((p) => parsedUrl.searchParams.has(p))) {
+    return true;
+  }
+
+  // Cart / checkout / auth
+  if (/\/(cart|checkout|bag|account|login|signin|register|contact|about|terms|privacy|help|faq)(\/|$)/i.test(pathname)) {
+    return true;
+  }
+
+  // Category paths
+  if (/-(c\d+|cat\d+|l\d+)\.html$/i.test(pathname) || /^\/c\/[a-z0-9-]+$/i.test(pathname)) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Extracts JSON-LD Product data from HTML string.
+ */
+export const extractJsonLdProduct = (html = '', baseUrl = '') => {
+  const scriptRegex = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+
+  while ((match = scriptRegex.exec(html)) !== null) {
+    const rawContent = match[1].trim();
+    if (!rawContent) continue;
+
+    try {
+      const parsed = JSON.parse(rawContent);
+      const candidates = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed['@graph'])
+        ? parsed['@graph']
+        : [parsed];
+
+      for (const item of candidates) {
+        const type = String(item['@type'] || '').toLowerCase();
+        if (type === 'product' || type.includes('product')) {
+          let imageUrl = null;
+          if (typeof item.image === 'string') {
+            imageUrl = item.image;
+          } else if (Array.isArray(item.image) && item.image.length > 0) {
+            imageUrl = typeof item.image[0] === 'string' ? item.image[0] : item.image[0]?.url || item.image[0]?.contentUrl;
+          } else if (item.image?.url) {
+            imageUrl = item.image.url;
+          }
+
+          if (imageUrl && baseUrl) {
+            try {
+              imageUrl = new URL(imageUrl, baseUrl).href;
+            } catch {
+              // ignore invalid url
+            }
+          }
+
+          let price = null;
+          let currency = null;
+          const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+          if (offers) {
+            const rawPrice = offers.price || offers.lowPrice || offers.highPrice;
+            if (rawPrice !== undefined && rawPrice !== null) {
+              const num = parseFloat(String(rawPrice).replace(/[^0-9.]/g, ''));
+              if (!isNaN(num) && num > 0) price = Math.round(num);
+            }
+            currency = offers.priceCurrency || null;
+          }
+
+          return {
+            title: item.name || null,
+            imageUrl: imageUrl || null,
+            price,
+            currency,
+            sku: item.sku || item.productID || item.mpn || null,
+            availability: offers?.availability || null,
+          };
+        }
+      }
+    } catch {
+      // Continue to next script tag
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Extracts OpenGraph and Meta tags from HTML.
+ */
+export const extractMetaTags = (html = '', baseUrl = '') => {
+  const getTagValue = (propOrName, key) => {
+    const r1 = new RegExp(`<meta\\b[^>]*${propOrName}=["']${key}["'][^>]*content=["']([^"']*)["']`, 'i');
+    const r2 = new RegExp(`<meta\\b[^>]*content=["']([^"']*)["'][^>]*${propOrName}=["']${key}["']`, 'i');
+    const m = html.match(r1) || html.match(r2);
+    return m ? m[1].trim() : null;
+  };
+
+  let imageUrl = getTagValue('property', 'og:image') || getTagValue('name', 'twitter:image');
+  if (imageUrl && baseUrl) {
+    try {
+      imageUrl = new URL(imageUrl, baseUrl).href;
+    } catch {
+      imageUrl = null;
+    }
+  }
+
+  const title =
+    getTagValue('property', 'og:title') ||
+    getTagValue('name', 'twitter:title') ||
+    html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ||
+    null;
+
+  return { title, imageUrl };
+};
+
+/**
+ * Default test mock fetch for deterministic offline testing.
+ */
+const defaultTestFetch = async (url) => {
+  const parsed = new URL(url);
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  const last = segments[segments.length - 1] || 'product';
+  const cleanTitle = last.replace(/[-_]/g, ' ').replace(/\.html$/i, '').trim();
+  const title = cleanTitle ? cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1) : 'Fashion Garment';
+  const domain = parsed.hostname.replace(/^www\./, '');
+  const cdnDomain =
+    domain === 'zara.com'
+      ? 'static.zara.net'
+      : domain === 'massimodutti.com'
+      ? 'static.massimodutti.net'
+      : domain === 'jumia.com.eg'
+      ? 'eg.jumia.is'
+      : domain === 'amazon.eg'
+      ? 'm.media-amazon.com'
+      : domain;
+
+  const mockHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${title} - ${domain}</title>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org/",
+        "@type": "Product",
+        "name": "${title}",
+        "image": "https://${cdnDomain}/photos/${last}.jpg",
+        "offers": {
+          "@type": "Offer",
+          "price": "1800",
+          "priceCurrency": "EGP",
+          "availability": "https://schema.org/InStock"
+        }
+      }
+      </script>
+      <meta property="og:title" content="${title}" />
+      <meta property="og:image" content="https://${cdnDomain}/photos/${last}.jpg" />
+    </head>
+    <body><p>Product description for ${title}</p></body>
+    </html>
+  `;
+
+  return {
+    ok: true,
+    status: 200,
+    url,
+    headers: {
+      get: (headerName) =>
+        String(headerName).toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null,
+    },
+    text: async () => mockHtml,
+  };
+};
+
+/**
+ * Fetches and verifies a candidate product page over HTTP with strict safety guards.
+ *
+ * @param {string} candidateUrl
+ * @param {Object} [options={}]
+ * @returns {Promise<{ valid: boolean, finalUrl?: string, title?: string, imageUrl?: string, price?: number, currency?: string, sku?: string }>}
+ */
+export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIMEOUT_MS } = {}) => {
+  if (!candidateUrl || typeof candidateUrl !== 'string') {
+    return { valid: false };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(candidateUrl.trim());
+  } catch {
+    return { valid: false };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { valid: false };
+  }
+
+  if (!isAllowedHost(parsed.hostname)) {
+    return { valid: false };
+  }
+
+  // Reject dead lcwaikiki.com portal (Egyptian store uses lcwaikiki.eg)
+  if (parsed.hostname === 'lcwaikiki.com' || parsed.hostname.endsWith('.lcwaikiki.com') || parsed.hostname.includes('lcw.com')) {
+    return { valid: false };
+  }
+
+  if (isRejectedUrlPath(parsed)) {
+    return { valid: false };
+  }
+
+  const fetchFn = fetchOverride || (process.env.NODE_ENV === 'test' ? defaultTestFetch : globalThis.fetch);
+  if (typeof fetchFn !== 'function') {
+    return { valid: false };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetchFn(parsed.href, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MurafiqBot/1.0',
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+      },
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return { valid: false };
+    }
+
+    const finalUrl = res.url || parsed.href;
+    let parsedFinal;
+    try {
+      parsedFinal = new URL(finalUrl);
+    } catch {
+      return { valid: false };
+    }
+
+    // Ensure final redirect URL is still within allowed trusted domains & not SSRF
+    if (!isAllowedHost(parsedFinal.hostname) || isRejectedUrlPath(parsedFinal)) {
+      return { valid: false };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+      return { valid: false };
+    }
+
+    const html = await res.text();
+    if (!html || html.length < 200) {
+      return { valid: false };
+    }
+
+    // 1. Try structured JSON-LD Product metadata
+    const jsonLd = extractJsonLdProduct(html, finalUrl);
+    if (jsonLd?.title && jsonLd?.imageUrl) {
+      return {
+        valid: true,
+        finalUrl,
+        title: jsonLd.title,
+        imageUrl: jsonLd.imageUrl,
+        price: jsonLd.price,
+        currency: jsonLd.currency,
+        sku: jsonLd.sku,
+      };
+    }
+
+    // 2. Try OpenGraph / Twitter metadata
+    const meta = extractMetaTags(html, finalUrl);
+    if (meta?.title && meta?.imageUrl) {
+      // Reject if title indicates an error page
+      const titleLower = meta.title.toLowerCase();
+      if (titleLower.includes('404') || titleLower.includes('not found') || titleLower.includes('page not found')) {
+        return { valid: false };
+      }
+
+      return {
+        valid: true,
+        finalUrl,
+        title: meta.title,
+        imageUrl: meta.imageUrl,
+        price: jsonLd?.price || null,
+        currency: jsonLd?.currency || null,
+        sku: jsonLd?.sku || null,
+      };
+    }
+
+    return { valid: false };
+  } catch (err) {
+    clearTimeout(timer);
+    logger.debug(`[ProductPageVerifier] Fetch failed for ${parsed.href}: ${err.message}`);
+    return { valid: false };
+  }
+};
+
+export default {
+  VERIFIER_TIMEOUT_MS,
+  TRUSTED_RETAILER_DOMAINS,
+  isPrivateOrLoopbackIp,
+  isAllowedHost,
+  isRejectedUrlPath,
+  extractJsonLdProduct,
+  extractMetaTags,
+  verifyProductPage,
+  setHttpFetchOverride,
+  resetHttpFetchOverride,
+};
