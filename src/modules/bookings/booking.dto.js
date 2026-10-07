@@ -18,12 +18,18 @@ const toBookingParty = (userDoc) => {
   };
 };
 
-export const toPublicBookingDto = (bookingDoc) => {
+export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
   if (!bookingDoc) return null;
   const doc = bookingDoc.toObject ? bookingDoc.toObject() : bookingDoc;
 
   const client = toBookingParty(doc.clientId);
   const stylist = toBookingParty(doc.stylistId);
+
+  const requestingUserId = requestingUser ? (requestingUser._id || requestingUser.id)?.toString() : null;
+  const stylistId = (doc.stylistId?._id || doc.stylistId?.id || doc.stylistId)?.toString();
+
+  const isStylist = Boolean(requestingUserId) && Boolean(stylistId) && requestingUserId === stylistId;
+  const showOtp = isStylist && doc.bookingMode === 'demo' && doc.status === 'in-progress' && !doc.cashCollectedAt;
 
   return {
     id: doc._id?.toString() || doc.id,
@@ -41,6 +47,8 @@ export const toPublicBookingDto = (bookingDoc) => {
     status: doc.status,
     checkInAt: doc.checkInAt || null,
     checkInLocation: doc.checkInLocation || null,
+    cashCollectedAt: doc.cashCollectedAt || null,
+    ...(showOtp && doc.cashOtpPlain ? { cashOtp: doc.cashOtpPlain } : {}),
     clientConfirmedAt: doc.clientConfirmedAt || null,
     stylistConfirmedAt: doc.stylistConfirmedAt || null,
     cancelledBy: doc.cancelledBy || null,

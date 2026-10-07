@@ -339,6 +339,15 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
         .set('Authorization', `Bearer ${stylistToken}`)
         .send({});
       expect(res2.statusCode).toBe(200);
+      expect(res2.body.data.cashOtp).toBeDefined();
+
+      // Client verifies the cash OTP
+      const verifyRes = await request(app)
+        .post(`/api/demo/bookings/${bookingId}/verify-cash-otp`)
+        .set('Authorization', `Bearer ${clientToken}`)
+        .send({ otp: res2.body.data.cashOtp });
+      expect(verifyRes.statusCode).toBe(200);
+      expect(verifyRes.body.success).toBe(true);
 
       // Both confirm completion
       const comp1 = await bookingService.confirmCompletion(clientUser, bookingId);

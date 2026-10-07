@@ -12,12 +12,38 @@ export const create = async (data, session = null) => {
 };
 
 export const findById = async (id, session = null) => {
-  const query = Booking.findById(id).populate([
+  const query = Booking.findById(id)
+    .select('+cashOtpPlain')
+    .populate([
+      { path: 'clientId', select: 'name profileImage' },
+      { path: 'stylistId', select: 'name profileImage' },
+    ]);
+  if (session) query.session(session);
+  return query;
+};
+
+export const findByIdWithCashOtp = async (id, session = null) => {
+  const query = Booking.findById(id)
+    .select('+cashOtpHash +cashOtpPlain')
+    .populate([
+      { path: 'clientId', select: 'name profileImage' },
+      { path: 'stylistId', select: 'name profileImage' },
+    ]);
+  if (session) query.session(session);
+  return query;
+};
+
+export const setCashCollected = async (bookingId, collectedAt = new Date(), session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+  return Booking.findOneAndUpdate(
+    { _id: bookingId, status: BOOKING_STATUS.IN_PROGRESS, cashCollectedAt: null },
+    { $set: { cashCollectedAt: collectedAt } },
+    options
+  ).populate([
     { path: 'clientId', select: 'name profileImage' },
     { path: 'stylistId', select: 'name profileImage' },
   ]);
-  if (session) query.session(session);
-  return query;
 };
 
 export const findMine = async (clientId, queryString = {}) => {
@@ -212,10 +238,12 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
     { _id: bookingId, status: { $in: fromStates } },
     updateDoc,
     options
-  ).populate([
-    { path: 'clientId', select: 'name profileImage' },
-    { path: 'stylistId', select: 'name profileImage' },
-  ]);
+  )
+    .select('+cashOtpPlain')
+    .populate([
+      { path: 'clientId', select: 'name profileImage' },
+      { path: 'stylistId', select: 'name profileImage' },
+    ]);
 };
 
 
@@ -497,6 +525,8 @@ export default {
   findPendingRefundRecoveryCandidates,
   create,
   findById,
+  findByIdWithCashOtp,
+  setCashCollected,
   findEligibleForPayout,
   findCompletedUnpaidBefore,
   updateManyPayoutStatus,

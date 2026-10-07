@@ -11,6 +11,7 @@ import {
   cancelBookingSchema,
   noShowSchema,
   noShowResponseSchema,
+  verifyCashOtpSchema,
 } from './booking.validator.js';
 import bookingController from './booking.controller.js';
 import { createReviewSchema } from '../reviews/review.validator.js';
@@ -27,6 +28,7 @@ router.get('/:id', bookingController.getById);
 router.get('/:id/cancellation-quote', bookingController.getCancellationQuote);
 router.get('/:id/dispute', bookingController.getDisputeDetails);
 router.patch('/:id/check-in', validate(checkInSchema), bookingController.checkIn);
+router.post('/:id/verify-cash-otp', restrictTo(ROLES.CLIENT), validate(verifyCashOtpSchema), bookingController.verifyCashOtp);
 router.patch('/:id/confirm-completion', validate(confirmCompletionSchema), bookingController.confirmCompletion);
 router.post('/:id/dispute', validate(disputeSchema), bookingController.fileDispute);
 router.post('/:id/dispute/evidence', validate(addDisputeEvidenceSchema), bookingController.addDisputeEvidence);

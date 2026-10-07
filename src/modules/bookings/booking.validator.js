@@ -76,3 +76,14 @@ export const noShowResponseSchema = {
     })
     .strict(),
 };
+
+export const verifyCashOtpSchema = {
+  params: z.object({
+    id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid booking ID'),
+  }),
+  body: z
+    .object({
+      otp: z.string().regex(/^\d{4}$/, 'OTP must be exactly 4 digits'),
+    })
+    .strict(),
+};

@@ -458,6 +458,21 @@ class NotificationListener {
       }
     });
 
+    // 13. Cash Payment Verified (Demo COD) -> Notify Stylist
+    eventBus.on(EVENTS.CASH_PAYMENT_VERIFIED, async ({ bookingId, stylistId, amount }) => {
+      try {
+        if (!stylistId) return;
+        await notificationService.send(stylistId, {
+          type: 'payment',
+          title: 'Cash Payment Verified',
+          body: `Client confirmed cash payment of ${amount || 0} EGP for your session.`,
+          relatedEntityId: bookingId,
+        });
+      } catch (err) {
+        logger.error(`Notification error on CASH_PAYMENT_VERIFIED: ${err.message}`);
+      }
+    });
+
     logger.info('Notification domain event listeners initialized');
   }
 }

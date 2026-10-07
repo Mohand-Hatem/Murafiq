@@ -72,6 +72,14 @@
  *               type: number
  *             lng:
  *               type: number
+ *         cashCollectedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *         cashOtp:
+ *           type: string
+ *           example: "4829"
+ *           description: 4-digit Cash OTP for demo bookings (visible only to stylist while in-progress)
  *         clientConfirmedAt:
  *           type: string
  *           format: date-time
@@ -254,6 +262,48 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
+ */
+
+/**
+ * @swagger
+ * /bookings/{id}/verify-cash-otp:
+ *   post:
+ *     summary: Verify 4-digit Cash OTP for a demo Cash-on-Delivery (COD) session
+ *     tags: [Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal booking ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [otp]
+ *             properties:
+ *               otp:
+ *                 type: string
+ *                 example: "1234"
+ *                 description: Exactly 4 digits revealed by the stylist upon cash handover
+ *     responses:
+ *       200:
+ *         description: Cash payment verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
+ *       400:
+ *         description: Invalid OTP, session not in-progress, or already verified
+ *       403:
+ *         description: Only the client can verify the Cash OTP
+ *       404:
+ *         description: Booking not found
  */
 
 /**

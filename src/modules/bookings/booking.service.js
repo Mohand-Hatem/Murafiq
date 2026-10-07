@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import withTransaction from '../../common/transaction.util.js';
 import bookingRepository from './booking.repository.js';
 import scheduleRepository from './schedule.repository.js';
@@ -191,7 +192,7 @@ export const getById = async (user, bookingId) => {
 
   assertBookingParticipant(user, booking, { allowAdmin: true });
 
-  return toPublicBookingDto(booking);
+  return toPublicBookingDto(booking, user);
 };
 
 export const checkIn = async (user, bookingId, locationData = {}) => {
@@ -249,6 +250,14 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     updateData.checkInLocation = { lat: locationData.lat, lng: locationData.lng };
   }
 
+  // Generate 4-digit Cash OTP for demo bookings upon entering in-progress
+  if (booking.bookingMode === 'demo' && !booking.cashOtpHash) {
+    const rawOtp = crypto.randomInt(1000, 10000).toString();
+    const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
+    updateData.cashOtpHash = otpHash;
+    updateData.cashOtpPlain = rawOtp;
+  }
+
   const updated = await bookingRepository.transitionStatus(
     bookingId,
     [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS],
@@ -264,7 +273,7 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     clientId,
   });
 
-  return toPublicBookingDto(updated);
+  return toPublicBookingDto(updated, user);
 };
 
 export const confirmCompletion = async (user, bookingId) => {
@@ -280,6 +289,11 @@ export const confirmCompletion = async (user, bookingId) => {
       400,
       `Cannot confirm completion of a booking in '${booking.status}' status. Session must be in-progress.`
     );
+  }
+
+  // Demo Cash Gate: Booking must have verified Cash OTP before completion is permitted
+  if (booking.bookingMode === 'demo' && !booking.cashCollectedAt) {
+    throw new ApiError(400, 'Cash payment must be verified before completing the session.');
   }
 
   // Atomic and race-free: see setCompletionConfirmation's comment in
@@ -314,7 +328,65 @@ export const confirmCompletion = async (user, bookingId) => {
     }
   }
 
-  return toPublicBookingDto(updated);
+  return toPublicBookingDto(updated, user);
+};
+
+export const verifyCashOtp = async (user, bookingId, { otp } = {}) => {
+  if (!otp || typeof otp !== 'string' || !/^\d{4}$/.test(otp)) {
+    throw new ApiError(400, 'OTP must be exactly 4 digits');
+  }
+
+  const booking = await bookingRepository.findByIdWithCashOtp(bookingId);
+  if (!booking) {
+    throw new ApiError(404, 'Booking not found');
+  }
+
+  const { isClient, clientId, stylistId } = assertBookingParticipant(user, booking, { allowAdmin: false });
+  if (!isClient) {
+    throw new ApiError(403, 'Only the client can verify the Cash OTP');
+  }
+
+  if (booking.bookingMode !== 'demo') {
+    throw new ApiError(400, 'Cash OTP verification is only applicable for demo bookings');
+  }
+
+  if (booking.status !== BOOKING_STATUS.IN_PROGRESS && booking.status !== 'in-progress') {
+    throw new ApiError(
+      400,
+      `Cannot verify cash OTP for a booking in '${booking.status}' status. Session must be in-progress.`
+    );
+  }
+
+  if (booking.cashCollectedAt) {
+    throw new ApiError(400, 'Cash payment has already been verified for this booking');
+  }
+
+  if (!booking.cashOtpHash) {
+    throw new ApiError(400, 'No Cash OTP has been generated for this booking');
+  }
+
+  const submittedHash = crypto.createHash('sha256').update(otp).digest('hex');
+  const hashBuffer = Buffer.from(submittedHash, 'hex');
+  const storedBuffer = Buffer.from(booking.cashOtpHash, 'hex');
+
+  if (hashBuffer.length !== storedBuffer.length || !crypto.timingSafeEqual(hashBuffer, storedBuffer)) {
+    throw new ApiError(400, 'Invalid Cash OTP');
+  }
+
+  const now = new Date();
+  const updated = await bookingRepository.setCashCollected(bookingId, now);
+  if (!updated) {
+    throw new ApiError(409, 'Failed to record cash payment: booking state changed concurrently');
+  }
+
+  eventBus.emit(EVENTS.CASH_PAYMENT_VERIFIED, {
+    bookingId: updated._id.toString(),
+    clientId: clientId.toString(),
+    stylistId: stylistId.toString(),
+    amount: updated.price,
+  });
+
+  return toPublicBookingDto(updated, user);
 };
 
 const DISPUTE_WINDOW_HOURS = 48;
@@ -1300,6 +1372,7 @@ export default {
   getStylistBookings,
   getById,
   checkIn,
+  verifyCashOtp,
   confirmCompletion,
   fileDispute,
   addDisputeEvidence,

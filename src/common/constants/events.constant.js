@@ -41,6 +41,7 @@ export const EVENTS = {
   // administrative comp indistinguishable from revenue in the audit trail.
   SUBSCRIPTION_ADMIN_GRANTED: 'subscription.admin_granted',
   SESSION_REMINDER: 'session.reminder',
+  CASH_PAYMENT_VERIFIED: 'cash_payment.verified',
 };
 
 export default EVENTS;

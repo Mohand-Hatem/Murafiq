@@ -35,6 +35,14 @@ export const checkIn = asyncHandler(async (req, res) => {
   });
 });
 
+export const verifyCashOtp = asyncHandler(async (req, res) => {
+  const booking = await bookingService.verifyCashOtp(req.user, req.params.id, req.body);
+  return ApiResponse.success(res, {
+    message: 'Cash payment verified successfully',
+    data: booking,
+  });
+});
+
 export const confirmCompletion = asyncHandler(async (req, res) => {
   const booking = await bookingService.confirmCompletion(req.user, req.params.id);
   return ApiResponse.success(res, {
@@ -128,6 +136,7 @@ export default {
   getStylistBookings,
   getById,
   checkIn,
+  verifyCashOtp,
   confirmCompletion,
   fileDispute,
   addDisputeEvidence,
