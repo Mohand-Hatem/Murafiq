@@ -21,7 +21,7 @@ import {
 } from '../../../common/constants/dress-code.constant.js';
 import { BUSINESS_TIMEZONE } from '../../../common/constants/defaults.constant.js';
 import { logger } from '../../../config/logger.config.js';
-import cloudinary from '../../../config/cloudinary.config.js';
+import uploadService from '../../uploads/upload.service.js';
 
 /**
  * End-to-end AI Stylist Pipeline Orchestrator.
@@ -89,67 +89,75 @@ export const runStylistPipeline = async ({
   const traceId = traceLogger.createTraceId();
   const hasImage = Boolean(imageRef);
 
-  // 0. Quota consumption:
-  // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
-  const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
-  const messageMetric =
-    userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+  // --- Quota Transaction Ledger ---
+  const consumedQuotas = [];
+  let isCompletedSuccessfully = false;
 
-  const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+  const trackConsume = async (metric, amount = 1) => {
+    await entitlementService.consume(userId, metric, amount, 'client');
+    consumedQuotas.push({ metric, amount });
+  };
 
-  // Helper to refund all consumed quotas on validation/scope refusal
-  const refundConsumedQuotas = async () => {
-    await entitlementService.refundQuota(userId, messageMetric, 1);
-    if (hasImageQuota) {
-      await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
+  const rollbackAllQuotas = async () => {
+    while (consumedQuotas.length > 0) {
+      const item = consumedQuotas.pop();
+      try {
+        await entitlementService.refundQuota(userId, item.metric, item.amount);
+      } catch (refundErr) {
+        logger.error(`[Orchestrator] Failed to refund quota ${item.metric} for user ${userId}:`, refundErr.message);
+      }
     }
   };
 
-  await entitlementService.consume(userId, messageMetric, 1, 'client');
+  try {
+    // 0. Quota consumption:
+    // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
+    const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
+    const messageMetric =
+      userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
 
-  // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
-  if (hasImageQuota) {
-    try {
-      await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
-    } catch (err) {
-      await entitlementService.refundQuota(userId, messageMetric, 1);
-      throw err;
+    const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+
+    await trackConsume(messageMetric, 1);
+
+    // If image is attached and plan defines a daily image quota, consume vision quota; rollback will handle failure
+    if (hasImageQuota) {
+      await trackConsume('ai.imageMessages.daily', 1);
     }
-  }
 
-  // 0b. Scope Guard Layer 1: message validation & refusal abuse rate limiting
-  const l1Check = scopeGuard.validateLayer1(message);
-  if (!l1Check.valid) {
-    await refundConsumedQuotas();
-    throw new ApiError(400, scopeGuard.getRefusalMessage(l1Check.refusalCategory, 'en'));
-  }
+    // 0b. Scope Guard Layer 1: message validation & refusal abuse rate limiting
+    const l1Check = scopeGuard.validateLayer1(message);
+    if (!l1Check.valid) {
+      await rollbackAllQuotas();
+      throw new ApiError(400, scopeGuard.getRefusalMessage(l1Check.refusalCategory, 'en'));
+    }
 
-  const rateLimitCheck = await scopeGuard.checkRefusalRateLimit(userId);
-  if (!rateLimitCheck.allowed) {
-    await refundConsumedQuotas();
-    const refusalMsg = scopeGuard.getRefusalMessage(rateLimitCheck.refusalCategory, 'en');
+    const rateLimitCheck = await scopeGuard.checkRefusalRateLimit(userId);
+    if (!rateLimitCheck.allowed) {
+      await rollbackAllQuotas();
+      const refusalMsg = scopeGuard.getRefusalMessage(rateLimitCheck.refusalCategory, 'en');
 
-    traceLogger.logTraceStep({
-      traceId,
-      step: 'layer1_rate_limited',
-      userId,
-      inDomain: false,
-      refusalCategory: rateLimitCheck.refusalCategory,
-    });
+      traceLogger.logTraceStep({
+        traceId,
+        step: 'layer1_rate_limited',
+        userId,
+        inDomain: false,
+        refusalCategory: rateLimitCheck.refusalCategory,
+      });
 
-    return {
-      refused: true,
-      refusalCategory: rateLimitCheck.refusalCategory,
-      message: refusalMsg,
-      traceId,
-    };
-  }
+      return {
+        refused: true,
+        refusalCategory: rateLimitCheck.refusalCategory,
+        message: refusalMsg,
+        traceId,
+      };
+    }
 
-  // Optional image data loading for multimodal inlineData
+    // Optional image data loading for multimodal inlineData
   let imageData = options.imageData || null;
   if (!imageData && imageRef) {
     try {
-      const secureUrl = cloudinary.url(imageRef, { secure: true });
+      const secureUrl = uploadService.getAssetUrl(imageRef);
       const res = await fetch(secureUrl);
       if (res.ok) {
         const arrayBuffer = await res.arrayBuffer();
@@ -189,7 +197,7 @@ export const runStylistPipeline = async ({
   // 1b. Scope Gate Verdict: If out-of-domain (or non-garment image), refund quotas and terminate
   if (!intent.inDomain) {
     await scopeGuard.recordScopeRefusal(userId);
-    await refundConsumedQuotas();
+    await rollbackAllQuotas();
 
     const refusalMsg = scopeGuard.getRefusalMessage(intent.refusalCategory, intent.language);
 
@@ -230,7 +238,7 @@ export const runStylistPipeline = async ({
       material: intent.garmentAnalysis.material,
       pattern: intent.garmentAnalysis.pattern,
       styleTags: intent.garmentAnalysis.styleTags,
-      imageUrl: imageRef ? cloudinary.url(imageRef, { secure: true }) : null,
+      imageUrl: imageRef ? uploadService.getAssetUrl(imageRef) : null,
     };
   }
 
@@ -334,7 +342,7 @@ export const runStylistPipeline = async ({
         content: message,
         traceId,
         imageRef,
-        imageUrl: imageRef ? cloudinary.url(imageRef, { secure: true }) : null,
+        imageUrl: imageRef ? uploadService.getAssetUrl(imageRef) : null,
         imageAnalysis: intent.garmentAnalysis || null,
         imageExpiresAt: expiresAt,
         matchedWardrobeItemId: matchResult?.matched ? matchResult.itemId : null,
@@ -353,7 +361,6 @@ export const runStylistPipeline = async ({
 
     if (quotaCheck.allowed) {
       try {
-        await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
 
         let gapQuery;
@@ -386,6 +393,10 @@ export const runStylistPipeline = async ({
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
           anchor,
+          constraints: intent.explicitConstraints || [],
+          onCacheMiss: async () => {
+            await trackConsume('ai.productSearch.monthly', 1);
+          },
         });
 
         const verifiedCount = externalSuggestions.filter((s) => s.isGrounded).length;
@@ -486,6 +497,7 @@ export const runStylistPipeline = async ({
       }
     }
 
+    isCompletedSuccessfully = true;
     return {
       ...rendered,
       conversationId: activeConversationId,
@@ -521,6 +533,7 @@ export const runStylistPipeline = async ({
     eventContext,
     anchor,
     fashionKnowledgeChunks,
+    explicitConstraints: intent.explicitConstraints || [],
     language: intent.language,
     options,
   });
@@ -557,6 +570,7 @@ export const runStylistPipeline = async ({
       eventContext,
       anchor,
       fashionKnowledgeChunks,
+      explicitConstraints: intent.explicitConstraints || [],
       language: intent.language,
       options: {
         ...options,
@@ -633,7 +647,6 @@ export const runStylistPipeline = async ({
 
     if (quotaCheck.allowed) {
       try {
-        await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
         const fallbackGaps = (compResult.missingSlots || []).map((s) =>
           renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
@@ -675,6 +688,9 @@ export const runStylistPipeline = async ({
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
           anchor,
+          onCacheMiss: async () => {
+            await trackConsume('ai.productSearch.monthly', 1);
+          },
         });
 
         const verifiedCount = externalSuggestions.filter((s) => s.isGrounded).length;
@@ -774,11 +790,18 @@ export const runStylistPipeline = async ({
     }
   }
 
-  return {
-    ...rendered,
-    conversationId: activeConversationId,
-    traceId,
-  };
+    isCompletedSuccessfully = true;
+    return {
+      ...rendered,
+      conversationId: activeConversationId,
+      traceId,
+    };
+  } catch (pipelineErr) {
+    if (!isCompletedSuccessfully) {
+      await rollbackAllQuotas();
+    }
+    throw pipelineErr;
+  }
 };
 
 export default {

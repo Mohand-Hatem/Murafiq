@@ -169,8 +169,23 @@ export const normalizeGarmentAttributes = (raw = {}) => {
   const material = mapToEnum(raw.material, WARDROBE_MATERIALS, MATERIAL_ALIASES) || 'other';
   const fit = mapToEnum(raw.fit, WARDROBE_FITS, FIT_ALIASES) || 'regular';
 
+  // Fallback primaryColor: check raw.primaryColor, then raw.colors?.[0], then raw.colorFamily
+  const rawPrimaryCandidate = (typeof raw.primaryColor === 'string' && raw.primaryColor.trim()) ||
+    (Array.isArray(raw.colors) && typeof raw.colors[0] === 'string' && raw.colors[0].trim()) ||
+    (typeof raw.colorFamily === 'string' && raw.colorFamily.trim()) ||
+    '';
+  const primaryColor = rawPrimaryCandidate || 'Unknown';
+
+  // Fallback secondaryColors: check raw.secondaryColors, then remaining raw.colors
+  let secondaryColors = [];
+  if (Array.isArray(raw.secondaryColors) && raw.secondaryColors.length > 0) {
+    secondaryColors = raw.secondaryColors.map((c) => (typeof c === 'string' ? c.trim() : '')).filter(Boolean);
+  } else if (Array.isArray(raw.colors) && raw.colors.length > 1) {
+    secondaryColors = raw.colors.slice(1).map((c) => (typeof c === 'string' ? c.trim() : '')).filter(Boolean);
+  }
+
   const colorFamily = mapToEnum(raw.colorFamily, WARDROBE_COLOR_FAMILIES, COLOR_FAMILY_ALIASES) ||
-    mapToEnum(raw.primaryColor, WARDROBE_COLOR_FAMILIES, COLOR_FAMILY_ALIASES) ||
+    mapToEnum(primaryColor, WARDROBE_COLOR_FAMILIES, COLOR_FAMILY_ALIASES) ||
     'other';
 
   const genderPresentation = mapToEnum(
@@ -181,13 +196,18 @@ export const normalizeGarmentAttributes = (raw = {}) => {
 
   const isNeutral = deriveIsNeutral(colorFamily);
 
+  const confidenceValue = typeof raw.aiConfidence === 'number'
+    ? raw.aiConfidence
+    : typeof raw.confidence === 'number'
+      ? raw.confidence
+      : 0.9;
+  const aiConfidence = Math.max(0, Math.min(1, confidenceValue));
+
   const normalized = {
     category: category || raw.category || 'top',
     subcategory: sanitizeString(raw.subcategory) || null,
-    primaryColor: raw.primaryColor?.trim() || 'Unknown',
-    secondaryColors: Array.isArray(raw.secondaryColors)
-      ? raw.secondaryColors.map((c) => c.trim()).filter(Boolean)
-      : [],
+    primaryColor,
+    secondaryColors,
     pattern,
     formality: formality || 'casual',
     season,
@@ -201,10 +221,53 @@ export const normalizeGarmentAttributes = (raw = {}) => {
       ? raw.styleTags.map((t) => t.trim().toLowerCase()).filter(Boolean)
       : [],
     aiDescription: raw.aiDescription?.trim() || '',
-    aiConfidence: typeof raw.aiConfidence === 'number' ? Math.max(0, Math.min(1, raw.aiConfidence)) : 0.9,
+    aiConfidence,
+    confidence: aiConfidence,
   };
 
   return { normalized, needsReview };
+};
+
+/**
+ * Generates a deterministic human-readable display label for a garment.
+ * Uses item.name if explicitly present, otherwise constructs a label from
+ * color/colorFamily, subcategory/category, and material:
+ * e.g. "Navy Oxford Shirt (Cotton)" or "White Top" or "Chinos (Cotton)"
+ *
+ * @param {Object} item - WardrobeItem document or plain object
+ * @returns {string} Human-readable garment display label
+ */
+export const generateGarmentDisplayLabel = (item) => {
+  if (!item || typeof item !== 'object') return 'Wardrobe Item';
+  if (typeof item.name === 'string' && item.name.trim()) {
+    return item.name.trim();
+  }
+
+  const capitalize = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .split(/[\s_]+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ')
+      .trim();
+  };
+
+  let color = '';
+  if (item.primaryColor && item.primaryColor.toLowerCase() !== 'unknown') {
+    color = capitalize(item.primaryColor);
+  } else if (item.colorFamily && !['multicolor', 'other'].includes(item.colorFamily.toLowerCase())) {
+    color = capitalize(item.colorFamily);
+  }
+
+  const garmentType = capitalize(item.subcategory || item.category || 'Garment');
+
+  let materialPart = '';
+  if (item.material && !['other', 'synthetic', 'unknown'].includes(item.material.toLowerCase())) {
+    materialPart = ` (${capitalize(item.material)})`;
+  }
+
+  const label = `${color ? `${color} ` : ''}${garmentType}${materialPart}`.trim();
+  return label || 'Wardrobe Item';
 };
 
 export default {
@@ -212,4 +275,5 @@ export default {
   mapToEnum,
   deriveIsNeutral,
   normalizeGarmentAttributes,
+  generateGarmentDisplayLabel,
 };

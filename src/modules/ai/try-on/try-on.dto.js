@@ -37,6 +37,7 @@ export const toTryOnDto = (doc, signedUrlTtl = 3600) => {
   let error = null;
   if (doc.status === 'failed') {
     error = {
+      code: doc.errorCode || 'GENERATION_FAILED',
       message: doc.errorMessage || 'Try-On generation failed',
       failedAt: doc.failedAt,
     };

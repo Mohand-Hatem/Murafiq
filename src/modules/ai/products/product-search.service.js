@@ -15,9 +15,17 @@ import {
   isAllowedHost,
   isRejectedUrlPath,
   hasProductPathIndicator,
+  isItemInStock,
 } from './product-page-verifier.js';
 
 export const CACHE_TTL_SECONDS = 86_400; // 24 hours
+
+export const PRODUCT_VERIFICATION_STATUS = Object.freeze({
+  LIVE_VERIFIED: 'live_verified',
+  GOOGLE_GROUNDED_ONLY: 'google_grounded_only',
+  SEARCH_FALLBACK: 'search_fallback',
+  REJECTED: 'rejected',
+});
 
 export const PRODUCT_SEARCH_RESPONSE_SCHEMA = Object.freeze({
   type: 'OBJECT',
@@ -327,13 +335,124 @@ export const AUTHENTIC_RETAILER_IMAGE_DOMAINS = Object.freeze([
   'www.google.com',
 ]);
 
-const GARMENT_CATEGORY_TERMS = {
-  shoes: ['shoes', 'shoe', 'oxford', 'oxfords', 'loafer', 'loafers', 'sneaker', 'sneakers', 'boot', 'boots', 'derby', 'derbies', 'heel', 'heels', 'sandals', 'footwear'],
-  top: ['shirt', 'shirts', 'tshirt', 't-shirt', 'blouse', 'polo', 'sweater', 'pullover', 'cardigan', 'hoodie', 'top', 'turtleneck'],
-  bottom: ['trousers', 'pants', 'jeans', 'chino', 'chinos', 'shorts', 'skirt', 'slacks'],
-  outerwear: ['blazer', 'coat', 'jacket', 'tuxedo', 'suit', 'overcoat', 'parka', 'trench'],
-  dress: ['dress', 'gown', 'frock', 'jumpsuit'],
-  accessory: ['tie', 'bow-tie', 'belt', 'watch', 'cufflinks', 'scarf', 'bag', 'pocket-square'],
+export const GARMENT_CATEGORY_TERMS = {
+  shoes: ['shoes', 'shoe', 'oxford shoes', 'oxford shoe', 'oxfords', 'loafer', 'loafers', 'sneaker', 'sneakers', 'boot', 'boots', 'derby', 'derbies', 'heel', 'heels', 'sandals', 'footwear', 'حذاء', 'شوز', 'كوتشي', 'بوت', 'لوفر', 'أكسفورد', 'صندل'],
+  top: ['shirt', 'shirts', 'tshirt', 't-shirt', 'blouse', 'polo', 'sweater', 'pullover', 'cardigan', 'hoodie', 'top', 'turtleneck', 'قميص', 'تيشيرت', 'بلوزة', 'بولو', 'سويتر', 'بلوفر', 'كارديجان', 'هودي', 'توب'],
+  bottom: ['trousers', 'pants', 'jeans', 'chino', 'chinos', 'shorts', 'skirt', 'slacks', 'بنطلون', 'جينز', 'شينو', 'شورت', 'تنورة', 'جيبة'],
+  outerwear: ['blazer', 'coat', 'jacket', 'tuxedo', 'suit', 'overcoat', 'parka', 'trench', 'بليزر', 'جاكيت', 'معطف', 'بدلة', 'توكسيدو', 'كوت'],
+  dress: ['dress', 'gown', 'frock', 'jumpsuit', 'فستان', 'جمبسوت', 'عباية'],
+  accessory: ['tie', 'bow-tie', 'belt', 'watch', 'cufflinks', 'scarf', 'bag', 'pocket-square', 'كرافتة', 'ربطة عنق', 'حزام', 'ساعة', 'أزرار', 'شال', 'حقيبة', 'شنطة'],
+};
+
+/**
+ * Strips retailer SEO suffixes and store branding from a raw scraped page title.
+ */
+export const cleanRetailerTitle = (rawTitle = '') => {
+  if (!rawTitle || typeof rawTitle !== 'string') return null;
+  let clean = rawTitle.trim();
+  clean = clean
+    .replace(/\s*[-–—|:|•]\s*(Zara|Noon|Amazon|Jumia|Massimo Dutti|H&M|Mango|Defacto|LC Waikiki|Town Team|Tie House|Concrete|Mobaco|Dalydress|Lotfy|Dejavu|Jlood|Antikka|Namshi|ASOS).*$/i, '')
+    .replace(/\s*[-–—|:|•]\s*(نون|جوميا|أمازون|زارا|ماسيمو دوتي|اتش اند ام|تاون تيم|كونكريت|دالي دريس|لطفي|ديجافو|مصر|Egypt).*$/i, '')
+    .replace(/\s*[-–—|:|•]\s*(تسوق أونلاين|أفضل سعر|اشتري الآن|شحن مجاني).*$/i, '')
+    .trim();
+
+  return clean || rawTitle.trim();
+};
+
+/**
+ * Validates that a verified product page matches the requested garment slot,
+ * gender presentation, and key attributes.
+ */
+export const verifyPageProductMatch = (item = {}, pageVerification = {}, genderPresentation = 'unisex') => {
+  if (!pageVerification || !pageVerification.valid) {
+    return { matches: false, reason: 'page_invalid' };
+  }
+
+  const pageTitle = String(pageVerification.title || '').toLowerCase().trim();
+  if (!pageTitle) {
+    return { matches: true };
+  }
+
+  // 1. Gender Presentation alignment check
+  const reqGender = String(genderPresentation || 'unisex').toLowerCase().trim();
+  const isMenRequest = reqGender === 'men' || reqGender === 'male' || reqGender === 'رجالي';
+  const isWomenRequest = reqGender === 'women' || reqGender === 'female' || reqGender === 'حريمي' || reqGender === 'نسائي';
+
+  const hasFemaleTerms =
+    /\b(women|women's|woman|ladies|lady)\b/i.test(pageTitle) ||
+    /(^|\s)(حريمي|نسائي|بناتي)($|\s)/.test(pageTitle);
+  const hasMaleTerms =
+    /\b(men|men's|man|gentlemen)\b/i.test(pageTitle) ||
+    /(^|\s)(رجالي|شبابي)($|\s)/.test(pageTitle);
+
+  if (isMenRequest) {
+    if (hasFemaleTerms && !hasMaleTerms) {
+      return {
+        matches: false,
+        reason: 'gender_mismatch: requested men, page specifies women',
+      };
+    }
+  } else if (isWomenRequest) {
+    if (hasMaleTerms && !hasFemaleTerms) {
+      return {
+        matches: false,
+        reason: 'gender_mismatch: requested women, page specifies men',
+      };
+    }
+  }
+
+  // 2. Slot / Category alignment check
+  const targetSlot = String(item.slot || '').toLowerCase().trim();
+  if (targetSlot && GARMENT_CATEGORY_TERMS[targetSlot]) {
+    const targetTerms = GARMENT_CATEGORY_TERMS[targetSlot] || [];
+    for (const [slot, terms] of Object.entries(GARMENT_CATEGORY_TERMS)) {
+      if (slot !== targetSlot) {
+        let pageHasOtherCategory = terms.some((t) => pageTitle.includes(t.toLowerCase()));
+        let pageHasTargetCategory = targetTerms.some((t) => pageTitle.includes(t.toLowerCase()));
+
+        // Disambiguate compound phrases:
+        // 'dress shirt' / 'dress pants' contains 'dress' but belongs to top / bottom
+        if (slot === 'dress' && (pageTitle.includes('dress shirt') || pageTitle.includes('dress pants'))) {
+          pageHasOtherCategory = false;
+        }
+        if (targetSlot === 'dress' && (pageTitle.includes('dress shirt') || pageTitle.includes('dress pants'))) {
+          pageHasTargetCategory = false;
+        }
+
+        if (pageHasOtherCategory && !pageHasTargetCategory) {
+          return {
+            matches: false,
+            reason: `slot_mismatch: page belongs to ${slot}, expected ${targetSlot}`,
+          };
+        }
+      }
+    }
+  }
+
+  // 3. Overt Color Contradiction Check
+  const itemText = `${item.title || ''} ${item.itemType || ''} ${item.description || ''}`.toLowerCase();
+  const contrastingColors = [
+    { target: ['black', 'أسود', 'اسود'], forbidden: ['white', 'أبيض', 'ابيض', 'pink', 'زهري', 'بمبي', 'yellow', 'أصفر'] },
+    { target: ['white', 'أبيض', 'ابيض'], forbidden: ['black', 'أسود', 'اسود'] },
+    { target: ['navy', 'كحلي'], forbidden: ['white', 'أبيض', 'pink', 'زهري', 'yellow', 'أصفر'] },
+    { target: ['brown', 'بني'], forbidden: ['pink', 'زهري', 'white', 'أبيض'] },
+  ];
+
+  for (const rule of contrastingColors) {
+    const itemSpecifiesColor = rule.target.some((c) => itemText.includes(c));
+    if (itemSpecifiesColor) {
+      const pageHasForbidden = rule.forbidden.some((c) => pageTitle.includes(c));
+      const pageHasTarget = rule.target.some((c) => pageTitle.includes(c));
+      if (pageHasForbidden && !pageHasTarget) {
+        return {
+          matches: false,
+          reason: 'color_mismatch: requested color contradicts page title',
+        };
+      }
+    }
+  }
+
+  return { matches: true };
 };
 
 /**
@@ -341,8 +460,11 @@ const GARMENT_CATEGORY_TERMS = {
  */
 export const extractProductSku = (url = '') => {
   if (!url || typeof url !== 'string') return null;
-  // Noon: /p/(Z[A-Z0-9]+)/ or /p/(N[0-9]+[A-Z])/ or /products/.../(Z[A-Z0-9]+)
-  const noonMatch = url.match(/(?:\/p\/|\/products\/[^/]*\/)([ZN][A-Z0-9]{6,})/i);
+  // Noon: /p/(Z[A-Z0-9]+)/ or /<slug>/(Z[A-Z0-9]+)/p/ or /products/.../(Z[A-Z0-9]+) or /<SKU>_\d+\.jpg
+  const noonMatch =
+    url.match(/(?:\/p\/|\/products\/[^/]*\/)([ZN][A-Z0-9]{6,})/i) ||
+    url.match(/\/([ZN][A-Z0-9]{6,})\/p(?:\/|$|\?)/i) ||
+    url.match(/\/([ZN][A-Z0-9]{6,})_\d+\./i);
   if (noonMatch) return noonMatch[1].toUpperCase();
 
   // Amazon ASIN: /dp/([A-Z0-9]{10}) or /gp/product/([A-Z0-9]{10})
@@ -688,13 +810,41 @@ const resolveIsConnected = () =>
 
 export const computeCacheKey = (
   query,
-  { season = 'all', genderPresentation = 'unisex', locale = 'en' } = {}
+  {
+    season = 'all',
+    genderPresentation = 'unisex',
+    locale = 'en',
+    formality = 'formal',
+    occasion = 'formal',
+    budget = null,
+    isShoppingRequest = false,
+    anchor = null,
+    gapItems = [],
+    constraints = [],
+  } = {}
 ) => {
   const normQuery = String(query || '').toLowerCase().trim();
   const normSeason = String(season || 'all').toLowerCase().trim();
   const normGender = String(genderPresentation || 'unisex').toLowerCase().trim();
   const normLocale = String(locale || 'en').toLowerCase().trim();
-  const queryHash = crypto.createHash('sha256').update(normQuery).digest('hex').slice(0, 16);
+  const normFormality = String(formality || 'formal').toLowerCase().trim();
+  const normOccasion = String(occasion || 'formal').toLowerCase().trim();
+  const normBudget = budget !== undefined && budget !== null ? String(budget) : 'none';
+  const normShopping = isShoppingRequest ? '1' : '0';
+  const normAnchor = anchor
+    ? typeof anchor === 'object'
+      ? `${anchor._id || ''}:${anchor.colorFamily || ''}:${anchor.subcategory || anchor.category || ''}`
+      : String(anchor)
+    : 'none';
+  const normGaps = Array.isArray(gapItems)
+    ? gapItems.map((g) => `${g.slot || ''}:${g.description || ''}`).sort().join(';')
+    : '';
+  const normConstraints = Array.isArray(constraints)
+    ? constraints.map((c) => String(c).toLowerCase().trim()).sort().join(';')
+    : '';
+
+  const rawContext = `${normQuery}|${normFormality}|${normOccasion}|${normBudget}|${normShopping}|${normAnchor}|${normGaps}|${normConstraints}`;
+  const queryHash = crypto.createHash('sha256').update(rawContext).digest('hex').slice(0, 16);
 
   return `ai:product-search:${normSeason}:${normGender}:${normLocale}:${queryHash}`;
 };
@@ -713,13 +863,26 @@ export const searchExternalProducts = async ({
   budget,
   isShoppingRequest = false,
   anchor = null,
+  constraints = [],
+  onCacheMiss = null,
 } = {}) => {
   const query = String(gapDescription || '').trim();
   if (!query) {
     return [];
   }
 
-  const cacheKey = computeCacheKey(query, { season, genderPresentation, locale });
+  const cacheKey = computeCacheKey(query, {
+    season,
+    genderPresentation,
+    locale,
+    formality,
+    occasion,
+    budget,
+    isShoppingRequest,
+    anchor,
+    gapItems,
+    constraints,
+  });
 
   // 1. Check 24-hour Redis Cache
   try {
@@ -738,6 +901,14 @@ export const searchExternalProducts = async ({
     }
   } catch (cacheErr) {
     logger.warn(`[ProductSearch] Cache read failed for key ${cacheKey}:`, cacheErr.message);
+  }
+
+  // 2. Cache miss: trigger onCacheMiss callback if provided (e.g. atomic quota consumption)
+  if (typeof onCacheMiss === 'function') {
+    const proceed = await onCacheMiss();
+    if (proceed === false) {
+      return [];
+    }
   }
 
   // 2. Perform Grounded Product Search using Gemini + Google Search Tool
@@ -833,6 +1004,10 @@ ${suggestionRule}
 ${langPrompt}`;
 
   const budgetClause = budget ? ` Target Budget: ~${budget} EGP.` : '';
+  const constraintsClause =
+    Array.isArray(constraints) && constraints.length > 0
+      ? `\nExplicit Constraints: ${constraints.join(', ')}.`
+      : '';
   const gapContext =
     Array.isArray(gapItems) && gapItems.length > 0
       ? `\nSpecific Missing Gaps: ${gapItems.map((g) => `${g.slot}: ${g.description || g.slot}`).join(', ')}`
@@ -847,7 +1022,7 @@ Target Gap: ${query}${gapContext}
 Occasion: ${occasion}
 Formality: ${formality}
 Season: ${season}
-Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
+Gender Presentation: ${genderPresentation}${budgetClause}${constraintsClause}${langClause}`;
 
   let result;
 
@@ -892,14 +1067,23 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
     );
 
     let resolvedUrl = null;
+    let resolvedPageTitle = null;
     let resolvedTitle = null;
     let resolvedImageUrl = null;
     let resolvedPrice = null;
     let resolvedCitations = [];
+    let resolvedAvailability = null;
+    let resolvedCurrency = 'EGP';
+    let resolvedVerificationStatus = PRODUCT_VERIFICATION_STATUS.SEARCH_FALLBACK;
+    let isLiveVerified = false;
 
     for (const candUrl of candidateUrls) {
+      if (!candUrl || candUrl.includes('vertexaisearch.cloud.google.com')) {
+        continue;
+      }
+
       const syntaxVerified = verifyDirectProductUrl(candUrl, s, citations);
-      if (!syntaxVerified) {
+      if (!syntaxVerified || syntaxVerified.includes('vertexaisearch.cloud.google.com')) {
         logger.debug?.(
           `[ProductSearch] candUrl failed syntax check: ${candUrl} (item: "${s.title || s.itemType}")`
         );
@@ -909,32 +1093,72 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       // Verify live product page over HTTP
       const pageVerification = await verifyProductPage(syntaxVerified, { timeoutMs: 5000 });
       if (pageVerification.valid) {
+        if (pageVerification.finalUrl && pageVerification.finalUrl.includes('vertexaisearch.cloud.google.com')) {
+          continue;
+        }
+
+        // Strict Currency Gate: reject foreign currencies (USD, GBP, EUR, AED)
+        if (pageVerification.currency && String(pageVerification.currency).trim().toUpperCase() !== 'EGP') {
+          logger.debug?.(
+            `[ProductSearch] candUrl rejected due to non-EGP currency (${pageVerification.currency}): ${syntaxVerified}`
+          );
+          continue;
+        }
+
+        // Strict Stock Gate: reject out-of-stock items
+        if (pageVerification.availability && isItemInStock(pageVerification.availability) === false) {
+          logger.debug?.(
+            `[ProductSearch] candUrl rejected due to out of stock (${pageVerification.availability}): ${syntaxVerified}`
+          );
+          continue;
+        }
+
+        // Deterministic Product Page Attribute Match Check
+        const match = verifyPageProductMatch(s, pageVerification, genderPresentation);
+        if (!match.matches) {
+          logger.debug?.(
+            `[ProductSearch] candUrl rejected due to attribute mismatch (${match.reason}): ${syntaxVerified}`
+          );
+          continue;
+        }
+
         logger.debug?.(`[ProductSearch] HTTP verification passed for ${syntaxVerified}`);
         resolvedUrl = pageVerification.finalUrl || syntaxVerified;
+        
+        // Scraped page title is the primary canonical source of truth for product identity
+        resolvedPageTitle = cleanRetailerTitle(pageVerification.title);
         resolvedTitle =
+          resolvedPageTitle ||
           citations.find((c) => c.url === candUrl)?.title ||
-          pageVerification.title ||
           s.sourceTitle ||
           knownRetailer?.title ||
           s.retailer;
-        resolvedPrice = pageVerification.price || (typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null);
+        resolvedPrice =
+          pageVerification.currency && String(pageVerification.currency).trim().toUpperCase() !== 'EGP'
+            ? null
+            : pageVerification.price || (typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null);
 
-        // Validate image URL
+        if (pageVerification.blockedByBotGuard) {
+          resolvedVerificationStatus = PRODUCT_VERIFICATION_STATUS.GOOGLE_GROUNDED_ONLY;
+          isLiveVerified = false;
+          resolvedAvailability = 'unknown';
+        } else {
+          resolvedVerificationStatus = PRODUCT_VERIFICATION_STATUS.LIVE_VERIFIED;
+          isLiveVerified = true;
+          resolvedAvailability =
+            pageVerification.availability && isItemInStock(pageVerification.availability) === false
+              ? 'out_of_stock'
+              : 'in_stock';
+        }
+        resolvedCurrency = 'EGP';
+
+        // Validate image URL: prefer verified candidate image from grounding, fallback to live page image
         if (s.imageUrl) {
           const verifiedSImg = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
           if (verifiedSImg) resolvedImageUrl = verifiedSImg;
         }
         if (!resolvedImageUrl && pageVerification.imageUrl) {
           resolvedImageUrl = verifyProductImageUrl(pageVerification.imageUrl, s, resolvedUrl);
-        }
-
-        // Deterministic retailer CDN image derivation from SKU if still missing (e.g. Noon Egypt)
-        if (!resolvedImageUrl && resolvedUrl) {
-          const sku = extractProductSku(resolvedUrl);
-          if (sku && (resolvedUrl.includes('noon.com') || (s.retailer && /noon|نون/i.test(s.retailer)))) {
-            const noonImg = `https://f.nooncdn.com/products/tr:n-t_400/${sku}_1.jpg`;
-            resolvedImageUrl = verifyProductImageUrl(noonImg, s, resolvedUrl);
-          }
         }
 
         resolvedCitations = citations.filter((c) => c.url === candUrl);
@@ -946,6 +1170,9 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
         // If HTTP page scraping was blocked by anti-bot challenges (403/503 Cloudflare/Akamai/Amazon check),
         // but the URL was directly grounded by Google Search Grounding citations:
         // Preserve the Google Search verified real product URL so sourceUrl is never null!
+        if (syntaxVerified.includes('vertexaisearch.cloud.google.com')) {
+          continue;
+        }
         resolvedUrl = syntaxVerified;
         resolvedTitle =
           citations.find((c) => c.url === candUrl)?.title ||
@@ -953,18 +1180,14 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
           knownRetailer?.title ||
           s.retailer;
         resolvedPrice = typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null;
+        resolvedAvailability = 'unknown';
+        resolvedCurrency = 'EGP';
+        resolvedVerificationStatus = PRODUCT_VERIFICATION_STATUS.GOOGLE_GROUNDED_ONLY;
+        isLiveVerified = false;
 
         if (s.imageUrl) {
           const verifiedSImg = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
           if (verifiedSImg) resolvedImageUrl = verifiedSImg;
-        }
-
-        if (!resolvedImageUrl && resolvedUrl) {
-          const sku = extractProductSku(resolvedUrl);
-          if (sku && (resolvedUrl.includes('noon.com') || (s.retailer && /noon|نون/i.test(s.retailer)))) {
-            const noonImg = `https://f.nooncdn.com/products/tr:n-t_400/${sku}_1.jpg`;
-            resolvedImageUrl = verifyProductImageUrl(noonImg, s, resolvedUrl);
-          }
         }
 
         resolvedCitations = citations.filter((c) => c.url === candUrl);
@@ -975,14 +1198,24 @@ Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
       }
     }
 
+    if (!resolvedUrl) {
+      resolvedVerificationStatus = PRODUCT_VERIFICATION_STATUS.SEARCH_FALLBACK;
+      isLiveVerified = false;
+      resolvedAvailability = null;
+    }
+
     const isGrounded = Boolean((hasGroundingEvidence || resolvedCitations.length > 0) && resolvedUrl && resolvedImageUrl);
 
     return {
       slot: s.slot || 'accessory',
       itemType: s.itemType || s.title || 'Fashion Garment',
-      title: s.title || resolvedTitle || 'Suggested Piece',
+      title: resolvedPageTitle || s.title || 'Suggested Piece',
       description: s.description || '',
       estimatedPriceEgp: resolvedPrice,
+      currency: resolvedCurrency,
+      availability: resolvedAvailability,
+      verificationStatus: resolvedVerificationStatus,
+      isLiveVerified,
       retailer: s.retailer || knownRetailer?.title || 'Online Retailer',
       sourceUrl: resolvedUrl,
       sourceTitle: resolvedTitle || s.sourceTitle || null,

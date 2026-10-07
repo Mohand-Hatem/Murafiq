@@ -2,6 +2,7 @@ import {
   mapToEnum,
   deriveIsNeutral,
   normalizeGarmentAttributes,
+  generateGarmentDisplayLabel,
 } from '../../src/modules/wardrobe/wardrobe-attribute.normalizer.js';
 import {
   WARDROBE_CATEGORIES,
@@ -93,6 +94,82 @@ describe('Wardrobe Attribute Normalizer Unit Tests', () => {
 
       const { needsReview } = normalizeGarmentAttributes(raw);
       expect(needsReview).toBe(true);
+    });
+
+    it('should derive primaryColor and secondaryColors from colors array when primaryColor is absent', () => {
+      const raw = {
+        category: 'top',
+        colors: ['Navy', 'White'],
+        colorFamily: 'navy',
+        confidence: 0.92,
+      };
+
+      const { normalized } = normalizeGarmentAttributes(raw);
+      expect(normalized.primaryColor).toBe('Navy');
+      expect(normalized.secondaryColors).toEqual(['White']);
+      expect(normalized.colorFamily).toBe('navy');
+      expect(normalized.aiConfidence).toBe(0.92);
+      expect(normalized.confidence).toBe(0.92);
+    });
+
+    it('should derive primaryColor from colorFamily when primaryColor and colors are missing', () => {
+      const raw = {
+        category: 'bottom',
+        colorFamily: 'blue',
+      };
+
+      const { normalized } = normalizeGarmentAttributes(raw);
+      expect(normalized.primaryColor).toBe('blue');
+      expect(normalized.secondaryColors).toEqual([]);
+      expect(normalized.colorFamily).toBe('blue');
+    });
+
+    it('should fallback to Unknown when no color information is provided', () => {
+      const raw = {
+        category: 'shoes',
+      };
+
+      const { normalized } = normalizeGarmentAttributes(raw);
+      expect(normalized.primaryColor).toBe('Unknown');
+      expect(normalized.secondaryColors).toEqual([]);
+    });
+  });
+
+  describe('generateGarmentDisplayLabel', () => {
+    it('preserves existing explicit item.name', () => {
+      expect(generateGarmentDisplayLabel({ name: 'My Favorite Blazer' })).toBe('My Favorite Blazer');
+    });
+
+    it('generates rich label with color, subcategory, and material', () => {
+      const item = {
+        primaryColor: 'navy',
+        subcategory: 'oxford_shirt',
+        material: 'cotton',
+      };
+      expect(generateGarmentDisplayLabel(item)).toBe('Navy Oxford Shirt (Cotton)');
+    });
+
+    it('falls back to category when subcategory is missing', () => {
+      const item = {
+        colorFamily: 'white',
+        category: 'top',
+      };
+      expect(generateGarmentDisplayLabel(item)).toBe('White Top');
+    });
+
+    it('omits unknown or other colors and generic materials', () => {
+      const item = {
+        primaryColor: 'Unknown',
+        colorFamily: 'other',
+        subcategory: 'chinos',
+        material: 'synthetic',
+      };
+      expect(generateGarmentDisplayLabel(item)).toBe('Chinos');
+    });
+
+    it('returns default fallback when empty or invalid input is passed', () => {
+      expect(generateGarmentDisplayLabel({})).toBe('Garment');
+      expect(generateGarmentDisplayLabel(null)).toBe('Wardrobe Item');
     });
   });
 });

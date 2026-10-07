@@ -5,6 +5,7 @@ import {
   getSignedUrl,
   getSignedKycUrl,
   isPrivateAsset,
+  extractPublicIdFromUrl,
   getAssetUrl,
   PRIVATE_FOLDERS,
   FOLDER_ROLES,
@@ -29,6 +30,7 @@ describe('Phase 15F Step 1 — Upload Privacy & Role Gating (upload.service.js)'
       expect(PRIVATE_FOLDERS.has('shape-models')).toBe(true);
       expect(PRIVATE_FOLDERS.has('try-on-results')).toBe(true);
       expect(PRIVATE_FOLDERS.has('kyc-documents')).toBe(true);
+      expect(PRIVATE_FOLDERS.has('ai-chat')).toBe(true);
       expect(PRIVATE_FOLDERS.has('avatars')).toBe(false);
       expect(PRIVATE_FOLDERS.has('portfolio')).toBe(false);
     });
@@ -160,7 +162,7 @@ describe('Phase 15F Step 1 — Upload Privacy & Role Gating (upload.service.js)'
       expect(isPrivateAsset('murafiq/kyc-documents/user_123/doc_1')).toBe(true);
 
       expect(isPrivateAsset('murafiq/wardrobe/user_123/shirt_1')).toBe(false);
-      expect(isPrivateAsset('murafiq/ai-chat/user_123/chat_upload_1')).toBe(false);
+      expect(isPrivateAsset('murafiq/ai-chat/user_123/chat_upload_1')).toBe(true);
       expect(isPrivateAsset('murafiq/avatars/user_123/avatar')).toBe(false);
       expect(isPrivateAsset(null)).toBe(false);
       expect(isPrivateAsset('')).toBe(false);
@@ -222,17 +224,39 @@ describe('Phase 15F Step 1 — Upload Privacy & Role Gating (upload.service.js)'
       );
     });
 
-    it('resolves public ai-chat asset to public upload delivery URL', () => {
-      const urlSpy = jest.spyOn(cloudinary, 'url').mockReturnValue('https://res.cloudinary.com/upload/ai-chat-item.jpg');
+    it('resolves private ai-chat asset to authenticated signed URL', () => {
+      const urlSpy = jest.spyOn(cloudinary, 'url').mockReturnValue('https://res.cloudinary.com/authenticated/signed-chat-item.jpg');
 
       const url = getAssetUrl('murafiq/ai-chat/user_123/chat_upload_1');
 
-      expect(url).toBe('https://res.cloudinary.com/upload/ai-chat-item.jpg');
+      expect(url).toBe('https://res.cloudinary.com/authenticated/signed-chat-item.jpg');
       expect(urlSpy).toHaveBeenCalledWith(
         'murafiq/ai-chat/user_123/chat_upload_1',
         expect.objectContaining({
-          type: 'upload',
-          secure: true,
+          type: 'authenticated',
+          sign_url: true,
+        })
+      );
+    });
+
+    it('extracts canonical publicId from Cloudinary full URL', () => {
+      const url = 'https://res.cloudinary.com/cloud/image/authenticated/s--xyz--/v1234/murafiq/shape-models/user_123/model_abc.jpg';
+      expect(extractPublicIdFromUrl(url)).toBe('murafiq/shape-models/user_123/model_abc');
+    });
+
+    it('re-signs private Cloudinary URLs with fresh authenticated signature', () => {
+      const urlSpy = jest.spyOn(cloudinary, 'url').mockReturnValue('https://res.cloudinary.com/authenticated/fresh-signed.jpg');
+      const rawPrivateUrl = 'https://res.cloudinary.com/cloud/image/authenticated/v1/murafiq/shape-models/user_123/model_abc.jpg';
+
+      const url = getAssetUrl(rawPrivateUrl, 1800);
+
+      expect(url).toBe('https://res.cloudinary.com/authenticated/fresh-signed.jpg');
+      expect(urlSpy).toHaveBeenCalledWith(
+        'murafiq/shape-models/user_123/model_abc',
+        expect.objectContaining({
+          type: 'authenticated',
+          sign_url: true,
+          expires_at: expect.any(Number),
         })
       );
     });

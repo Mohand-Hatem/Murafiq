@@ -99,6 +99,11 @@ const tryOnGenerationSchema = new mongoose.Schema(
       default: null,
       trim: true,
     },
+    errorCode: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     attempts: {
       type: Number,
       default: 0,

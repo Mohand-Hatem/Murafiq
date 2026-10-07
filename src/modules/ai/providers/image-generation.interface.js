@@ -5,12 +5,14 @@
  *
  * @typedef {Object} GarmentImageInput
  * @property {Buffer} buffer - Raw garment image buffer
+ * @property {string} [imageUrl] - Signed download URL for external providers
  * @property {string} mimeType - e.g. 'image/jpeg', 'image/png'
  * @property {string} [slot] - e.g. 'top', 'bottom', 'outerwear', 'shoes'
  * @property {string} [label] - Optional garment description or title
  *
  * @typedef {Object} TryOnGenerationInput
  * @property {Buffer} personImageBuffer - Full-body photo buffer of the user (shape model)
+ * @property {string} [personImageUrl] - Signed download URL of the shape model for external providers
  * @property {string} [personMimeType='image/jpeg'] - MIME type of the person image
  * @property {GarmentImageInput[]} garmentImages - Array of 1 to 4 garment images
  * @property {string} [promptVersion='v1'] - Server-controlled prompt template version

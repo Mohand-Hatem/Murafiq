@@ -1,4 +1,5 @@
 import wardrobeService from '../../wardrobe/wardrobe.service.js';
+import { extractPublicIdFromUrl } from '../../uploads/upload.service.js';
 
 const ALLOWED_SLOTS = new Set(['top', 'bottom', 'outerwear', 'shoes', 'dress', 'accessory']);
 
@@ -61,7 +62,7 @@ export const resolveGarments = async (userId, garments) => {
         throw new ApiError(400, `Unsupported garment slot: ${slot}`);
       }
 
-      const resolvedPublicId = item.imageUrl || item.sourceUploadRef;
+      const resolvedPublicId = item.sourceUploadRef || extractPublicIdFromUrl(item.imageUrl) || item.imageUrl;
       if (!resolvedPublicId) {
         throw new ApiError(400, `Wardrobe item ${g.itemId} is missing image reference`);
       }

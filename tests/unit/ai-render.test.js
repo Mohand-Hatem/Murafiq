@@ -130,4 +130,28 @@ describe('Unit — AI Stylist Response Renderer (render.step.js)', () => {
     expect(suggestions[0].slot).toBe('custom_accessory');
     expect(suggestions[0].description).toContain('custom_accessory');
   });
+
+  it('generates deterministic display labels when items have no explicit name property', () => {
+    const unnamedItemsMap = new Map([
+      [
+        'item_unnamed_1',
+        {
+          _id: 'item_unnamed_1',
+          category: 'top',
+          subcategory: 'linen_shirt',
+          primaryColor: 'Blue',
+          material: 'linen',
+        },
+      ],
+    ]);
+
+    const result = renderStylistResponse({
+      outfits: [{ itemIds: ['item_unnamed_1'], score: 90 }],
+      sufficiency: 'good',
+      hydratedItemsMap: unnamedItemsMap,
+      language: 'en',
+    });
+
+    expect(result.outfits[0].fromYourWardrobe[0].name).toBe('Blue Linen Shirt (Linen)');
+  });
 });

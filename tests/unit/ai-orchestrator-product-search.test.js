@@ -52,7 +52,10 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
     ]);
     jest.spyOn(outfitService, 'recordOutfit').mockResolvedValue({ _id: 'persisted_outfit_1' });
     jest.spyOn(knowledgeService, 'searchFashionKnowledge').mockResolvedValue([]);
-    jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValue([]);
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockImplementation(async (opts) => {
+      if (opts?.onCacheMiss) await opts.onCacheMiss();
+      return [];
+    });
 
     jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
       inDomain: true,
@@ -115,20 +118,23 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
       usage: { inputTokens: 100, outputTokens: 40 },
     });
 
-    jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValueOnce([
-      {
-        slot: 'shoes',
-        itemType: 'black oxford shoes',
-        title: 'Zara Egypt Polished Oxfords',
-        description: 'Black leather formal shoes.',
-        estimatedPriceEgp: 2100,
-        retailer: 'Zara Egypt',
-        sourceUrl: 'https://zara.com/eg/shoes',
-        sourceTitle: 'Zara Egypt',
-        citations: [{ title: 'Zara Egypt', url: 'https://zara.com/eg/shoes' }],
-        isGrounded: true,
-      },
-    ]);
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockImplementationOnce(async (opts) => {
+      if (opts?.onCacheMiss) await opts.onCacheMiss();
+      return [
+        {
+          slot: 'shoes',
+          itemType: 'black oxford shoes',
+          title: 'Zara Egypt Polished Oxfords',
+          description: 'Black leather formal shoes.',
+          estimatedPriceEgp: 2100,
+          retailer: 'Zara Egypt',
+          sourceUrl: 'https://zara.com/eg/shoes',
+          sourceTitle: 'Zara Egypt',
+          citations: [{ title: 'Zara Egypt', url: 'https://zara.com/eg/shoes' }],
+          isGrounded: true,
+        },
+      ];
+    });
 
     const result = await runStylistPipeline({
       userId,
@@ -209,20 +215,23 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
       shoes: [],
     });
 
-    jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValueOnce([
-      {
-        slot: 'top',
-        itemType: 'formal shirt',
-        title: 'White Cotton Dress Shirt',
-        description: 'Crisp white dress shirt.',
-        estimatedPriceEgp: 1200,
-        retailer: 'Massimo Dutti Egypt',
-        sourceUrl: 'https://massimodutti.com/eg/shirt',
-        sourceTitle: 'Massimo Dutti',
-        citations: [{ title: 'Massimo Dutti', url: 'https://massimodutti.com/eg/shirt' }],
-        isGrounded: true,
-      },
-    ]);
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockImplementationOnce(async (opts) => {
+      if (opts?.onCacheMiss) await opts.onCacheMiss();
+      return [
+        {
+          slot: 'top',
+          itemType: 'formal shirt',
+          title: 'White Cotton Dress Shirt',
+          description: 'Crisp white dress shirt.',
+          estimatedPriceEgp: 1200,
+          retailer: 'Massimo Dutti Egypt',
+          sourceUrl: 'https://massimodutti.com/eg/shirt',
+          sourceTitle: 'Massimo Dutti',
+          citations: [{ title: 'Massimo Dutti', url: 'https://massimodutti.com/eg/shirt' }],
+          isGrounded: true,
+        },
+      ];
+    });
 
     const result = await runStylistPipeline({
       userId,
@@ -291,10 +300,12 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
       usage: { inputTokens: 100, outputTokens: 40 },
     });
 
-    jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValueOnce([
-      {
-        slot: 'top',
-        itemType: 't-shirt',
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockImplementationOnce(async (opts) => {
+      if (opts?.onCacheMiss) await opts.onCacheMiss();
+      return [
+        {
+          slot: 'top',
+          itemType: 't-shirt',
         title: 'White Crewneck Tee',
         outfitIndex: 1,
         outfitTitle: 'الإطلالة الأولى (كاجوال يومي)',
@@ -352,7 +363,8 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
         estimatedPriceEgp: 2200,
         retailer: 'Dalydress',
       },
-    ]);
+    ];
+  });
 
     const result = await runStylistPipeline({
       userId,
@@ -450,5 +462,52 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
         colorFamily: 'beige',
       })
     );
+  });
+
+  it('8. Cache Hit Invariant: does NOT consume productSearch quota when searchExternalProducts serves from cache', async () => {
+    jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [
+        {
+          itemIds: ['item_top_1', 'item_bot_1'],
+          rationale: 'Sharp base, missing formal leather dress shoes.',
+          score: 75,
+        },
+      ],
+      sufficiency: 'partial',
+      missingSlots: ['shoes'],
+      gapDescriptions: ['polished black leather oxford dress shoes'],
+      usage: { inputTokens: 100, outputTokens: 40 },
+    });
+
+    // Simulates a cache hit where searchExternalProducts returns cached items WITHOUT firing onCacheMiss
+    jest.spyOn(productSearchService, 'searchExternalProducts').mockImplementationOnce(async () => [
+      {
+        slot: 'shoes',
+        itemType: 'black oxford shoes',
+        title: 'Zara Egypt Polished Oxfords',
+        description: 'Black leather formal shoes.',
+        estimatedPriceEgp: 2100,
+        retailer: 'Zara Egypt',
+        sourceUrl: 'https://zara.com/eg/shoes',
+        sourceTitle: 'Zara Egypt',
+        citations: [{ title: 'Zara Egypt', url: 'https://zara.com/eg/shoes' }],
+        isGrounded: true,
+        cacheHit: true,
+      },
+    ]);
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'What should I wear to a black tie gala?',
+    });
+
+    expect(result.sufficiency).toBe('partial');
+    expect(result.suggestedToAcquire).toHaveLength(1);
+    expect(result.suggestedToAcquire[0].cacheHit).toBe(true);
+
+    // checkQuota is called to verify user has paid plan access
+    expect(entitlementService.checkQuota).toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', 1, 'client');
+    // but consume is NOT called because onCacheMiss was not triggered!
+    expect(entitlementService.consume).not.toHaveBeenCalledWith(userId, 'ai.productSearch.monthly', expect.any(Number), expect.any(String));
   });
 });

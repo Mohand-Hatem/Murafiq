@@ -96,6 +96,10 @@ export const INTENT_RESPONSE_SCHEMA = Object.freeze({
       type: 'STRING',
       enum: ['men', 'women', 'unisex'],
     },
+    budget: {
+      type: 'NUMBER',
+      description: 'Maximum budget limit in EGP if explicitly stated by user, otherwise null.',
+    },
     explicitConstraints: {
       type: 'ARRAY',
       items: { type: 'STRING' },
@@ -169,7 +173,8 @@ ${EVENT_TYPES.map((t) => `   - ${t}`).join('\n')}
 9. "confidence": Confidence score between 0.0 and 1.0.
 10. "clarificationQuestion": If confidence is below 0.4 on an ambiguous request, formulate one polite clarifying question in the user's language. Otherwise null.
 11. "isShoppingRequest": Set to true ONLY if the user explicitly mentions purchasing, buying, or searching external/online stores or the internet (e.g., "من النت", "من الانترنت", "اونلاين", "مواقع", "عايز اشتري", "تسوق لي", "shop online", "from the web", "buy an outfit", "search the internet for an outfit").
-    CRITICAL ARABIC COLLOQUIAL RULE: Everyday styling requests like "شوفلي طقم", "نسق لي طقم", "اقترح لي", "رشح لي", "عايز البس", "عندي مناسبة", "شوفلي حاجة كلاسيك" mean "style an outfit for me from my wardrobe" — you MUST set "isShoppingRequest": false unless external purchase or online shopping terms ("من النت", "من الانترنت", "شراء", "اشتري", "اونلاين") are explicitly present.`;
+    CRITICAL ARABIC COLLOQUIAL RULE: Everyday styling requests like "شوفلي طقم", "نسق لي طقم", "اقترح لي", "رشح لي", "عايز البس", "عندي مناسبة", "شوفلي حاجة كلاسيك" mean "style an outfit for me from my wardrobe" — you MUST set "isShoppingRequest": false unless external purchase or online shopping terms ("من النت", "من الانترنت", "شراء", "اشتري", "اونلاين") are explicitly present.
+12. "budget": Numeric maximum budget in EGP if explicitly stated by the user (e.g., 2000 for "ميزانية 2000 جنيه" or "under 2000 egp" or "تحت 2000"). If no budget is specified, set to null.`;
 
 /**
  * Classifies the incoming message for domain compliance and extracts structured styling intent.
@@ -282,7 +287,8 @@ export const classifyAndExtract = async (message, options = {}) => {
     timeOfDay: parsed.timeOfDay || null,
     setting: parsed.setting || null,
     genderPresentation: parsed.genderPresentation || null,
-    explicitConstraints: Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints : [],
+    budget: typeof parsed.budget === 'number' && parsed.budget > 0 ? parsed.budget : null,
+    explicitConstraints: Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints.filter(Boolean) : [],
     retrievalQueryEn: parsed.retrievalQueryEn ? String(parsed.retrievalQueryEn).trim() : '',
     confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 1.0,
     clarificationQuestion: parsed.clarificationQuestion || null,

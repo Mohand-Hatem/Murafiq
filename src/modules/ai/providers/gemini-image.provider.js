@@ -128,9 +128,21 @@ export class GeminiImageProvider extends ImageGenerationProvider {
             timeoutMs
           );
 
+          // Check for prompt safety blocks
+          if (response?.promptFeedback?.blockReason === 'SAFETY') {
+            const err = new ApiError(400, 'Image generation blocked by safety filters');
+            err.code = 'IMAGE_SAFETY';
+            throw err;
+          }
+
           // Check for image data in candidates
           const candidates = response?.candidates || [];
           for (const candidate of candidates) {
+            if (candidate?.finishReason === 'SAFETY') {
+              const err = new ApiError(400, 'Generated image was blocked by safety filters');
+              err.code = 'IMAGE_SAFETY';
+              throw err;
+            }
             const resParts = candidate?.content?.parts || [];
             for (const part of resParts) {
               if (part?.inlineData?.data) {
@@ -205,10 +217,20 @@ export class GeminiImageProvider extends ImageGenerationProvider {
     }
 
     if (lastError?.code === 'ETIMEDOUT') {
-      throw new ApiError(504, `Image generation timed out after ${timeoutMs}ms`);
+      const err = new ApiError(504, `Image generation timed out after ${timeoutMs}ms`);
+      err.code = 'ETIMEDOUT';
+      throw err;
     }
 
-    throw new ApiError(502, `AI image generation failed: ${lastError?.message || 'Unknown error'}`);
+    const status = lastError?.status || lastError?.statusCode || 502;
+    const mappedCode =
+      status === 429 ? 'RATE_LIMIT_EXCEEDED' : 'PROVIDER_UNAVAILABLE';
+    const err = new ApiError(
+      status >= 400 && status < 600 ? status : 502,
+      `AI image generation failed: ${lastError?.message || 'Unknown error'}`
+    );
+    err.code = mappedCode;
+    throw err;
   }
 }
 

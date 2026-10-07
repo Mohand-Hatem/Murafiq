@@ -7,6 +7,7 @@
  */
 
 import { buildRetailerLogoUrl } from '../products/product-search.service.js';
+import { generateGarmentDisplayLabel } from '../../wardrobe/wardrobe-attribute.normalizer.js';
 
 const ACQUISITION_TEMPLATES = Object.freeze({
   shoes: {
@@ -196,7 +197,7 @@ export const renderStylistResponse = ({
         if (!item) return null;
         return {
           itemId: item._id ? item._id.toString() : String(item.id || id),
-          name: item.name || 'Wardrobe Item',
+          name: generateGarmentDisplayLabel(item),
           category: item.category || 'top',
           subcategory: item.subcategory || null,
           imageUrl: item.imageUrl || '',
@@ -252,8 +253,15 @@ export const renderStylistResponse = ({
         retailerLogoUrl: retailerLogoUrl || null,
         citations: isGrounded ? s.citations : [],
         isGrounded,
+        currency: s.currency || 'EGP',
+        availability: s.availability || null,
+        verificationStatus:
+          s.verificationStatus ||
+          (s.sourceUrl ? (s.isLiveVerified ? 'live_verified' : 'google_grounded_only') : 'search_fallback'),
+        isLiveVerified: Boolean(s.isLiveVerified || s.verificationStatus === 'live_verified'),
         outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
         outfitTitle: s.outfitTitle || null,
+        cacheHit: Boolean(s.cacheHit),
       };
     });
   } else if (isShoppingRequest && searchQuotaBlocked) {
@@ -279,6 +287,8 @@ export const renderStylistResponse = ({
         imageUrl: null,
         citations: [],
         isGrounded: false,
+        verificationStatus: 'search_fallback',
+        isLiveVerified: false,
       }));
     } else {
       const fallbackSlots = missingSlots.length > 0 ? missingSlots : ['top', 'bottom', 'shoes'];
@@ -296,6 +306,8 @@ export const renderStylistResponse = ({
         imageUrl: null,
         citations: [],
         isGrounded: false,
+        verificationStatus: 'search_fallback',
+        isLiveVerified: false,
       }));
     }
   }

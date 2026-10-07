@@ -12,7 +12,18 @@ const garmentInputSchema = z
     slot: z.enum(['top', 'bottom', 'outerwear', 'shoes', 'dress', 'accessory']).optional(),
     label: z.string().trim().max(100).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) => {
+      if (data.source === 'wardrobe') return Boolean(data.itemId);
+      if (data.source === 'upload') return Boolean(data.imageRef && data.slot);
+      return false;
+    },
+    {
+      message: 'Wardrobe garment requires itemId; upload garment requires imageRef and slot',
+      path: ['source'],
+    }
+  );
 
 export const createTryOnSchema = {
   body: z
@@ -37,6 +48,20 @@ export const createTryOnSchema = {
       (data) => Boolean(data.outfitId || data.itemId || (Array.isArray(data.garments) && data.garments.length > 0)),
       {
         message: 'Must provide at least one of outfitId, itemId, or garments',
+        path: ['garments'],
+      }
+    )
+    .refine(
+      (data) => {
+        const modes = [
+          Boolean(data.outfitId),
+          Boolean(data.itemId),
+          Boolean(Array.isArray(data.garments) && data.garments.length > 0),
+        ].filter(Boolean).length;
+        return modes <= 1;
+      },
+      {
+        message: 'Cannot provide multiple target garment sources: choose only one of outfitId, itemId, or garments',
         path: ['garments'],
       }
     ),

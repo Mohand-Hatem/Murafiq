@@ -212,6 +212,85 @@ describe('Phase 15F Step 3 — Image Generation Provider Seam', () => {
       expect(result.imageBuffer.toString('base64')).toBe(fakeBase64);
       expect(fakeGenAi.models.generateContent).toHaveBeenCalledTimes(1);
     });
+
+    it('throws ApiError 400 with code IMAGE_SAFETY when candidate finishReason is SAFETY', async () => {
+      const fakeGenAi = {
+        models: {
+          generateContent: jest.fn().mockResolvedValue({
+            candidates: [
+              {
+                finishReason: 'SAFETY',
+                content: { parts: [] },
+              },
+            ],
+          }),
+        },
+      };
+
+      llmProvider.setGenAiClient(fakeGenAi);
+
+      const provider = new GeminiImageProvider();
+      await expect(
+        provider.generateTryOn({
+          personImageBuffer: samplePersonBuffer,
+          garmentImages: [{ buffer: sampleGarmentBuffer, slot: 'top' }],
+          promptVersion: 'v1',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'IMAGE_SAFETY',
+      });
+    });
+
+    it('throws ApiError 400 with code IMAGE_SAFETY when promptFeedback blockReason is SAFETY', async () => {
+      const fakeGenAi = {
+        models: {
+          generateContent: jest.fn().mockResolvedValue({
+            promptFeedback: { blockReason: 'SAFETY' },
+            candidates: [],
+          }),
+        },
+      };
+
+      llmProvider.setGenAiClient(fakeGenAi);
+
+      const provider = new GeminiImageProvider();
+      await expect(
+        provider.generateTryOn({
+          personImageBuffer: samplePersonBuffer,
+          garmentImages: [{ buffer: sampleGarmentBuffer, slot: 'top' }],
+          promptVersion: 'v1',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'IMAGE_SAFETY',
+      });
+    });
+
+    it('throws ApiError 504 with code ETIMEDOUT when provider call times out', async () => {
+      const timeoutErr = new Error('Call timed out');
+      timeoutErr.code = 'ETIMEDOUT';
+      const fakeGenAi = {
+        models: {
+          generateContent: jest.fn().mockRejectedValue(timeoutErr),
+        },
+      };
+
+      llmProvider.setGenAiClient(fakeGenAi);
+
+      const provider = new GeminiImageProvider();
+      await expect(
+        provider.generateTryOn({
+          personImageBuffer: samplePersonBuffer,
+          garmentImages: [{ buffer: sampleGarmentBuffer, slot: 'top' }],
+          promptVersion: 'v1',
+          timeoutMs: 50,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 504,
+        code: 'ETIMEDOUT',
+      });
+    });
   });
 
   describe('Image Provider Factory', () => {

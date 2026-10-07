@@ -1,9 +1,12 @@
+import { generateGarmentDisplayLabel } from './wardrobe-attribute.normalizer.js';
+
 export const formatWardrobeItemDto = (item) => {
   if (!item) return null;
   const doc = item.toObject ? item.toObject() : item;
 
   return {
     id: doc._id.toString(),
+    name: generateGarmentDisplayLabel(doc),
     userId: doc.userId.toString(),
     imageUrl: doc.imageUrl,
     sourceUploadRef: doc.sourceUploadRef || null,

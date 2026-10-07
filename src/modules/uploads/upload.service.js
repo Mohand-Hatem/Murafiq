@@ -26,7 +26,7 @@ export const FOLDER_ROLES = Object.freeze({
 });
 
 export const PRIVATE_FOLDERS = Object.freeze(
-  new Set(['kyc-documents', 'shape-models', 'try-on-results'])
+  new Set(['kyc-documents', 'shape-models', 'try-on-results', 'ai-chat'])
 );
 
 // Folder-specific max image dimension:
@@ -144,10 +144,23 @@ export const isPrivateAsset = (publicId) => {
 };
 
 /**
+ * Extracts the canonical Cloudinary publicId from a full Cloudinary URL.
+ * Matches paths like '.../murafiq/<folder>/<userId>/<uuid>...'
+ *
+ * @param {string} url
+ * @returns {string|null}
+ */
+export const extractPublicIdFromUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/(murafiq\/(?:[a-zA-Z0-9_-]+)\/[^.\s?#]+)/);
+  return match ? match[1] : null;
+};
+
+/**
  * Resolves the appropriate download/delivery URL for an asset based on its folder privacy.
- * - If already an HTTP/HTTPS URL, returns it as-is.
- * - If in PRIVATE_FOLDERS ('kyc-documents', 'shape-models', 'try-on-results'), generates a signed authenticated URL.
- * - If in public folders ('wardrobe', 'ai-chat', 'avatars', 'portfolio', 'request-images'), generates a public upload URL.
+ * - If already an HTTP/HTTPS URL and in PRIVATE_FOLDERS, generates a signed authenticated URL.
+ * - If in PRIVATE_FOLDERS ('kyc-documents', 'shape-models', 'try-on-results', 'ai-chat'), generates a signed authenticated URL.
+ * - If in public folders ('wardrobe', 'avatars', 'portfolio', 'request-images'), generates a public upload URL.
  *
  * @param {string} publicId
  * @param {number} [ttlSeconds=3600]
@@ -156,6 +169,10 @@ export const isPrivateAsset = (publicId) => {
 export const getAssetUrl = (publicId, ttlSeconds = 3600) => {
   if (!publicId || typeof publicId !== 'string') return '';
   if (publicId.startsWith('http://') || publicId.startsWith('https://')) {
+    const extracted = extractPublicIdFromUrl(publicId);
+    if (extracted && isPrivateAsset(extracted)) {
+      return getSignedUrl(extracted, ttlSeconds);
+    }
     return publicId;
   }
 
@@ -179,6 +196,7 @@ export default {
   getSignedUrl,
   getSignedKycUrl,
   isPrivateAsset,
+  extractPublicIdFromUrl,
   getAssetUrl,
   deleteFile,
   PRIVATE_FOLDERS,

@@ -23,9 +23,12 @@ import {
   getKnownRetailerInfo,
   buildRetailerSearchUrl,
   buildRetailerLogoUrl,
+  cleanRetailerTitle,
+  verifyPageProductMatch,
   setProductSearchRedisOverride,
   clearInMemoryProductCache,
   CACHE_TTL_SECONDS,
+  PRODUCT_VERIFICATION_STATUS,
 } from '../../src/modules/ai/products/product-search.service.js';
 import {
   setHttpFetchOverride,
@@ -82,6 +85,43 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
     it('defaults to all:unisex:en when options are omitted', () => {
       const key = computeCacheKey('black oxford shoes');
       expect(key).toMatch(/^ai:product-search:all:unisex:en:[a-f0-9]{16}$/);
+    });
+
+    it('produces distinct cache keys for different budgets', () => {
+      const key1500 = computeCacheKey('beige sweater', { budget: 1500 });
+      const key6000 = computeCacheKey('beige sweater', { budget: 6000 });
+      expect(key1500).not.toBe(key6000);
+    });
+
+    it('produces distinct cache keys for different formalities and occasions', () => {
+      const keyCasual = computeCacheKey('navy trousers', { formality: 'casual', occasion: 'brunch' });
+      const keyFormal = computeCacheKey('navy trousers', { formality: 'formal', occasion: 'gala' });
+      expect(keyCasual).not.toBe(keyFormal);
+    });
+
+    it('produces distinct cache keys for shopping requests and anchors', () => {
+      const normalKey = computeCacheKey('oxford shoes', { isShoppingRequest: false });
+      const shoppingKey = computeCacheKey('oxford shoes', { isShoppingRequest: true });
+      const anchoredKey = computeCacheKey('oxford shoes', {
+        anchor: { _id: 'item_1', colorFamily: 'navy', subcategory: 'blazer' },
+      });
+
+      expect(normalKey).not.toBe(shoppingKey);
+      expect(normalKey).not.toBe(anchoredKey);
+    });
+
+    it('produces distinct cache keys for different gapItems', () => {
+      const keyNoGaps = computeCacheKey('outfit', { gapItems: [] });
+      const keyGaps = computeCacheKey('outfit', {
+        gapItems: [{ slot: 'shoes', description: 'black dress shoes' }],
+      });
+      expect(keyNoGaps).not.toBe(keyGaps);
+    });
+
+    it('produces distinct cache keys for different explicit constraints', () => {
+      const keyUnconstrained = computeCacheKey('suit', { constraints: [] });
+      const keyModest = computeCacheKey('suit', { constraints: ['modest fit', 'no polyester'] });
+      expect(keyUnconstrained).not.toBe(keyModest);
     });
   });
 
@@ -209,6 +249,62 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results).toHaveLength(1);
       expect(results[0].cacheHit).toBe(true);
       expect(results[0].title).toBe('Polished Black Leather Oxfords');
+    });
+
+    it('does NOT invoke onCacheMiss on cache hit', async () => {
+      const cachedPayload = [
+        {
+          slot: 'shoes',
+          itemType: 'black oxford shoes',
+          title: 'Polished Black Leather Oxfords',
+          retailer: 'H&M Egypt',
+          isGrounded: true,
+        },
+      ];
+
+      mockRedis.store.set(
+        computeCacheKey('black oxford shoes'),
+        JSON.stringify(cachedPayload)
+      );
+
+      const onCacheMiss = jest.fn();
+      const results = await searchExternalProducts({
+        gapDescription: 'black oxford shoes',
+        onCacheMiss,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].cacheHit).toBe(true);
+      expect(onCacheMiss).not.toHaveBeenCalled();
+      expect(mockGenerateContent).not.toHaveBeenCalled();
+    });
+
+    it('invokes onCacheMiss on cache miss before LLM call', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({ suggestions: [] }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const onCacheMiss = jest.fn().mockResolvedValue(true);
+      await searchExternalProducts({
+        gapDescription: 'unseen item for cache miss',
+        onCacheMiss,
+      });
+
+      expect(onCacheMiss).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts without LLM call if onCacheMiss returns false (e.g. quota check race)', async () => {
+      const onCacheMiss = jest.fn().mockResolvedValue(false);
+      const results = await searchExternalProducts({
+        gapDescription: 'another unseen item',
+        onCacheMiss,
+      });
+
+      expect(onCacheMiss).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContent).not.toHaveBeenCalled();
+      expect(results).toEqual([]);
     });
 
     it('falls back gracefully to in-memory cache when Redis is disconnected', async () => {
@@ -806,7 +902,10 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
     });
 
     it('21. extractProductSku correctly parses Noon, Amazon, Jumia, and Zara identifiers', () => {
+      expect(extractProductSku('https://www.noon.com/egypt-en/men-slim-fit-chino-pants/Z2B283B355C374C4EC18CZ/p/')).toBe('Z2B283B355C374C4EC18CZ');
       expect(extractProductSku('https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/')).toBe('Z2B283B355C374C4EC18CZ');
+      expect(extractProductSku('https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/')).toBe('Z2B283B355C374C4EC18CZ');
+      expect(extractProductSku('https://www.noon.com/egypt-en/p/N12345678A/')).toBe('N12345678A');
       expect(extractProductSku('https://f.nooncdn.com/products/tr:n-t_400/Z2B283B355C374C4EC18CZ_1.jpg')).toBe('Z2B283B355C374C4EC18CZ');
       expect(extractProductSku('https://www.amazon.eg/dp/B08XYZ1234')).toBe('B08XYZ1234');
       expect(extractProductSku('https://www.jumia.com.eg/mr-joe-shoes-8794031.html')).toBe('8794031');
@@ -827,7 +926,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
         description: 'بنطلون بدلة رجالي كلاسيكي',
         retailer: 'نون مصر',
         sourceUrl: noonProductUrl,
-        imageUrl: null, // Scrape was blocked by Cloudflare
+        imageUrl: 'https://f.nooncdn.com/products/tr:n-t_400/Z2B283B355C374C4EC18CZ_1.jpg',
       };
 
       mockGenerateContent.mockResolvedValueOnce({
@@ -860,8 +959,460 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(item.imageUrl).toBe('https://f.nooncdn.com/products/tr:n-t_400/Z2B283B355C374C4EC18CZ_1.jpg');
       expect(item.imageUrl).not.toContain('favicons');
       expect(item.isGrounded).toBe(true);
+      expect(item.verificationStatus).toBe(PRODUCT_VERIFICATION_STATUS.GOOGLE_GROUNDED_ONLY);
+      expect(item.isLiveVerified).toBe(false);
+      expect(item.availability).toBe('unknown');
       expect(item.citations).toHaveLength(1);
       expect(item.citations[0].url).toBe(noonProductUrl);
+    });
+
+    it('23. Strict Currency Gate: rejects candidate URL when page currency is not EGP (e.g. USD, GBP)', async () => {
+      const foreignProductUrl = 'https://www.zara.com/eg/en/uk-trousers-p12345.html';
+      const foreignHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Zara Foreign Currency Trousers</title>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org/",
+            "@type": "Product",
+            "name": "Zara Trousers",
+            "image": "https://static.zara.net/photos/trousers.jpg",
+            "offers": {
+              "@type": "Offer",
+              "price": "79.00",
+              "priceCurrency": "GBP",
+              "availability": "https://schema.org/InStock"
+            }
+          }
+          </script>
+        </head>
+        <body><p>Product description</p></body>
+        </html>
+      `;
+
+      setHttpFetchOverride(async () => ({
+        ok: true,
+        status: 200,
+        url: foreignProductUrl,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => foreignHtml,
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Zara Trousers',
+              itemType: 'trousers',
+              slot: 'bottom',
+              retailer: 'Zara Egypt',
+              sourceUrl: foreignProductUrl,
+              imageUrl: 'https://static.zara.net/photos/trousers.jpg',
+            },
+          ],
+        }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'navy trousers' });
+      // Candidate was rejected due to GBP currency; sourceUrl must NOT be the foreign URL
+      expect(results).toHaveLength(1);
+      expect(results[0].sourceUrl).toBeNull();
+      expect(results[0].estimatedPriceEgp).toBeNull();
+    });
+
+    it('24. Strict Stock Gate: rejects candidate URL when page reports out-of-stock', async () => {
+      const oosProductUrl = 'https://www.zara.com/eg/en/oos-trousers-p54321.html';
+      const oosHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Zara Out Of Stock Trousers</title>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org/",
+            "@type": "Product",
+            "name": "Zara Sold Out Trousers",
+            "image": "https://static.zara.net/photos/trousers.jpg",
+            "offers": {
+              "@type": "Offer",
+              "price": "1499.00",
+              "priceCurrency": "EGP",
+              "availability": "https://schema.org/OutOfStock"
+            }
+          }
+          </script>
+        </head>
+        <body><p>Product description</p></body>
+        </html>
+      `;
+
+      setHttpFetchOverride(async () => ({
+        ok: true,
+        status: 200,
+        url: oosProductUrl,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => oosHtml,
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Zara Sold Out Trousers',
+              itemType: 'trousers',
+              slot: 'bottom',
+              retailer: 'Zara Egypt',
+              sourceUrl: oosProductUrl,
+              imageUrl: 'https://static.zara.net/photos/trousers.jpg',
+            },
+          ],
+        }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'navy trousers' });
+      // Candidate was rejected due to OutOfStock; sourceUrl must NOT be preserved as purchasable card
+      expect(results).toHaveLength(1);
+      expect(results[0].sourceUrl).toBeNull();
+    });
+
+    it('25. Strict Stock & Currency Gate: accepts in-stock EGP product and propagates fields', async () => {
+      const inStockProductUrl = 'https://www.zara.com/eg/en/instock-trousers-p88888.html';
+      const inStockHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Zara In Stock Trousers</title>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org/",
+            "@type": "Product",
+            "name": "Zara Formal Trousers",
+            "image": "https://static.zara.net/photos/trousers.jpg",
+            "offers": {
+              "@type": "Offer",
+              "price": "2290.00",
+              "priceCurrency": "EGP",
+              "availability": "https://schema.org/InStock"
+            }
+          }
+          </script>
+        </head>
+        <body><p>Product description</p></body>
+        </html>
+      `;
+
+      setHttpFetchOverride(async () => ({
+        ok: true,
+        status: 200,
+        url: inStockProductUrl,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => inStockHtml,
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Zara Formal Trousers',
+              itemType: 'trousers',
+              slot: 'bottom',
+              retailer: 'Zara Egypt',
+              sourceUrl: inStockProductUrl,
+              imageUrl: 'https://static.zara.net/photos/trousers.jpg',
+            },
+          ],
+        }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'navy trousers' });
+      expect(results).toHaveLength(1);
+      expect(results[0].sourceUrl).toBe(inStockProductUrl);
+      expect(results[0].currency).toBe('EGP');
+      expect(results[0].availability).toBe('in_stock');
+      expect(results[0].estimatedPriceEgp).toBe(2290);
+    });
+
+    it('26. cleanRetailerTitle: strips retailer brand suffix, SEO noise, and store names', () => {
+      expect(cleanRetailerTitle('Navy Formal Trousers | Zara Egypt')).toBe('Navy Formal Trousers');
+      expect(cleanRetailerTitle('Classic Leather Shoes - Noon.com Egypt')).toBe('Classic Leather Shoes');
+      expect(cleanRetailerTitle('White Oxford Shirt : Amazon.eg')).toBe('White Oxford Shirt');
+      expect(cleanRetailerTitle('بنطلون رجالي كلاسيك | جوميا مصر')).toBe('بنطلون رجالي كلاسيك');
+      expect(cleanRetailerTitle('Plain Cotton T-Shirt')).toBe('Plain Cotton T-Shirt');
+      expect(cleanRetailerTitle('')).toBeNull();
+    });
+
+    it('27. verifyPageProductMatch: rejects slot, gender, and overt color contradictions', () => {
+      // Slot mismatch: item is shoes, page title is shirt
+      const slotMismatch = verifyPageProductMatch(
+        { slot: 'shoes', title: 'Black Oxford Shoes' },
+        { valid: true, title: 'Men Oxford Cotton Dress Shirt - Long Sleeve' }
+      );
+      expect(slotMismatch.matches).toBe(false);
+      expect(slotMismatch.reason).toContain('slot_mismatch');
+
+      // Gender mismatch: requested men, page is ladies / women
+      const genderMismatch = verifyPageProductMatch(
+        { slot: 'top', title: 'Summer Shirt' },
+        { valid: true, title: "Women's Floral Maxi Dress" },
+        'men'
+      );
+      expect(genderMismatch.matches).toBe(false);
+      expect(genderMismatch.reason).toContain('gender_mismatch');
+
+      // Color mismatch: requested black, page is bright pink
+      const colorMismatch = verifyPageProductMatch(
+        { slot: 'outerwear', title: 'Black Formal Blazer' },
+        { valid: true, title: 'Pink Double-Breasted Tailored Blazer' },
+        'men'
+      );
+      expect(colorMismatch.matches).toBe(false);
+      expect(colorMismatch.reason).toContain('color_mismatch');
+
+      // Valid match: item shoes, page shoes, men
+      const validMatch = verifyPageProductMatch(
+        { slot: 'shoes', title: 'Black Oxford Shoes' },
+        { valid: true, title: 'Men Classic Black Oxford Shoes | Zara Egypt' },
+        'men'
+      );
+      expect(validMatch.matches).toBe(true);
+    });
+
+    it('28. Page Metadata as Source of Truth: scraped page title overrides model hallucinated title', async () => {
+      const realProductUrl = 'https://www.zara.com/eg/en/brown-loafers-p77777.html';
+      const realHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Brown Leather Loafers | Zara Egypt</title>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org/",
+            "@type": "Product",
+            "name": "Brown Leather Loafers",
+            "image": "https://static.zara.net/photos/loafers.jpg",
+            "offers": {
+              "@type": "Offer",
+              "price": "3200",
+              "priceCurrency": "EGP",
+              "availability": "https://schema.org/InStock"
+            }
+          }
+          </script>
+        </head>
+        <body><p>Product description</p></body>
+        </html>
+      `;
+
+      setHttpFetchOverride(async () => ({
+        ok: true,
+        status: 200,
+        url: realProductUrl,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => realHtml,
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              // Model hallucinates "Black Oxford Shoes", but link is actually "Brown Leather Loafers"
+              title: 'Black Oxford Shoes',
+              itemType: 'shoes',
+              slot: 'shoes',
+              retailer: 'Zara Egypt',
+              sourceUrl: realProductUrl,
+              imageUrl: 'https://static.zara.net/photos/loafers.jpg',
+            },
+          ],
+        }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'dress shoes' });
+      expect(results).toHaveLength(1);
+      // The page title MUST be the source of truth, not the model's hallucinated title!
+      expect(results[0].title).toBe('Brown Leather Loafers');
+      expect(results[0].title).not.toBe('Black Oxford Shoes');
+    });
+
+    it('29. Verification Status: LIVE_VERIFIED when 200 OK with verified JSON-LD metadata', async () => {
+      const liveProductUrl = 'https://www.zara.com/eg/en/wool-trousers-p88888.html';
+      const liveHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script type="application/ld+json">
+          {
+            "@type": "Product",
+            "name": "Navy Wool Trousers",
+            "image": "https://static.zara.net/photos/wool-trousers.jpg",
+            "offers": { "price": 2490, "priceCurrency": "EGP", "availability": "https://schema.org/InStock" }
+          }
+          </script>
+        </head>
+        <body><p>Detailed product description</p></body>
+        </html>
+      `;
+
+      setHttpFetchOverride(async () => ({
+        ok: true,
+        status: 200,
+        url: liveProductUrl,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => liveHtml,
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Navy Wool Trousers',
+              itemType: 'trousers',
+              slot: 'bottom',
+              retailer: 'Zara Egypt',
+              sourceUrl: liveProductUrl,
+              imageUrl: 'https://static.zara.net/photos/wool-trousers.jpg',
+            },
+          ],
+        }),
+        candidates: [{ groundingMetadata: { groundingChunks: [] } }],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'formal trousers' });
+      expect(results).toHaveLength(1);
+      expect(results[0].verificationStatus).toBe(PRODUCT_VERIFICATION_STATUS.LIVE_VERIFIED);
+      expect(results[0].isLiveVerified).toBe(true);
+      expect(results[0].availability).toBe('in_stock');
+      expect(results[0].estimatedPriceEgp).toBe(2490);
+    });
+
+    it('30. Verification Status: GOOGLE_GROUNDED_ONLY when blocked by anti-bot DDoS protection', async () => {
+      const botBlockedUrl = 'https://www.jumia.com.eg/classic-shoes-p99999.html';
+
+      setHttpFetchOverride(async () => ({
+        ok: false,
+        status: 403,
+        url: botBlockedUrl,
+        headers: { get: () => 'text/html' },
+        text: async () => '<html><body>403 Forbidden Cloudflare</body></html>',
+      }));
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Classic Derby Shoes',
+              itemType: 'shoes',
+              slot: 'shoes',
+              retailer: 'Jumia Egypt',
+              sourceUrl: botBlockedUrl,
+              imageUrl: 'https://eg.jumia.is/photos/derby.jpg',
+              estimatedPriceEgp: 1200,
+            },
+          ],
+        }),
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [
+                {
+                  web: {
+                    uri: botBlockedUrl,
+                    title: 'Jumia Egypt Classic Derby Shoes',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'dress shoes' });
+      expect(results).toHaveLength(1);
+      // Link preserved so user can navigate to retailer, but truthfully not claiming live verified stock/price
+      expect(results[0].verificationStatus).toBe(PRODUCT_VERIFICATION_STATUS.GOOGLE_GROUNDED_ONLY);
+      expect(results[0].isLiveVerified).toBe(false);
+      expect(results[0].availability).toBe('unknown');
+      expect(results[0].sourceUrl).toBe(botBlockedUrl);
+    });
+
+    it('31. Google redirector vertexaisearch.cloud.google.com is strictly rejected as buy URL', async () => {
+      const redirectorUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123xyz';
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Cotton Poplin Shirt',
+              itemType: 'shirt',
+              slot: 'top',
+              retailer: 'H&M Egypt',
+              sourceUrl: redirectorUrl,
+              imageUrl: 'https://lp2.hm.com/shirt.jpg',
+            },
+          ],
+        }),
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [
+                {
+                  web: {
+                    uri: redirectorUrl,
+                    title: 'H&M Egypt Shirt',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'white shirt' });
+      expect(results).toHaveLength(1);
+      // Must NEVER expose vertexaisearch as sourceUrl
+      expect(results[0].sourceUrl).toBeNull();
+      expect(results[0].verificationStatus).toBe(PRODUCT_VERIFICATION_STATUS.SEARCH_FALLBACK);
+    });
+
+    it('32. No Blind Guessing: missing image is NOT replaced with synthetic CDN guess', async () => {
+      const noonProductUrl = 'https://www.noon.com/egypt-ar/p/Z2B283B355C374C4EC18CZ/p/';
+
+      setHttpFetchOverride(async () => {
+        throw new Error('This operation was aborted by anti-bot DDoS shield');
+      });
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          suggestions: [
+            {
+              title: 'Classic Trousers',
+              itemType: 'trousers',
+              slot: 'bottom',
+              retailer: 'Noon Egypt',
+              sourceUrl: noonProductUrl,
+              imageUrl: null, // No image from grounding or page
+            },
+          ],
+        }),
+        candidates: [
+          {
+            groundingMetadata: {
+              groundingChunks: [{ web: { uri: noonProductUrl, title: 'Noon Product' } }],
+            },
+          },
+        ],
+      });
+
+      const results = await searchExternalProducts({ gapDescription: 'trousers' });
+      expect(results).toHaveLength(1);
+      // Image must remain null rather than fabricating a speculative _1.jpg CDN URL
+      expect(results[0].imageUrl).toBeNull();
     });
   });
 });

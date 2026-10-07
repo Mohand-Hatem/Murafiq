@@ -104,15 +104,17 @@ export const markCompleted = async (id, { resultPublicId, resultUrl, completedAt
  * @param {string|import('mongoose').Types.ObjectId} id
  * @param {Object} failure
  * @param {string} failure.errorMessage
+ * @param {string} [failure.errorCode=null]
  * @param {Date} [failure.failedAt=new Date()]
  * @returns {Promise<import('./try-on-generation.model.js').TryOnGeneration|null>}
  */
-export const markFailed = async (id, { errorMessage, failedAt = new Date() }) => {
+export const markFailed = async (id, { errorMessage, errorCode = null, failedAt = new Date() }) => {
   return TryOnGeneration.findByIdAndUpdate(
     id,
     {
       status: 'failed',
       errorMessage,
+      errorCode,
       failedAt,
     },
     { returnDocument: 'after' }

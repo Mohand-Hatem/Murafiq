@@ -122,10 +122,11 @@ export const composeAndRankOutfits = async ({
   eventContext = {},
   anchor = null,
   fashionKnowledgeChunks = [],
+  explicitConstraints = [],
   language = 'en',
   options = {},
 }) => {
-  const { temperature = 0.2, timeoutMs = 15_000 } = options;
+  const { temperature = 0.2, timeoutMs = 15_000, correctiveInstruction = null } = options;
 
   const candidateSections = Object.entries(candidatesBySlot)
     .filter(([_, items]) => Array.isArray(items) && items.length > 0)
@@ -152,6 +153,10 @@ export const composeAndRankOutfits = async ({
     `Special Notes: ${preferences.notes || 'None'}`,
   ].join('\n');
 
+  const constraintsSection = Array.isArray(explicitConstraints) && explicitConstraints.length > 0
+    ? `\n\n<explicit_user_constraints>\n${explicitConstraints.map((c) => `- ${c}`).join('\n')}\nCRITICAL: The user has specified the explicit constraints above for this request. You MUST respect these constraints when selecting garments.\n</explicit_user_constraints>`
+    : '';
+
   const anchorId = anchor ? String(anchor.id || 'anchor_item') : null;
   const anchorSection = anchor
     ? `<anchor_garment>
@@ -160,17 +165,21 @@ INSTRUCTION: This anchor garment MUST be included as one of the itemIds in EVERY
 </anchor_garment>\n\n`
     : '';
 
+  const correctiveSection = correctiveInstruction
+    ? `\n\n<corrective_feedback>\n${correctiveInstruction}\nCRITICAL: The previous generation contained invalid item IDs. You MUST NOT use the invalid IDs flagged above. Select ONLY from the valid wardrobe candidates listed.\n</corrective_feedback>`
+    : '';
+
   const userPrompt = `${anchorSection}<dress_code_rules>
 ${dressCodeRules}
 </dress_code_rules>
 
 <user_style_preferences>
 ${userPrefs}
-</user_style_preferences>
+</user_style_preferences>${constraintsSection}
 
 <available_wardrobe_candidates>
 ${candidateSections || 'No candidates available.'}
-</available_wardrobe_candidates>
+</available_wardrobe_candidates>${correctiveSection}
 
 Compose the best outfits for this occasion strictly using the candidate IDs above${anchor ? ' and the anchor garment' : ''}.`;
 

@@ -186,4 +186,73 @@ describe('Unit — AI Stylist Composition Step (compose.step.js)', () => {
     expect(result.outfits[0].score).toBe(100);
     expect(result.outfits[1].score).toBe(0);
   });
+
+  it('injects correctiveInstruction into userPrompt when provided in options', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        outfits: [
+          {
+            itemIds: ['top_1', 'bottom_1', 'shoes_1'],
+            rationale: 'Corrected outfit with valid IDs.',
+            score: 90,
+          },
+        ],
+        sufficiency: 'good',
+        missingSlots: [],
+      }),
+      usageMetadata: { promptTokenCount: 160, candidatesTokenCount: 40 },
+    });
+
+    const correctivePrompt = 'The following item IDs were invalid: ["fake_id_123"]. Please select only from valid candidates.';
+
+    await composeAndRankOutfits({
+      candidatesBySlot: mockCandidates,
+      resolvedDressCode: mockDressCode,
+      preferences: mockPreferences,
+      options: {
+        correctiveInstruction: correctivePrompt,
+      },
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const userPromptText = callArgs.contents[0].parts[0].text;
+    expect(userPromptText).toContain('<corrective_feedback>');
+    expect(userPromptText).toContain(correctivePrompt);
+    expect(userPromptText).toContain('CRITICAL: The previous generation contained invalid item IDs');
+  });
+
+  it('injects explicitConstraints into userPrompt when provided', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        outfits: [
+          {
+            itemIds: ['top_1', 'bottom_1', 'shoes_1'],
+            rationale: 'Outfit respecting user constraints.',
+            score: 95,
+          },
+        ],
+        sufficiency: 'good',
+        missingSlots: [],
+      }),
+      usageMetadata: { promptTokenCount: 170, candidatesTokenCount: 45 },
+    });
+
+    const constraints = ['no polyester', 'modest fit'];
+
+    await composeAndRankOutfits({
+      candidatesBySlot: mockCandidates,
+      resolvedDressCode: mockDressCode,
+      preferences: mockPreferences,
+      explicitConstraints: constraints,
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const userPromptText = callArgs.contents[0].parts[0].text;
+    expect(userPromptText).toContain('<explicit_user_constraints>');
+    expect(userPromptText).toContain('- no polyester');
+    expect(userPromptText).toContain('- modest fit');
+    expect(userPromptText).toContain('CRITICAL: The user has specified the explicit constraints above');
+  });
 });

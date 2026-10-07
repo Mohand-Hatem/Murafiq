@@ -1,5 +1,5 @@
 import '../../common/globals.js';
-import { Worker } from 'bullmq';
+import { Worker, UnrecoverableError } from 'bullmq';
 import env from '../../config/env.config.js';
 import { getRedisClient } from '../../config/redis.config.js';
 import { logger } from '../../config/logger.config.js';
@@ -10,6 +10,24 @@ import uploadService from '../../modules/uploads/upload.service.js';
 import entitlementService from '../../modules/subscriptions/entitlement.service.js';
 
 let tryOnWorker = null;
+
+/**
+ * Determines whether an error is permanently non-retryable.
+ * @param {Error} err
+ * @returns {boolean}
+ */
+export const isNonRetryableError = (err) => {
+  if (!err) return false;
+  if (err.code === 'IMAGE_SAFETY' || err.errorCode === 'IMAGE_SAFETY') return true;
+  if (err instanceof ApiError && err.statusCode < 500) return true;
+  const msg = String(err.message || '').toLowerCase();
+  return (
+    msg.includes('not found') ||
+    msg.includes('safety') ||
+    msg.includes('invalid') ||
+    msg.includes('unsupported')
+  );
+};
 
 /**
  * Fetches an image buffer from a signed URL.
@@ -64,7 +82,6 @@ export const processTryOnJob = async (job) => {
 
   const currentAttempt = (job.attemptsMade || 0) + 1;
   const maxAttempts = job?.opts?.attempts || 2;
-  const isTerminal = currentAttempt >= maxAttempts;
 
   try {
     // 1. Transition status to 'processing'
@@ -90,6 +107,7 @@ export const processTryOnJob = async (job) => {
       const gBuffer = await fetchImageBuffer(gUrl);
       garmentImages.push({
         buffer: gBuffer,
+        imageUrl: gUrl,
         mimeType: 'image/jpeg',
         slot: g.slot,
         label: g.label,
@@ -100,6 +118,7 @@ export const processTryOnJob = async (job) => {
     const provider = getImageProvider();
     const generated = await provider.generateTryOn({
       personImageBuffer,
+      personImageUrl: shapeModelSignedUrl,
       personMimeType: 'image/jpeg',
       garmentImages,
       promptVersion: generation.promptVersion,
@@ -130,32 +149,52 @@ export const processTryOnJob = async (job) => {
     logger.info(`✅ Try-on generation completed successfully for record ${generationId}`);
     return completed;
   } catch (err) {
+    const isNonRetryable = isNonRetryableError(err);
+    const isTerminal = currentAttempt >= maxAttempts || isNonRetryable;
+
     logger.error(`❌ Try-on generation error for record ${generationId} (attempt ${currentAttempt}/${maxAttempts}):`, {
       error: err.message,
+      isNonRetryable,
+      isTerminal,
     });
 
     if (isTerminal) {
       logger.error(`🚨 Terminal failure for try-on record ${generationId}. Refunding user quota.`);
 
+      const errorCode =
+        err.code ||
+        err.errorCode ||
+        (err.statusCode === 504 ? 'ETIMEDOUT' : null) ||
+        (err.message?.toLowerCase().includes('safety') ? 'IMAGE_SAFETY' : null) ||
+        (err.message?.toLowerCase().includes('not found') ? 'ASSET_NOT_FOUND' : null) ||
+        (err.message?.toLowerCase().includes('timed out') ? 'ETIMEDOUT' : null) ||
+        'GENERATION_FAILED';
+
       await tryOnRepository.markFailed(generationId, {
         errorMessage: err.message || 'Generation failed',
+        errorCode,
         failedAt: new Date(),
       });
 
-      // Terminal failure refund guarantee
-      if (!generation.quotaRefunded && generation.quotaSource) {
+      // Terminal failure refund guarantee with fresh idempotency check
+      const latestGen = await tryOnRepository.findById(generationId);
+      if (latestGen && !latestGen.quotaRefunded && latestGen.quotaSource) {
         try {
           const metric =
-            generation.quotaSource === 'monthly'
+            latestGen.quotaSource === 'monthly'
               ? 'ai.tryOn.monthly'
               : 'ai.tryOn.trial.lifetime';
 
-          await entitlementService.refundQuota(generation.userId, metric, 1);
+          await entitlementService.refundQuota(latestGen.userId, metric, 1);
           await tryOnRepository.markQuotaRefunded(generationId);
-          logger.info(`💰 Successfully refunded 1 ${metric} quota to user ${generation.userId}`);
+          logger.info(`💰 Successfully refunded 1 ${metric} quota to user ${latestGen.userId}`);
         } catch (refundErr) {
           logger.error('Failed to refund try-on quota after terminal error:', refundErr);
         }
+      }
+
+      if (isNonRetryable) {
+        throw new UnrecoverableError(err.message);
       }
     }
 

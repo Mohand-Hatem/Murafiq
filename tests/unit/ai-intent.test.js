@@ -211,4 +211,26 @@ describe('Unit — AI Stylist Intent Step & Layer 2 Scope Gate (intent.step.js)'
       })
     );
   });
+
+  it('extracts numeric budget in EGP and explicit constraints cleanly', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        inDomain: true,
+        language: 'ar',
+        eventType: 'wedding_formal',
+        formality: 'formal',
+        budget: 2500,
+        explicitConstraints: ['بدون بوليستر', 'أكمام طويلة'],
+        retrievalQueryEn: 'formal cotton dress long sleeves',
+        confidence: 0.95,
+      }),
+      usageMetadata: { promptTokenCount: 60, candidatesTokenCount: 30 },
+    });
+
+    const result = await classifyAndExtract('عايز فستان لفرح في حدود 2500 جنيه قطن وبأكمام طويلة');
+
+    expect(result.inDomain).toBe(true);
+    expect(result.budget).toBe(2500);
+    expect(result.explicitConstraints).toEqual(['بدون بوليستر', 'أكمام طويلة']);
+  });
 });

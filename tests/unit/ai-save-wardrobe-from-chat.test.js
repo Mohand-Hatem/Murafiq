@@ -91,7 +91,11 @@ describe('Phase 15C Step 8 — saveWardrobeItemFromChat', () => {
     expect(renameSpy).toHaveBeenCalledWith(
       mockImageRef,
       `murafiq/wardrobe/${mockUserId}/shirt-uuid`,
-      { overwrite: true }
+      expect.objectContaining({
+        overwrite: true,
+        from_type: 'authenticated',
+        to_type: 'upload',
+      })
     );
 
     // 3. Wardrobe item creation with origin: 'chat_save' and status: 'done'
@@ -102,6 +106,8 @@ describe('Phase 15C Step 8 — saveWardrobeItemFromChat', () => {
         classificationStatus: 'done',
         category: 'top',
         colorFamily: 'blue',
+        primaryColor: 'blue',
+        aiConfidence: 0.95,
       })
     );
 

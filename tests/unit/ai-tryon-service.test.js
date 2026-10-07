@@ -334,6 +334,22 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
           sourceUploadRef: 'murafiq/wardrobe/user/chinos',
         },
       ]);
+      jest.spyOn(wardrobeService, 'getWardrobeItemById').mockImplementation(async (uId, itId) => {
+        if (itId.toString() === wardrobeItemId2.toString()) {
+          return {
+            _id: new mongoose.Types.ObjectId(wardrobeItemId2),
+            category: 'bottom',
+            title: 'Navy Chinos',
+            sourceUploadRef: 'murafiq/wardrobe/user/chinos',
+          };
+        }
+        return {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+          category: 'top',
+          title: 'Blue Oxford',
+          sourceUploadRef: 'murafiq/wardrobe/user/oxford',
+        };
+      });
       jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
       jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
       jest.spyOn(entitlementService, 'consumeTryOnQuota').mockResolvedValue({ success: true, quotaSource: 'monthly' });
@@ -419,6 +435,65 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       expect(res.statusCode).toBe(202);
       expect(wardrobeService.getWardrobeItemById).toHaveBeenCalledWith(userId, wardrobeItemId1);
     });
+
+    it('rejects request when garment image matches shape model image', async () => {
+      const collidingShapeModel = {
+        _id: new mongoose.Types.ObjectId(shapeModelId),
+        userId,
+        status: 'active',
+        publicId: 'murafiq/shared/collision-asset',
+      };
+      jest.spyOn(shapeModelService, 'getShapeModelById').mockResolvedValue(collidingShapeModel);
+      jest.spyOn(garmentResolver, 'resolveGarments').mockResolvedValue([
+        {
+          source: 'upload',
+          imageRef: 'murafiq/shared/collision-asset',
+          slot: 'top',
+          resolvedPublicId: 'murafiq/shared/collision-asset',
+        },
+      ]);
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          garments: [{ source: 'upload', imageRef: 'murafiq/shared/collision-asset', slot: 'top' }],
+        })
+      ).rejects.toThrow(/Person image and garment image must be distinct assets/i);
+    });
+
+    it('rejects request with duplicate garments', async () => {
+      const mockShapeModel = {
+        _id: new mongoose.Types.ObjectId(shapeModelId),
+        userId,
+        status: 'active',
+        publicId: 'murafiq/shape-models/user/model',
+      };
+      jest.spyOn(shapeModelService, 'getShapeModelById').mockResolvedValue(mockShapeModel);
+      jest.spyOn(garmentResolver, 'resolveGarments').mockResolvedValue([
+        {
+          source: 'wardrobe',
+          itemId: wardrobeItemId1,
+          slot: 'accessory',
+          resolvedPublicId: 'murafiq/wardrobe/item1',
+        },
+        {
+          source: 'wardrobe',
+          itemId: wardrobeItemId1,
+          slot: 'accessory',
+          resolvedPublicId: 'murafiq/wardrobe/item1',
+        },
+      ]);
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          garments: [
+            { source: 'wardrobe', itemId: wardrobeItemId1 },
+            { source: 'wardrobe', itemId: wardrobeItemId1 },
+          ],
+        })
+      ).rejects.toThrow(/Duplicate garment detected in try-on request/i);
+    });
   });
 
   describe('createTryOnSchema Validation', () => {
@@ -452,6 +527,34 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       });
       expect(invalid.success).toBe(false);
       expect(invalid.error.issues[0].message).toMatch(/Must provide at least one of outfitId, itemId, or garments/i);
+    });
+
+    it('rejects request with multiple conflicting garment sources (e.g. outfitId and itemId)', () => {
+      const invalid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        outfitId: new mongoose.Types.ObjectId().toString(),
+        itemId: new mongoose.Types.ObjectId().toString(),
+      });
+      expect(invalid.success).toBe(false);
+      expect(invalid.error.issues[0].message).toMatch(/Cannot provide multiple target garment sources/i);
+    });
+
+    it('rejects wardrobe garment missing itemId', () => {
+      const invalid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        garments: [{ source: 'wardrobe' }],
+      });
+      expect(invalid.success).toBe(false);
+      expect(invalid.error.issues[0].message).toMatch(/Wardrobe garment requires itemId/i);
+    });
+
+    it('rejects upload garment missing slot or imageRef', () => {
+      const invalid = createTryOnSchema.body.safeParse({
+        shapeModelId: new mongoose.Types.ObjectId().toString(),
+        garments: [{ source: 'upload', imageRef: 'murafiq/ai-chat/u1/item' }],
+      });
+      expect(invalid.success).toBe(false);
+      expect(invalid.error.issues[0].message).toMatch(/upload garment requires imageRef and slot/i);
     });
 
     it('rejects invalid ObjectId for outfitId', () => {

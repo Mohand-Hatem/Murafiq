@@ -15,6 +15,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import mongoose from 'mongoose';
 import '../../src/common/globals.js';
+import { UnrecoverableError } from 'bullmq';
 import * as tryonQueue from '../../src/jobs/queues/tryon.queue.js';
 import * as tryonWorker from '../../src/jobs/workers/tryon-generation.worker.js';
 import tryOnRepository from '../../src/modules/ai/try-on/try-on-generation.repository.js';
@@ -153,6 +154,12 @@ describe('Phase 15F Step 6 — Try-On BullMQ Queue & Worker', () => {
       });
       expect(fakeProvider.generateTryOn).toHaveBeenCalledWith(
         expect.objectContaining({
+          personImageUrl: expect.any(String),
+          garmentImages: expect.arrayContaining([
+            expect.objectContaining({
+              imageUrl: expect.any(String),
+            }),
+          ]),
           promptVersion: 'v1',
           resolution: '1024x1024',
         })
@@ -216,6 +223,7 @@ describe('Phase 15F Step 6 — Try-On BullMQ Queue & Worker', () => {
 
       expect(markFailedSpy).toHaveBeenCalledWith(generationId, {
         errorMessage: 'Permanent provider error',
+        errorCode: 'GENERATION_FAILED',
         failedAt: expect.any(Date),
       });
       expect(refundQuotaSpy).toHaveBeenCalledWith(userId, 'ai.tryOn.monthly', 1);
@@ -273,6 +281,62 @@ describe('Phase 15F Step 6 — Try-On BullMQ Queue & Worker', () => {
       ).rejects.toThrow('Fatal error');
 
       expect(refundQuotaSpy).not.toHaveBeenCalled();
+    });
+
+    it('marks failed and refunds quota immediately on attempt 1 when error is non-retryable (e.g. IMAGE_SAFETY)', async () => {
+      jest.spyOn(tryOnRepository, 'findById').mockResolvedValue(mockGeneration);
+      jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue({});
+      jest.spyOn(shapeModelRepository, 'findById').mockResolvedValue(mockShapeModel);
+
+      const safetyError = new Error('Generated image was blocked by safety filters');
+      safetyError.code = 'IMAGE_SAFETY';
+      globalThis.fetch = jest.fn().mockRejectedValue(safetyError);
+
+      const markFailedSpy = jest.spyOn(tryOnRepository, 'markFailed').mockResolvedValue({});
+      const refundQuotaSpy = jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
+      const markQuotaRefundedSpy = jest.spyOn(tryOnRepository, 'markQuotaRefunded').mockResolvedValue({});
+
+      await expect(
+        tryonWorker.processTryOnJob({
+          data: { generationId, userId },
+          attemptsMade: 0, // attempt 1 of 2
+          opts: { attempts: 2 },
+        })
+      ).rejects.toThrow(UnrecoverableError);
+
+      expect(markFailedSpy).toHaveBeenCalledWith(generationId, {
+        errorMessage: 'Generated image was blocked by safety filters',
+        errorCode: 'IMAGE_SAFETY',
+        failedAt: expect.any(Date),
+      });
+      expect(refundQuotaSpy).toHaveBeenCalledWith(userId, 'ai.tryOn.monthly', 1);
+      expect(markQuotaRefundedSpy).toHaveBeenCalledWith(generationId);
+    });
+
+    it('marks failed and refunds quota immediately on attempt 1 when shape model is missing', async () => {
+      jest.spyOn(tryOnRepository, 'findById').mockResolvedValue(mockGeneration);
+      jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue({});
+      jest.spyOn(shapeModelRepository, 'findById').mockResolvedValue(null); // Missing shape model
+
+      const markFailedSpy = jest.spyOn(tryOnRepository, 'markFailed').mockResolvedValue({});
+      const refundQuotaSpy = jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
+      const markQuotaRefundedSpy = jest.spyOn(tryOnRepository, 'markQuotaRefunded').mockResolvedValue({});
+
+      await expect(
+        tryonWorker.processTryOnJob({
+          data: { generationId, userId },
+          attemptsMade: 0, // attempt 1 of 2
+          opts: { attempts: 2 },
+        })
+      ).rejects.toThrow(UnrecoverableError);
+
+      expect(markFailedSpy).toHaveBeenCalledWith(generationId, {
+        errorMessage: expect.stringMatching(/not found/i),
+        errorCode: 'ASSET_NOT_FOUND',
+        failedAt: expect.any(Date),
+      });
+      expect(refundQuotaSpy).toHaveBeenCalledWith(userId, 'ai.tryOn.monthly', 1);
+      expect(markQuotaRefundedSpy).toHaveBeenCalledWith(generationId);
     });
   });
 });

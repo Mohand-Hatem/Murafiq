@@ -7,6 +7,7 @@
  */
 
 import net from 'net';
+import dns from 'dns/promises';
 import { logger } from '../../../config/logger.config.js';
 
 export const VERIFIER_TIMEOUT_MS = 6000;
@@ -75,6 +76,44 @@ export const isPrivateOrLoopbackIp = (ip = '') => {
     }
   }
   return false;
+};
+
+/**
+ * Resolves IP addresses for a given hostname via DNS.
+ */
+export const dnsLookupIp = async (hostname = '') => {
+  if (!hostname) return [];
+  try {
+    const res = await dns.lookup(hostname, { all: true });
+    return res.map((r) => r.address);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Validates that the hostname does not resolve to private or loopback IP addresses.
+ */
+export const validateResolvedIp = async (hostname = '') => {
+  const h = String(hostname || '').trim();
+  if (!h) return false;
+  if (net.isIP(h)) {
+    return !isPrivateOrLoopbackIp(h);
+  }
+  // In test environment or when fetch is mocked for offline testing, skip live DNS lookup
+  if (fetchOverride || process.env.NODE_ENV === 'test') {
+    return true;
+  }
+  try {
+    const addresses = await dnsLookupIp(h);
+    if (!addresses || addresses.length === 0) return false;
+    for (const ip of addresses) {
+      if (isPrivateOrLoopbackIp(ip)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -231,6 +270,37 @@ export const extractJsonLdProduct = (html = '', baseUrl = '') => {
 };
 
 /**
+ * Normalizes availability string and determines if item is currently in stock.
+ * Returns true if in stock, false if out of stock, or null if unknown.
+ */
+export const isItemInStock = (availability = '') => {
+  if (!availability) return null;
+  const a = String(availability).toLowerCase().trim();
+  if (
+    a.includes('outofstock') ||
+    a.includes('out_of_stock') ||
+    a.includes('out of stock') ||
+    a.includes('soldout') ||
+    a.includes('sold out') ||
+    a.includes('discontinued')
+  ) {
+    return false;
+  }
+  if (
+    a.includes('instock') ||
+    a.includes('in_stock') ||
+    a.includes('in stock') ||
+    a.includes('available') ||
+    a.includes('limitedavailability') ||
+    a.includes('preorder') ||
+    a.includes('backorder')
+  ) {
+    return true;
+  }
+  return null;
+};
+
+/**
  * Extracts OpenGraph and Meta tags from HTML.
  */
 export const extractMetaTags = (html = '', baseUrl = '') => {
@@ -256,7 +326,28 @@ export const extractMetaTags = (html = '', baseUrl = '') => {
     html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ||
     null;
 
-  return { title, imageUrl };
+  const currency =
+    getTagValue('property', 'product:price:currency') ||
+    getTagValue('property', 'og:price:currency') ||
+    getTagValue('name', 'currency') ||
+    null;
+
+  let price = null;
+  const rawPrice =
+    getTagValue('property', 'product:price:amount') ||
+    getTagValue('property', 'og:price:amount');
+  if (rawPrice) {
+    const num = parseFloat(String(rawPrice).replace(/[^0-9.]/g, ''));
+    if (!isNaN(num) && num > 0) price = Math.round(num);
+  }
+
+  const availability =
+    getTagValue('property', 'product:availability') ||
+    getTagValue('property', 'og:availability') ||
+    getTagValue('name', 'availability') ||
+    null;
+
+  return { title, imageUrl, currency, price, availability };
 };
 
 /**
@@ -266,8 +357,6 @@ const defaultTestFetch = async (url) => {
   const parsed = new URL(url);
   const segments = parsed.pathname.split('/').filter(Boolean);
   const last = segments[segments.length - 1] || 'product';
-  const cleanTitle = last.replace(/[-_]/g, ' ').replace(/\.html$/i, '').trim();
-  const title = cleanTitle ? cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1) : 'Fashion Garment';
   const domain = parsed.hostname.replace(/^www\./, '');
   const cdnDomain =
     domain === 'zara.com'
@@ -280,17 +369,16 @@ const defaultTestFetch = async (url) => {
       ? 'm.media-amazon.com'
       : domain;
 
+  const cleanSlug = last.replace(/\.html$/i, '');
   const mockHtml = `
     <!DOCTYPE html>
     <html>
     <head>
-      <title>${title} - ${domain}</title>
       <script type="application/ld+json">
       {
         "@context": "https://schema.org/",
         "@type": "Product",
-        "name": "${title}",
-        "image": "https://${cdnDomain}/photos/${last}.jpg",
+        "image": "https://${cdnDomain}/photos/${cleanSlug}.jpg",
         "offers": {
           "@type": "Offer",
           "price": "1800",
@@ -299,10 +387,9 @@ const defaultTestFetch = async (url) => {
         }
       }
       </script>
-      <meta property="og:title" content="${title}" />
-      <meta property="og:image" content="https://${cdnDomain}/photos/${last}.jpg" />
+      <meta property="og:image" content="https://${cdnDomain}/photos/${cleanSlug}.jpg" />
     </head>
-    <body><p>Product description for ${title}</p></body>
+    <body><p>Product description</p></body>
     </html>
   `;
 
@@ -337,23 +424,6 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
     return { valid: false };
   }
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { valid: false };
-  }
-
-  if (!isAllowedHost(parsed.hostname)) {
-    return { valid: false };
-  }
-
-  // Reject dead lcwaikiki.com portal (Egyptian store uses lcwaikiki.eg)
-  if (parsed.hostname === 'lcwaikiki.com' || parsed.hostname.endsWith('.lcwaikiki.com') || parsed.hostname.includes('lcw.com')) {
-    return { valid: false };
-  }
-
-  if (isRejectedUrlPath(parsed)) {
-    return { valid: false };
-  }
-
   const fetchFn = fetchOverride || (process.env.NODE_ENV === 'test' ? defaultTestFetch : globalThis.fetch);
   if (typeof fetchFn !== 'function') {
     return { valid: false };
@@ -362,41 +432,119 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const MAX_REDIRECTS = 3;
+  let currentUrl = parsed.href;
+  let currentParsed = parsed;
+  let hops = 0;
+
   try {
-    const res = await fetchFn(parsed.href, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MurafiqBot/1.0',
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-      },
-      signal: controller.signal,
-      redirect: 'follow',
-    });
+    let res;
+
+    while (true) {
+      if (currentParsed.protocol !== 'http:' && currentParsed.protocol !== 'https:') {
+        clearTimeout(timer);
+        return { valid: false };
+      }
+
+      if (!isAllowedHost(currentParsed.hostname)) {
+        clearTimeout(timer);
+        return { valid: false };
+      }
+
+      // Reject dead lcwaikiki.com portal (Egyptian store uses lcwaikiki.eg)
+      if (
+        currentParsed.hostname === 'lcwaikiki.com' ||
+        currentParsed.hostname.endsWith('.lcwaikiki.com') ||
+        currentParsed.hostname.includes('lcw.com')
+      ) {
+        clearTimeout(timer);
+        return { valid: false };
+      }
+
+      if (isRejectedUrlPath(currentParsed)) {
+        clearTimeout(timer);
+        return { valid: false };
+      }
+
+      const ipSafe = await validateResolvedIp(currentParsed.hostname);
+      if (!ipSafe) {
+        clearTimeout(timer);
+        return { valid: false };
+      }
+
+      res = await fetchFn(currentUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MurafiqBot/1.0',
+          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+        },
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      // Handle HTTP redirects (301, 302, 303, 307, 308)
+      const isRedirect = [301, 302, 303, 307, 308].includes(res?.status);
+      const location = res?.headers?.get ? res.headers.get('location') : null;
+
+      if (isRedirect && location) {
+        hops++;
+        if (hops > MAX_REDIRECTS) {
+          clearTimeout(timer);
+          return { valid: false };
+        }
+        try {
+          currentUrl = new URL(location, currentUrl).href;
+          currentParsed = new URL(currentUrl);
+        } catch {
+          clearTimeout(timer);
+          return { valid: false };
+        }
+        continue;
+      }
+
+      // If client fetch followed redirects internally (e.g. test mock returning final url)
+      if (res?.url && res.url !== currentUrl) {
+        try {
+          const parsedResUrl = new URL(res.url);
+          if (!isAllowedHost(parsedResUrl.hostname) || isRejectedUrlPath(parsedResUrl)) {
+            clearTimeout(timer);
+            return { valid: false };
+          }
+          currentUrl = res.url;
+          currentParsed = parsedResUrl;
+        } catch {
+          clearTimeout(timer);
+          return { valid: false };
+        }
+      }
+
+      break;
+    }
 
     clearTimeout(timer);
 
-    const finalUrl = res.url || parsed.href;
-    let parsedFinal;
-    try {
-      parsedFinal = new URL(finalUrl);
-    } catch {
+    // Disallow vertexaisearch.cloud.google.com as final URL
+    if (currentParsed.hostname === 'vertexaisearch.cloud.google.com') {
       return { valid: false };
     }
 
-    // Ensure final redirect URL is still within allowed trusted domains & not SSRF
-    if (!isAllowedHost(parsedFinal.hostname) || isRejectedUrlPath(parsedFinal)) {
-      return { valid: false };
-    }
+    const finalUrl = currentUrl;
 
-    if (!res.ok) {
+    if (!res?.ok) {
       // 404 means the product does not exist
-      if (res.status === 404) {
+      if (res?.status === 404) {
         return { valid: false };
       }
 
       // If blocked by Cloudflare/Akamai/Amazon bot check (403/503), but the redirect resolved to a valid retailer product URL:
-      if (parsedFinal.hostname !== 'vertexaisearch.cloud.google.com') {
+      if (
+        isAllowedHost(currentParsed.hostname) &&
+        currentParsed.hostname !== 'vertexaisearch.cloud.google.com' &&
+        !isRejectedUrlPath(currentParsed) &&
+        hasProductPathIndicator(currentParsed)
+      ) {
         return {
           valid: true,
           finalUrl,
@@ -406,7 +554,7 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
       return { valid: false };
     }
 
-    const contentType = res.headers.get('content-type') || '';
+    const contentType = res.headers?.get ? res.headers.get('content-type') || '' : '';
     if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
       return { valid: true, finalUrl };
     }
@@ -427,6 +575,7 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
         price: jsonLd.price,
         currency: jsonLd.currency,
         sku: jsonLd.sku,
+        availability: jsonLd.availability || null,
       };
     }
 
@@ -444,9 +593,10 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
         finalUrl,
         title: meta?.title || jsonLd?.title || null,
         imageUrl: meta?.imageUrl || jsonLd?.imageUrl || null,
-        price: jsonLd?.price || null,
-        currency: jsonLd?.currency || null,
+        price: jsonLd?.price || meta?.price || null,
+        currency: jsonLd?.currency || meta?.currency || null,
         sku: jsonLd?.sku || null,
+        availability: jsonLd?.availability || meta?.availability || null,
       };
     }
 
@@ -458,16 +608,22 @@ export const verifyProductPage = async (candidateUrl, { timeoutMs = VERIFIER_TIM
       price: jsonLd?.price || null,
       currency: jsonLd?.currency || null,
       sku: jsonLd?.sku || null,
+      availability: jsonLd?.availability || null,
     };
   } catch (err) {
     clearTimeout(timer);
-    logger.debug(`[ProductPageVerifier] Fetch failed for ${parsed.href}: ${err.message}`);
+    logger.debug(`[ProductPageVerifier] Fetch failed for ${currentUrl || parsed.href}: ${err.message}`);
     // If live HTTP fetch timed out, aborted, or was blocked by anti-bot DDoS shield,
     // but the URL belongs to a trusted retailer and matches an authentic product path indicator:
-    if (isAllowedHost(parsed.hostname) && !isRejectedUrlPath(parsed) && hasProductPathIndicator(parsed)) {
+    if (
+      isAllowedHost(currentParsed.hostname) &&
+      currentParsed.hostname !== 'vertexaisearch.cloud.google.com' &&
+      !isRejectedUrlPath(currentParsed) &&
+      hasProductPathIndicator(currentParsed)
+    ) {
       return {
         valid: true,
-        finalUrl: parsed.href,
+        finalUrl: currentUrl,
         blockedByBotGuard: true,
       };
     }
@@ -479,6 +635,9 @@ export default {
   VERIFIER_TIMEOUT_MS,
   TRUSTED_RETAILER_DOMAINS,
   isPrivateOrLoopbackIp,
+  dnsLookupIp,
+  validateResolvedIp,
+  isItemInStock,
   isAllowedHost,
   isRejectedUrlPath,
   hasProductPathIndicator,

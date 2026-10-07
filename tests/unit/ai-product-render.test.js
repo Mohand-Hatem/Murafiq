@@ -158,6 +158,8 @@ describe('Phase 15E Step 5 — Response Rendering & Strict Separation', () => {
       imageUrl: null,
       citations: [],
       isGrounded: false,
+      verificationStatus: 'search_fallback',
+      isLiveVerified: false,
     });
 
     expect(result.suggestedToAcquire[1].imageUrl).toBeNull();

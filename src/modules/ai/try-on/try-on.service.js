@@ -110,6 +110,25 @@ export const createTryOnRequest = async (
   // 2. Resolve garments and verify ownership (wardrobe / uploads)
   const resolvedGarments = await garmentResolver.resolveGarments(userId, inputGarments);
 
+  // 2b. Enforce strict distinctness: person image and garment images must be distinct assets
+  const shapeModelPublicId = shapeModel.publicId || shapeModel.imageUrl;
+  const seenGarmentRefs = new Set();
+
+  for (const g of resolvedGarments) {
+    const garmentRef = g.resolvedPublicId || (g.itemId ? g.itemId.toString() : g.imageRef);
+    if (
+      shapeModelPublicId &&
+      ((g.resolvedPublicId && g.resolvedPublicId === shapeModelPublicId) ||
+        (g.imageRef && g.imageRef === shapeModelPublicId))
+    ) {
+      throw new ApiError(400, 'Person image and garment image must be distinct assets');
+    }
+    if (seenGarmentRefs.has(garmentRef)) {
+      throw new ApiError(400, 'Duplicate garment detected in try-on request');
+    }
+    seenGarmentRefs.add(garmentRef);
+  }
+
   // 3. Compute deterministic jobId
   const jobId = computeJobId(userId, shapeModel._id, resolvedGarments, promptVersion);
 

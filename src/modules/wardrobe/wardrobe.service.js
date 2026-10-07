@@ -7,6 +7,7 @@ import { logger } from '../../config/logger.config.js';
 import cloudinary from '../../config/cloudinary.config.js';
 import aiConversationService from '../ai/conversation/ai-conversation.service.js';
 import { normalizeGarmentAttributes } from './wardrobe-attribute.normalizer.js';
+import env from '../../config/env.config.js';
 
 export const createWardrobeItem = async (userId, { uploadRef }) => {
   // 0. Verify ownership: uploadRef must contain the caller's own userId
@@ -283,7 +284,11 @@ export const saveWardrobeItemFromChat = async (userId, messageId) => {
   if (message.imageRef && message.imageRef.includes('/ai-chat/')) {
     const promotedPublicId = message.imageRef.replace('/ai-chat/', '/wardrobe/');
     try {
-      await cloudinary.uploader.rename(message.imageRef, promotedPublicId, { overwrite: true });
+      await cloudinary.uploader.rename(message.imageRef, promotedPublicId, {
+        overwrite: true,
+        from_type: 'authenticated',
+        to_type: 'upload',
+      });
       finalPublicId = promotedPublicId;
       finalImageUrl = cloudinary.url(promotedPublicId, { secure: true });
     } catch (renameErr) {
@@ -298,12 +303,12 @@ export const saveWardrobeItemFromChat = async (userId, messageId) => {
   const aiDescription = normalized.aiDescription ||
     `${normalized.primaryColor || ''} ${normalized.material || ''} ${normalized.category || 'clothing'}`.trim();
 
-  // 7. Create WardrobeItem document with origin: 'chat_save' and status: 'done'
+  // 7. Create WardrobeItem document with origin: 'chat_save' and status: 'done' (or needs_review)
   const item = await wardrobeRepo.createWardrobeItem({
     userId,
     imageUrl: finalImageUrl,
     origin: 'chat_save',
-    classificationStatus: CLASSIFICATION_STATUS.DONE,
+    classificationStatus: needsReview ? CLASSIFICATION_STATUS.NEEDS_REVIEW : CLASSIFICATION_STATUS.DONE,
     category: normalized.category,
     subcategory: normalized.subcategory,
     primaryColor: normalized.primaryColor,
@@ -319,9 +324,9 @@ export const saveWardrobeItemFromChat = async (userId, messageId) => {
     printedText: normalized.printedText,
     styleTags: normalized.styleTags,
     aiDescription,
-    classificationConfidence: normalized.confidence,
-    needsReview,
-    rawModelResponse: rawAnalysis,
+    aiConfidence: normalized.aiConfidence,
+    aiModel: env.AI_MODEL_VISION || 'gemini-3.1-flash-lite',
+    aiPromptVersion: 'v1.0.0',
   });
 
   // 8. Upsert vector into user's namespace in Upstash Vector
@@ -341,6 +346,9 @@ export const saveWardrobeItemFromChat = async (userId, messageId) => {
         genderPresentation: item.genderPresentation,
         primaryColor: item.primaryColor,
       },
+    });
+    await wardrobeRepo.updateWardrobeItemById(item._id, {
+      embeddingId: item._id.toString(),
     });
   } catch (vecErr) {
     logger.error('Failed to index chat-saved wardrobe item in vector DB:', vecErr);
