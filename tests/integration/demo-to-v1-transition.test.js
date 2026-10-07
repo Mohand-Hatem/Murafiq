@@ -155,6 +155,19 @@ describe('Demo → V1 Same-Database Transition & Invariant Verification (Phase 5
       .send({});
     expect(checkInRes.statusCode).toBe(200);
 
+    const stylistCheckInRes = await request(app)
+      .patch(`/api/demo/bookings/${demoBookingId}/check-in`)
+      .set('Authorization', `Bearer ${stylistToken}`)
+      .send({});
+    expect(stylistCheckInRes.statusCode).toBe(200);
+    expect(stylistCheckInRes.body.data.cashOtp).toBeDefined();
+
+    const verifyCashRes = await request(app)
+      .post(`/api/demo/bookings/${demoBookingId}/verify-cash-otp`)
+      .set('Authorization', `Bearer ${clientToken}`)
+      .send({ otp: stylistCheckInRes.body.data.cashOtp });
+    expect(verifyCashRes.statusCode).toBe(200);
+
     // 3.6 Mutual completion in Demo (both parties confirm)
     await bookingService.confirmCompletion(clientUser, demoBookingId);
     await bookingService.confirmCompletion(stylistUser, demoBookingId);
