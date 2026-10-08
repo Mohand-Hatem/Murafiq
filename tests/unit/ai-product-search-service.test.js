@@ -18,6 +18,10 @@ import {
   searchExternalProducts,
   verifyDirectProductUrl,
   verifyProductImageUrl,
+  verifyLiveUrlStatus,
+  verifyLiveImageUrl,
+  resolveRedirectUrl,
+  extractOgImage,
   setProductSearchRedisOverride,
   clearInMemoryProductCache,
   CACHE_TTL_SECONDS,
@@ -532,6 +536,160 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results.filter((r) => r.outfitIndex === 2)).toHaveLength(3);
       expect(results[0].outfitTitle).toBe('Look 1');
       expect(results[3].outfitTitle).toBe('Look 2');
+    });
+  });
+
+  describe('Redirect Resolution & OpenGraph Extraction (Grounding Fix)', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('resolveRedirectUrl returns original URL if non-vertex URL', async () => {
+      const url = 'https://www.zara.com/eg/en/wool-trousers-p1.html';
+      const resolved = await resolveRedirectUrl(url);
+      expect(resolved).toBe(url);
+    });
+
+    it('resolveRedirectUrl returns null for invalid inputs', async () => {
+      expect(await resolveRedirectUrl(null)).toBeNull();
+      expect(await resolveRedirectUrl('')).toBeNull();
+    });
+
+    it('resolveRedirectUrl resolves 302 location for vertex redirect', async () => {
+      const vertexUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123xyz';
+      const targetUrl = 'https://www.zara.com/eg/en/wool-trousers-p1.html';
+
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 302,
+        headers: {
+          get: (name) => (name.toLowerCase() === 'location' ? targetUrl : null),
+        },
+      });
+
+      const resolved = await resolveRedirectUrl(vertexUrl);
+      expect(resolved).toBe(targetUrl);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        vertexUrl,
+        expect.objectContaining({ method: 'GET', redirect: 'manual' })
+      );
+    });
+
+    it('resolveRedirectUrl returns original vertex URL if fetch throws', async () => {
+      const vertexUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123xyz';
+      globalThis.fetch = jest.fn().mockRejectedValueOnce(new Error('Network error'));
+
+      const resolved = await resolveRedirectUrl(vertexUrl);
+      expect(resolved).toBe(vertexUrl);
+    });
+
+    it('extractOgImage extracts og:image from valid HTML', async () => {
+      const pageUrl = 'https://clovewear.com/products/classic-shirt-white';
+      const mockOgUrl = 'https://clovewear.com/cdn/shop/files/shirt.jpg';
+      const mockHtml = `<html><head><meta property="og:image" content="${mockOgUrl}"></head><body></body></html>`;
+
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        headers: {
+          get: (name) => (name.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null),
+        },
+        text: async () => mockHtml,
+      });
+
+      const extracted = await extractOgImage(pageUrl);
+      expect(extracted).toBe(mockOgUrl);
+    });
+
+    it('extractOgImage resolves relative og:image URLs to absolute', async () => {
+      const pageUrl = 'https://clovewear.com/products/classic-shirt-white';
+      const mockHtml = `<html><head><meta content="/cdn/shop/files/relative.jpg" property="og:image"></head></html>`;
+
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        headers: {
+          get: (name) => (name.toLowerCase() === 'content-type' ? 'text/html' : null),
+        },
+        text: async () => mockHtml,
+      });
+
+      const extracted = await extractOgImage(pageUrl);
+      expect(extracted).toBe('https://clovewear.com/cdn/shop/files/relative.jpg');
+    });
+
+    it('extractOgImage returns null if fetch fails or no og:image present', async () => {
+      expect(await extractOgImage(null)).toBeNull();
+      expect(await extractOgImage('not-a-url')).toBeNull();
+
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+      expect(await extractOgImage('https://example.com/notfound')).toBeNull();
+    });
+
+    it('Color Conflict Check: rejects black garment image on white recommendation', () => {
+      const whiteShirtItem = {
+        title: 'قميص رسمي سادة - أبيض',
+        itemType: 'قميص أبيض',
+        slot: 'top',
+      };
+      const blackImg = 'https://jakameneg.b-cdn.net/wp-content/uploads/2026/08/SK44KL01M001-Black-001-1-scaled-600x900.jpg';
+      const validPage = 'https://jakameneg.com/product/jakamen-mens-classic-fit-shirt-white/';
+
+      expect(verifyProductImageUrl(blackImg, whiteShirtItem, validPage)).toBeNull();
+    });
+
+    it('verifyLiveUrlStatus accepts HTTP 200 and rejects 404 or soft 404', async () => {
+      const liveUrl = 'https://tamsshoemaker.com/products/tams-classic-college';
+      const deadUrl = 'https://dstoreegypt.com/products/expired-shirt';
+      const soft404Url = 'https://store.example.com/item';
+
+      // 1. Success 200
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 200,
+        url: liveUrl,
+      });
+      expect(await verifyLiveUrlStatus(liveUrl)).toBe(liveUrl);
+
+      // 2. Dead 404
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 404,
+        url: deadUrl,
+      });
+      expect(await verifyLiveUrlStatus(deadUrl)).toBeNull();
+
+      // 3. Soft 404 redirect
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 200,
+        url: 'https://store.example.com/404-not-found',
+      });
+      expect(await verifyLiveUrlStatus(soft404Url)).toBeNull();
+    });
+
+    it('verifyLiveImageUrl accepts 200 image and rejects 404 or HTML response', async () => {
+      const validImg = 'https://cdn.example.com/shirt.jpg';
+
+      // 1. Valid image
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+      });
+      expect(await verifyLiveImageUrl(validImg)).toBe(validImg);
+
+      // 2. 404 image
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 404,
+        headers: { get: () => 'text/html' },
+      });
+      expect(await verifyLiveImageUrl(validImg)).toBeNull();
+
+      // 3. HTML error page with 200 status
+      globalThis.fetch = jest.fn().mockResolvedValueOnce({
+        status: 200,
+        headers: { get: () => 'text/html; charset=utf-8' },
+      });
+      expect(await verifyLiveImageUrl(validImg)).toBeNull();
     });
   });
 });

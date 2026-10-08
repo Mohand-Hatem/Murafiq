@@ -320,8 +320,33 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest) {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          if (anchor) {
+            const anchorDesc = [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ');
+            gapQuery = intent.language === 'ar'
+              ? `تنسيق ملابس مع ${anchorDesc}`
+              : `Outfits coordinating with ${anchorDesc}`;
+
+            const isTopOrOuterwear = anchor.category === 'top' || anchor.category === 'outerwear';
+            if (isTopOrOuterwear) {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص داخلي كلاسيكي للارتداء تحت السترة' : 'layering collared shirt' },
+                { slot: 'bottom', description: intent.language === 'ar' ? 'بنطال تشينو أو قماش متناسق' : 'coordinating trousers or chinos' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء لوفر أو رسمي متناسق' : 'coordinating leather shoes or loafers' },
+              ];
+            } else if (anchor.category === 'bottom') {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص أو تيشيرت متناسق' : 'coordinating shirt' },
+                { slot: 'outerwear', description: intent.language === 'ar' ? 'جاكيت أو سترة متناسقة' : 'coordinating jacket or layer' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء متناسق' : 'coordinating shoes' },
+              ];
+            } else {
+              const compSlots = deriveComplementarySlots(anchor.category);
+              gapItems = compSlots.map((s) => ({ slot: s }));
+            }
+          } else {
+            gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+            gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          }
         } else {
           const gapDescriptions = capacity.missingSlots.map((s) =>
             renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
@@ -340,6 +365,8 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          useShoppingProvider: true,
+          anchorGarment: anchor,
         });
 
         traceLogger.logTraceStep({
@@ -592,8 +619,33 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest && compResult.sufficiency === 'good') {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          if (anchor) {
+            const anchorDesc = [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ');
+            gapQuery = intent.language === 'ar'
+              ? `تنسيق ملابس مع ${anchorDesc}`
+              : `Outfits coordinating with ${anchorDesc}`;
+
+            const isTopOrOuterwear = anchor.category === 'top' || anchor.category === 'outerwear';
+            if (isTopOrOuterwear) {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص داخلي كلاسيكي للارتداء تحت السترة' : 'layering collared shirt' },
+                { slot: 'bottom', description: intent.language === 'ar' ? 'بنطال تشينو أو قماش متناسق' : 'coordinating trousers or chinos' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء لوفر أو رسمي متناسق' : 'coordinating leather shoes or loafers' },
+              ];
+            } else if (anchor.category === 'bottom') {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص أو تيشيرت متناسق' : 'coordinating shirt' },
+                { slot: 'outerwear', description: intent.language === 'ar' ? 'جاكيت أو سترة متناسقة' : 'coordinating jacket or layer' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء متناسق' : 'coordinating shoes' },
+              ];
+            } else {
+              const compSlots = deriveComplementarySlots(anchor.category);
+              gapItems = compSlots.map((s) => ({ slot: s }));
+            }
+          } else {
+            gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+            gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          }
         } else {
           gapQuery =
             compResult.gapDescriptions?.length > 0
@@ -615,6 +667,8 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          useShoppingProvider: true,
+          anchorGarment: anchor,
         });
 
         traceLogger.logTraceStep({
