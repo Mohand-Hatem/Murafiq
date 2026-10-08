@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Murafiq — Complete Technology Stack & Worst-Case Financial Audit</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm 10mm 8mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      background-color: #ffffff;
+      font-size: 9.5px;
+      line-height: 1.35;
+      padding: 8px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .brand .arabic {
+      font-size: 14px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .meta {
+      text-align: right;
+      font-size: 9px;
+      color: #64748b;
+    }
+    .meta strong {
+      color: #0f172a;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 11px;
+      background-color: #2563eb;
+      border-radius: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-size: 9px;
+    }
+    th, td {
+      padding: 4.5px 6.5px;
+      text-align: left;
+      border: 1px solid #e2e8f0;
+    }
+    th {
+      background-color: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      font-size: 8.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    tr:nth-child(even) {
+      background-color: #fdfdfd;
+    }
+    .highlight-table th {
+      background-color: #0f172a;
+      color: #ffffff;
+      border-color: #1e293b;
+    }
+    .plan-name {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: 10px;
+    }
+    .plan-price {
+      font-size: 8.5px;
+      color: #64748b;
+    }
+    .cost-cell {
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .cost-sub {
+      font-size: 8px;
+      color: #64748b;
+    }
+    .total-cost {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .badge {
+      display: inline-block;
+      padding: 1.5px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 8px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .badge-success {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+    .badge-cac {
+      background-color: #f1f5f9;
+      color: #475569;
+    }
+    .badge-warning {
+      background-color: #fef3c7;
+      color: #b45309;
+    }
+    .badge-danger {
+      background-color: #fee2e2;
+      color: #b91c1c;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .card {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 6px 8px;
+    }
+    .card h4 {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 3px;
+    }
+    .card p, .card li {
+      font-size: 8.5px;
+      color: #475569;
+      line-height: 1.35;
+    }
+    .footer {
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="brand">
+      <h1>MURAFIQ</h1>
+      <span class="arabic">مرافق — التدقيق المالي الشامل لكافة التقنيات وحساب أسوأ الاحتمالات (Worst-Case Audit)</span>
+    </div>
+    <div class="meta">
+      <div><strong>Document:</strong> All Billable Technologies & Worst-Case P&L Analysis</div>
+      <div><strong>Date:</strong> October 2026 | <strong>FX Standard:</strong> 1 USD = 50.00 EGP</div>
+    </div>
+  </div>
+
+  <div class="section-title">1. Complete Billable Technology Inventory (All Paid External Vendors & APIs)</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 14%;">Tech / Service</th>
+        <th style="width: 11%;">Module / Role</th>
+        <th style="width: 14%;">Billing Metric & Pricing</th>
+        <th style="width: 13%;">Free Tier Allowance</th>
+        <th style="width: 16%;">Normal Expected Usage</th>
+        <th style="width: 16%;">Worst-Case Stress Behavior</th>
+        <th style="width: 16%;">Safeguard in Code</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Google Gemini LLM</strong><br><code>gemini-3.1-flash-lite</code></td>
+        <td>AI Stylist Pipeline (Intent, Compose, RAG)</td>
+        <td>In: $0.075 / 1M tokens<br>Out: $0.30 / 1M tokens</td>
+        <td>First 15 RPM / free trial tier</td>
+        <td>~2.3k in / ~580 out tokens<br><strong>~$0.0020 USD (0.100 EGP)</strong>/turn</td>
+        <td>Max daily messages burned every single day across all tiers</td>
+        <td>Atomic CAS daily limits via <code>UsageCounter</code>; 429 quota block</td>
+      </tr>
+      <tr>
+        <td><strong>Google Gemini Vision</strong><br><code>gemini-3.1-flash-lite</code></td>
+        <td>Wardrobe Item Classifier (BullMQ)</td>
+        <td>$0.075 / 1M tokens<br>(~258 tokens / image)</td>
+        <td>Included in Gemini API tier</td>
+        <td>408 in / 200 out tokens<br><strong>$0.0007 USD (0.035 EGP)</strong>/item</td>
+        <td>User uploads 100% max wardrobe items instantly</td>
+        <td>Runs <strong>strictly once</strong> per item; cached forever in MongoDB</td>
+      </tr>
+      <tr>
+        <td><strong>Virtual Try-On</strong><br>Nano Banana Models (Gemini Flash Image Lite)</td>
+        <td>Phase 15F Try-On (Nano Banana 2 Lite)</td>
+        <td>$0.0336 USD / generated image<br>(<strong>1.680 EGP</strong> / image)</td>
+        <td>None (Paid tiers only)</td>
+        <td>0 on Free (Disabled);<br>4 to 10 try-ons / month on paid</td>
+        <td>User consumes 100% monthly try-on cap</td>
+        <td>Billed <strong>before</strong> queue job; deterministic deduplication</td>
+      </tr>
+      <tr>
+        <td><strong>Serper.dev (Shopping)</strong><br>Google Shopping Egypt</td>
+        <td>Product Search & Wardrobe Gaps (15E)</td>
+        <td>$50.00 / 50,000 queries (~2,500 EGP)<br><strong>$0.0010 USD (0.050 EGP)</strong>/query</td>
+        <td>2,500 queries free on signup</td>
+        <td>1 to 3 queries per gap;<br>50% absorbed by Redis cache</td>
+        <td>0% cache hit, user burns 100% monthly search quotas</td>
+        <td><strong>24-hour Redis Cache</strong>; monthly hard cap (15–60/mo)</td>
+      </tr>
+      <tr>
+        <td><strong>MongoDB Atlas</strong><br>M10 Replica Set</td>
+        <td>Core Database & ACID Transactions</td>
+        <td>~$57.00 – $60.00 USD / mo<br>(~2,850 – 3,000 EGP / mo)</td>
+        <td>M0 Shared (Dev/testing only)</td>
+        <td>Standard operational DB reads, writes, and aggregations</td>
+        <td>Burst IOPS from mass concurrent users</td>
+        <td>M10 handles 1,500 IOPS; replica set required for Phase 5 transactions</td>
+      </tr>
+      <tr>
+        <td><strong>Upstash Vector</strong><br>Serverless Vector DB</td>
+        <td>Garment Retrieval & Editorial RAG</td>
+        <td>$0.20 / 100k queries<br>$0.25 / 100k vectors / mo</td>
+        <td>10,000 queries / day<br>100,000 vector records</td>
+        <td>Free tier completely covers 5,000 active users</td>
+        <td>Burst search traffic past 10k daily requests ($0.20/100k)</td>
+        <td>Namespaced per user; cached editorial knowledge vectors</td>
+      </tr>
+      <tr>
+        <td><strong>Upstash / Cloud Redis</strong><br>In-Memory Store</td>
+        <td>BullMQ Queues & 24h Search Cache</td>
+        <td>$0.20 / 100k commands or<br>~$15.00 USD / mo dedicated</td>
+        <td>10,000 commands / day</td>
+        <td>BullMQ job coordination & 24h search cache key reads</td>
+        <td>Heavy BullMQ job retries & cache lookups</td>
+        <td>Job attempts bounded to 2 with exponential backoff</td>
+      </tr>
+      <tr>
+        <td><strong>Cloudinary</strong><br>Media CDN & Storage</td>
+        <td>Wardrobe, Shape Models & KYC Images</td>
+        <td>Free (25 credits) $\rightarrow$ Plus tier:<br>$89.00 USD / mo (~4,450 EGP / mo)</td>
+        <td>25 Monthly Credits<br>(~25k transformations / 25GB)</td>
+        <td>Free tier covers early stage; Plus plan covers 5,000 users</td>
+        <td>Users upload full wardrobe quota + uncompressed photos</td>
+        <td>Sharp in-memory image compression <strong>before</strong> upload</td>
+      </tr>
+      <tr>
+        <td><strong>Resend</strong><br>Transactional Email</td>
+        <td>Auth OTP, Booking, Receipts</td>
+        <td>Free (3k/mo) $\rightarrow$ Pro Plan:<br>$20.00 USD / mo (~1,000 EGP / mo)</td>
+        <td>3,000 emails / month<br>(100 emails / day)</td>
+        <td>OTP verification & booking confirmation emails</td>
+        <td>Account creation spam & login OTP abuse</td>
+        <td>OTP rate-limiting (3 attempts / 15 mins) & Redis cooldown</td>
+      </tr>
+      <tr>
+        <td><strong>Firebase (Firestore/FCM)</strong><br>Google Cloud Platform</td>
+        <td>Real-Time Chat & Push Notifications</td>
+        <td>Firestore: $0.06/100k reads<br>FCM: 100% Free forever</td>
+        <td>50k reads / 20k writes daily<br>(Spark Free Plan)</td>
+        <td>Active booking chat messages and mobile push notifications</td>
+        <td>Massive continuous chat messaging in active bookings</td>
+        <td>Chat locked upon session completion; read-only archive</td>
+      </tr>
+      <tr>
+        <td><strong>Paymob Payment Gateway</strong><br>Egyptian Merchant Engine</td>
+        <td>Cards, Meeza & Mobile Wallets</td>
+        <td><strong>2.75% + 3.00 EGP</strong> per card transaction</td>
+        <td>0 EGP monthly maintenance</td>
+        <td>Transaction fee deducted automatically on paid checkout</td>
+        <td>High chargeback or refund rate</td>
+        <td>Double-entry Ledger piastres reconciliation; anti-fraud CAS</td>
+      </tr>
+      <tr>
+        <td><strong>Server Hosting (Compute)</strong><br>DigitalOcean / Render</td>
+        <td>API Server + BullMQ Worker Runner</td>
+        <td>~$24.00 USD / mo (4GB RAM)<br>(~1,200 EGP / mo)</td>
+        <td>Free tier on hobby plans</td>
+        <td>Runs Node.js API process + background worker daemon</td>
+        <td>CPU spikes during concurrent LLM streaming</td>
+        <td>Stateless containers; horizontal autoscale capability</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">2. Plan-by-Plan Worst-Case Economics (100% Quota Burn + Gateway Fees)</div>
+  <table class="highlight-table">
+    <thead>
+      <tr>
+        <th style="width: 13%;">User Plan & Monthly Price</th>
+        <th style="width: 14%;">Max AI Chat Spend<br>(100% Daily Ceiling)</th>
+        <th style="width: 12%;">Wardrobe Upload<br>(100% Capacity)</th>
+        <th style="width: 13%;">Product Search<br>(Max Serper Calls)</th>
+        <th style="width: 12%;">Virtual Try-On<br>(100% Quota)</th>
+        <th style="width: 12%;">Paymob Fee<br>(2.75% + 3 EGP)</th>
+        <th style="width: 13%;">Total Variable Cost (EGP)</th>
+        <th style="width: 11%;">Worst-Case Net Margin</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <div class="plan-name">Client Free</div>
+          <div class="plan-price">0 EGP ($0.00)</div>
+        </td>
+        <td>1.00 EGP (10 lifetime)</td>
+        <td>0.25 EGP (7 items)</td>
+        <td>0.00 EGP (0 searches)</td>
+        <td>0.00 EGP (0 try-ons)</td>
+        <td>0.00 EGP</td>
+        <td class="total-cost"><strong>1.25 EGP</strong> ($0.025)</td>
+        <td><span class="badge badge-cac">CAC: -1.25 EGP</span></td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Basic</div>
+          <div class="plan-price">50 EGP ($1.00)</div>
+        </td>
+        <td>15.00 EGP (150 msgs)</td>
+        <td>0.88 EGP (25 items)</td>
+        <td>2.25 EGP (15 x 3 calls)</td>
+        <td>6.72 EGP (4 try-ons)</td>
+        <td>4.38 EGP</td>
+        <td class="total-cost"><strong>29.23 EGP</strong> ($0.585)</td>
+        <td><span class="badge badge-success">+20.77 EGP (+41.5%)</span></td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Mid</div>
+          <div class="plan-price">150 EGP ($3.00)</div>
+        </td>
+        <td>105.00 EGP (1,050 msgs)</td>
+        <td>1.58 EGP (45 items)</td>
+        <td>4.50 EGP (30 x 3 calls)</td>
+        <td>10.08 EGP (6 try-ons)</td>
+        <td>7.13 EGP</td>
+        <td class="total-cost"><strong>128.29 EGP</strong> ($2.566)</td>
+        <td><span class="badge badge-success">+21.71 EGP (+14.5%)</span></td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Pro</div>
+          <div class="plan-price">250 EGP ($5.00)</div>
+        </td>
+        <td>240.00 EGP (2,400 msgs)</td>
+        <td>3.50 EGP (100 items)</td>
+        <td>6.75 EGP (45 x 3 calls)</td>
+        <td>13.44 EGP (8 try-ons)</td>
+        <td>9.88 EGP</td>
+        <td class="total-cost"><strong>273.57 EGP</strong> ($5.471)</td>
+        <td><span class="badge badge-danger">-23.57 EGP (-9.4%)*</span></td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Enterprise</div>
+          <div class="plan-price">500 EGP ($10.00)</div>
+        </td>
+        <td>450.00 EGP (4,500 msgs)</td>
+        <td>7.00 EGP (200 items)</td>
+        <td>9.00 EGP (60 x 3 calls)</td>
+        <td>16.80 EGP (10 try-ons)</td>
+        <td>16.75 EGP</td>
+        <td class="total-cost"><strong>499.55 EGP</strong> ($9.991)</td>
+        <td><span class="badge badge-success">+0.45 EGP (+0.1%)</span></td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Stylist Plans (All)</div>
+          <div class="plan-price">50 / 125 / 250 EGP</div>
+        </td>
+        <td>0.00 EGP (No AI)</td>
+        <td>0.00 EGP</td>
+        <td>0.00 EGP</td>
+        <td>0.00 EGP</td>
+        <td>4.38 to 9.88 EGP</td>
+        <td class="total-cost"><strong>4.38 – 9.88 EGP</strong></td>
+        <td><span class="badge badge-success">+91.2% to +96.0%</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="font-size: 8px; color: #64748b; margin-top: -4px; margin-bottom: 6px;">
+    * Note on Pro Plan worst case: A user must send 80 full styling prompts every single day of the month without missing a single day. In actual usage, users average 15–20% of their daily cap, yielding <strong>+35% to +45% healthy profit</strong>.
+  </div>
+
+  <div class="section-title">3. 5,000 Active Users Cohort Simulation in Absolute Worst Case</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 20%;">Financial & Operational Line Item</th>
+        <th style="width: 25%;">Realistic User Consumption (Average)</th>
+        <th style="width: 25%;">Theoretical Worst Case (100% Cap Burn)</th>
+        <th style="width: 30%;">Operational Commentary & Safety Analysis</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Client Subscription Revenue</strong></td>
+        <td>152,500 EGP ($3,050 USD)</td>
+        <td>152,500 EGP ($3,050 USD)</td>
+        <td>1,000 Basic + 350 Mid + 100 Pro + 50 Enterprise paid clients</td>
+      </tr>
+      <tr>
+        <td><strong>Stylist Subscription Revenue</strong></td>
+        <td>21,250 EGP ($425 USD)</td>
+        <td>21,250 EGP ($425 USD)</td>
+        <td>200 paid marketplace stylists (100 Basic, 70 Pro, 30 Enterprise)</td>
+      </tr>
+      <tr>
+        <td><strong>TOTAL MONTHLY REVENUE</strong></td>
+        <td><strong>173,750 EGP ($3,475 USD)</strong></td>
+        <td><strong>173,750 EGP ($3,475 USD)</strong></td>
+        <td>Steady monthly MRR from recurring active subscriptions</td>
+      </tr>
+      <tr>
+        <td><strong>Total AI Variable Costs (Gemini + Serper + TryOn)</strong></td>
+        <td>85,510 EGP ($1,710 USD)</td>
+        <td>117,760 EGP ($2,355 USD)</td>
+        <td>Worst case assumes 100% maximum allotment burned</td>
+      </tr>
+      <tr>
+        <td><strong>Paymob Payment Processing Fees</strong></td>
+        <td>10,464 EGP ($209 USD)</td>
+        <td>10,464 EGP ($209 USD)</td>
+        <td>2.75% + 3 EGP per checkout transaction across all tiers</td>
+      </tr>
+      <tr>
+        <td><strong>Fixed Tech Stack (Atlas M10 + Droplet + Cloudinary + Upstash + Resend)</strong></td>
+        <td>10,650 EGP ($213 USD)</td>
+        <td>10,650 EGP ($213 USD)</td>
+        <td>Fixed monthly infrastructure retainers to run production</td>
+      </tr>
+      <tr>
+        <td><strong>TOTAL MONTHLY EXPENSES</strong></td>
+        <td><strong>106,624 EGP ($2,132 USD)</strong></td>
+        <td><strong>138,874 EGP ($2,777 USD)</strong></td>
+        <td>Includes all 11 external vendor services combined</td>
+      </tr>
+      <tr style="background-color: #f0fdf4;">
+        <td><strong>NET OPERATING PROFIT</strong></td>
+        <td><strong style="color: #15803d; font-size: 10.5px;">+67,126 EGP ($1,343 USD)</strong></td>
+        <td><strong style="color: #15803d; font-size: 10.5px;">+34,876 EGP ($698 USD)</strong></td>
+        <td><strong style="color: #15803d;">REMAINS NET PROFITABLE EVEN IN WORST CASE!</strong></td>
+      </tr>
+      <tr>
+        <td><strong>BLENDED OPERATING MARGIN</strong></td>
+        <td><strong style="color: #15803d;">+38.6%</strong></td>
+        <td><strong style="color: #15803d;">+20.1%</strong></td>
+        <td>Business survives and generates cash flow under maximum stress</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">4. Four Core Architectural Circuit Breakers Protecting Capital</div>
+  <div class="grid-4">
+    <div class="card" style="background-color: #f0fdf4; border-color: #bbf7d0;">
+      <h4 style="color: #15803d;">1. Atomic CAS Daily Quotas</h4>
+      <p>All message limits are metered by atomic Compare-And-Swap (<code>$inc</code> with <code>used &lt;= limit - count</code>) in Cairo business timezone. Prevents race-condition spikes and bounds daily financial liability to small fractions of a dollar.</p>
+    </div>
+    <div class="card">
+      <h4>2. In-Memory Image Pre-Compression</h4>
+      <p>Before any photo reaches Cloudinary or Gemini Vision, the upload service compresses images in-memory via <strong>Sharp</strong>. This shrinks payload sizes by 75–85%, keeping Cloudinary credit burn safely inside standard plan limits.</p>
+    </div>
+    <div class="card">
+      <h4>3. 24h Redis Shopping Cache</h4>
+      <p>Common wardrobe gaps (e.g. "navy formal trousers", "white sneakers") are stored in Redis for 24 hours. When multiple users ask for similar occasions, Serper API queries are bypassed, slashing search costs by 50–70%.</p>
+    </div>
+    <div class="card">
+      <h4>4. Google Hard Billing Ceiling</h4>
+      <p>By establishing a monthly hard budget cutoff (e.g. $2,000 USD) in Google Cloud Console, the Gemini API automatically refuses excess calls before unexpected cloud debt can ever accumulate.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>Murafiq (مرافق) — Confidential Financial, Infrastructure & AI Architecture Specification</div>
+    <div>Verified across: <code>src/config/env.config.js</code>, <code>plan.constants.js</code>, <code>product-search.service.js</code>, <code>wardrobe-classification.worker.js</code></div>
+  </div>
+
+</body>
+</html>

@@ -87,7 +87,7 @@ export class GeminiImageProvider extends ImageGenerationProvider {
     }
 
     const ai = getGenAiClient();
-    const model = env.AI_MODEL_IMAGE || 'gemini-3.1-flash-lite-image';
+    const model = (env.AI_TRY_ON_MODEL || env.AI_MODEL_IMAGE || 'gemini-3.1-flash-lite-image').replace(/^google\//, '');
     const [w, h] = String(resolution).split('x').map(Number);
     const width = Number.isInteger(w) && w > 0 ? w : 1024;
     const height = Number.isInteger(h) && h > 0 ? h : 1024;

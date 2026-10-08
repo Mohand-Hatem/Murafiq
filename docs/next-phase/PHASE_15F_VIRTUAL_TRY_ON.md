@@ -168,10 +168,10 @@ Note this **inverts** `PHASE_15C` Step 8's reasoning, which correctly says
 
 | Key | Free | Basic | Mid | Pro | Enterprise |
 |---|---|---|---|---|---|
-| `ai.tryOn.monthly` | **0** | 5 | 15 | 30 | 75 |
-| `ai.tryOn.trial.lifetime` | **1** | 0 | 0 | 0 | 0 |
+| `ai.tryOn.monthly` | **0** | 4 | 6 | 8 | 10 |
+| `ai.tryOn.trial.lifetime` | **0** | 0 | 0 | 0 | 0 |
 
-Consumption order: `ai.tryOn.monthly` first; on 429, fall back to `ai.tryOn.trial.lifetime`;
+Consumption order: `ai.tryOn.monthly` first; on 429, fall back to `ai.tryOn.trial.lifetime` (if granted);
 if both fail, 429.
 
 **No schema change is required.** `UsageCounter` is keyed `{subjectId, metric, periodKey}`

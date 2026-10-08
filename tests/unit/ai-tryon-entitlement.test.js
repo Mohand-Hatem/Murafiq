@@ -33,11 +33,11 @@ describe('Phase 15F Step 2 — Try-On Entitlements Configuration', () => {
   });
 
   describe('Plan Constants Definition', () => {
-    it('defines ai.tryOn.monthly: 0 and ai.tryOn.trial.lifetime: 1 for client.free', () => {
+    it('defines ai.tryOn.monthly: 0 and ai.tryOn.trial.lifetime: 0 for client.free', () => {
       const freePlan = CANONICAL_PLANS.find((p) => p.code === 'client.free');
       expect(freePlan).toBeDefined();
       expect(freePlan.entitlements['ai.tryOn.monthly']).toBe(0);
-      expect(freePlan.entitlements['ai.tryOn.trial.lifetime']).toBe(1);
+      expect(freePlan.entitlements['ai.tryOn.trial.lifetime']).toBe(0);
     });
 
     it('defines ai.tryOn.monthly: 4 and ai.tryOn.trial.lifetime: 0 for client.basic', () => {
@@ -70,7 +70,7 @@ describe('Phase 15F Step 2 — Try-On Entitlements Configuration', () => {
 
     it('defines fallback free client entitlements correctly', () => {
       expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.tryOn.monthly']).toBe(0);
-      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.tryOn.trial.lifetime']).toBe(1);
+      expect(FALLBACK_FREE_ENTITLEMENTS.client['ai.tryOn.trial.lifetime']).toBe(0);
     });
   });
 
@@ -123,27 +123,31 @@ describe('Phase 15F Step 2 — Try-On Entitlements Configuration', () => {
       expect(result.quotaSource).toBe('monthly');
     });
 
-    it('falls back to lifetime trial on free tier when monthly quota is 0', async () => {
-      jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue(null);
+    it('falls back to lifetime trial when a plan defines lifetime trial quota', async () => {
+      jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue({
+        planCode: 'client.trial_promo',
+        currentPeriodEnd: null,
+      });
+      jest.spyOn(planRepository, 'findByCode').mockResolvedValue({
+        code: 'client.trial_promo',
+        tier: 'free',
+        entitlements: {
+          'ai.tryOn.monthly': 0,
+          'ai.tryOn.trial.lifetime': 1,
+        },
+      });
       jest.spyOn(UsageCounter, 'findOne').mockResolvedValue(null);
       jest.spyOn(UsageCounter, 'findOneAndUpdate').mockResolvedValue({ used: 1 });
 
-      const result = await consumeTryOnQuota('free_user_1', 'client');
+      const result = await consumeTryOnQuota('promo_user_1', 'client');
       expect(result.success).toBe(true);
       expect(result.quotaSource).toBe('lifetime');
     });
 
-    it('throws ApiError 429 when free tier user has already consumed lifetime trial', async () => {
+    it('throws ApiError 429 when free tier user has 0 try-on quota', async () => {
       jest.spyOn(subscriptionRepository, 'findActiveByUserId').mockResolvedValue(null);
-      // findOne returns used: 1 for lifetime metric
-      jest.spyOn(UsageCounter, 'findOne').mockImplementation(({ metric }) => {
-        if (metric === 'ai.tryOn.trial.lifetime') {
-          return Promise.resolve({ used: 1 });
-        }
-        return Promise.resolve(null);
-      });
 
-      await expect(consumeTryOnQuota('free_user_exhausted', 'client')).rejects.toThrow(ApiError);
+      await expect(consumeTryOnQuota('free_user_zero', 'client')).rejects.toThrow(ApiError);
     });
 
     it('throws ApiError 429 when paid tier user has exhausted monthly quota', async () => {

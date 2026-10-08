@@ -302,3 +302,11 @@ npm run validate:openapi
 npm run lint
 # Result: Exit 0 — 0 errors, 0 warnings
 ```
+
+---
+
+## 15. Latest Updates: Free Tier Try-On Quota & OpenRouter Retirement
+
+For complete details on the October 2026 Virtual Try-On updates, OpenRouter retirement (standardizing on Google Gemini "Nano Banana" / `gemini-3.1-flash-lite-image`), the free tier 0 try-on quota adjustment, and mobile endpoints, see the dedicated reference:
+👉 **[`docs/AI_TRY_ON_AND_FREE_TIER_UPDATES.md`](AI_TRY_ON_AND_FREE_TIER_UPDATES.md)**
+

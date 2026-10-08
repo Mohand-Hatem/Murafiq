@@ -28,23 +28,31 @@
  *               imageRef:
  *                 type: string
  *                 example: murafiq/shape-models/507f1f77bcf86cd799439011/photo-uuid-123
- *                 description: Authenticated Cloudinary publicId path scoped to user
+ *                 description: Authenticated Cloudinary publicId path scoped to user (Required)
  *               consent:
  *                 type: boolean
  *                 example: true
- *                 description: Explicit consent to store and process full-body image
+ *                 description: Explicit consent to store and process full-body image (Required, must be true)
  *               format:
  *                 type: string
  *                 example: jpg
+ *                 default: jpg
+ *                 description: Optional image file format. Defaults to server configuration (AI_SHAPE_MODEL_DEFAULT_FORMAT, default 'jpg')
  *               bytes:
  *                 type: number
  *                 example: 1048576
+ *                 default: 0
+ *                 description: Optional file size in bytes. Maximum limit is governed by AI_SHAPE_MODEL_MAX_BYTES (default 10MB)
  *               width:
  *                 type: number
  *                 example: 1080
+ *                 default: 0
+ *                 description: Optional image width in pixels
  *               height:
  *                 type: number
  *                 example: 1920
+ *                 default: 0
+ *                 description: Optional image height in pixels
  *     responses:
  *       201:
  *         description: Shape model created successfully

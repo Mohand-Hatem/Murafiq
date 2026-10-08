@@ -84,6 +84,18 @@ export const updateMessage = async (messageId, updateData) => {
   return conversationRepo.updateMessageById(messageId, updateData);
 };
 
+export const getRecentMessages = async (conversationId, userId, limit = 3) => {
+  const conversation = await getConversation(conversationId, userId);
+  if (!conversation) {
+    return [];
+  }
+  const messages = await conversationRepo.findMessagesByConversationId(conversationId, {
+    limit,
+    skip: 0,
+  });
+  return messages;
+};
+
 export default {
   createConversation,
   getConversation,
@@ -93,4 +105,5 @@ export default {
   deleteConversation,
   getMessageById,
   updateMessage,
+  getRecentMessages,
 };

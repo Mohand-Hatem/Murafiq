@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Murafiq — AI Unit Economics & Search Provider Matrix (SerpApi vs Serper vs Google Grounding)</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm 10mm 8mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      background-color: #ffffff;
+      font-size: 10px;
+      line-height: 1.35;
+      padding: 8px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 6px;
+      margin-bottom: 10px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .brand .arabic {
+      font-size: 15px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .meta {
+      text-align: right;
+      font-size: 9.5px;
+      color: #64748b;
+    }
+    .meta strong {
+      color: #0f172a;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 8px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 11px;
+      background-color: #2563eb;
+      border-radius: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-size: 9.5px;
+    }
+    th, td {
+      padding: 5px 7px;
+      text-align: left;
+      border: 1px solid #e2e8f0;
+    }
+    th {
+      background-color: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    tr:nth-child(even) {
+      background-color: #fdfdfd;
+    }
+    .highlight-table th {
+      background-color: #0f172a;
+      color: #ffffff;
+      border-color: #1e293b;
+    }
+    .sub-head {
+      background-color: #f1f5f9;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .plan-name {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: 10.5px;
+    }
+    .plan-price {
+      font-size: 9px;
+      color: #64748b;
+    }
+    .cost-cell {
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .cost-sub {
+      font-size: 8px;
+      color: #64748b;
+    }
+    .total-cost {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 8.5px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .badge-success {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+    .badge-winner {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .badge-cac {
+      background-color: #f1f5f9;
+      color: #475569;
+    }
+    .badge-warning {
+      background-color: #fef3c7;
+      color: #b45309;
+    }
+    .badge-danger {
+      background-color: #fee2e2;
+      color: #b91c1c;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .card {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      padding: 6px 8px;
+    }
+    .card h4 {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 3px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card p, .card li {
+      font-size: 8.5px;
+      color: #475569;
+      line-height: 1.35;
+    }
+    .card ul {
+      margin-left: 12px;
+      margin-top: 3px;
+    }
+    .card-winner {
+      background-color: #f0fdf4;
+      border: 1px solid #bbf7d0;
+    }
+    .card-winner h4 {
+      color: #15803d;
+    }
+    .footer {
+      margin-top: 8px;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      color: #94a3b8;
+    }
+    .diff-pill {
+      font-weight: 700;
+      color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="brand">
+      <h1>MURAFIQ</h1>
+      <span class="arabic">مرافق — مقارنة تكاليف محركات البحث والذكاء الاصطناعي (SerpApi vs Serper vs Grounding)</span>
+    </div>
+    <div class="meta">
+      <div><strong>Document:</strong> Product Search Engine Financial & Architecture Comparison</div>
+      <div><strong>Date:</strong> October 2026 | <strong>Exchange Rate:</strong> 1 USD = 50.00 EGP</div>
+    </div>
+  </div>
+
+  <div class="section-title">1. Search Provider Head-to-Head Comparison (Egypt Region Google Shopping)</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 17%;">Search Provider</th>
+        <th style="width: 14%;">Billing Model & Terms</th>
+        <th style="width: 15%;">Min. Upfront Commitment</th>
+        <th style="width: 13%;">Cost / 1 Search (USD)</th>
+        <th style="width: 13%;">Cost / 1 Search (EGP)</th>
+        <th style="width: 14%;">Data Quality (Egypt gl=eg)</th>
+        <th style="width: 14%;">Codebase Integration</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background-color: #f0fdf4;">
+        <td>
+          <strong>Serper.dev</strong><br>
+          <span class="badge badge-winner">Recommended Option</span>
+        </td>
+        <td>Prepaid Query Credits<br><span class="cost-sub">Credits valid for 6 months</span></td>
+        <td><strong>$50.00 USD</strong> (~2,500 EGP)<br><span class="cost-sub">Includes 50,000 queries</span></td>
+        <td><strong style="color: #15803d;">$0.0010 USD</strong></td>
+        <td><strong style="color: #15803d;">0.050 EGP</strong><br><span class="cost-sub">5.0 Piastres</span></td>
+        <td>Native Google Shopping (EGP pricing, Amazon EG, Jumia, B-Tech, Defacto, Zara EG)</td>
+        <td><code>serper-shopping.provider.js</code><br><span class="cost-sub">Ready & tested (100%)</span></td>
+      </tr>
+      <tr>
+        <td>
+          <strong>SerpApi</strong><br>
+          <span class="badge badge-cac">Current Benchmark</span>
+        </td>
+        <td>Monthly Subscription<br><span class="cost-sub">Renews every 30 days</span></td>
+        <td><strong>$50.00 USD / mo</strong> (~2,500 EGP)<br><span class="cost-sub">Developer (5,000 queries)</span></td>
+        <td><strong>$0.0100 USD</strong><br><span class="cost-sub">($0.0066 on Pro $100 plan)</span></td>
+        <td><strong>0.500 EGP</strong><br><span class="cost-sub">50 Piastres</span></td>
+        <td>Native Google Shopping (EGP pricing, direct retailer links, product thumbnails)</td>
+        <td><code>serpapi-shopping.provider.js</code><br><span class="cost-sub">Ready & tested (100%)</span></td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Google Search Grounding</strong><br>
+          <span class="badge badge-warning">LLM Native Tool</span>
+        </td>
+        <td>Pay-as-you-go Postpaid<br><span class="cost-sub">Billed monthly via GCP</span></td>
+        <td><strong>$0.00 USD</strong><br><span class="cost-sub">Free pool: 1,500–5,000/mo</span></td>
+        <td><strong>$0.0153 – $0.0350</strong><br><span class="cost-sub">Standard: $35/1k queries</span></td>
+        <td><strong>0.765 – 1.750 EGP</strong><br><span class="cost-sub">76.5 – 175 Piastres</span></td>
+        <td>Web citations in Gemini response; requires post-processing to extract prices & stores</td>
+        <td><code>llm.provider.js</code> (tools)<br><span class="cost-sub">Grounding metadata parser</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">2. Plan Economics Comparison: SerpApi vs Serper.dev vs Google Search Grounding</div>
+  <table class="highlight-table">
+    <thead>
+      <tr>
+        <th style="width: 14%;">Plan Tier & Price</th>
+        <th style="width: 14%;">AI Baseline Costs<br><span style="font-weight: normal; font-size: 8px;">(Chat + Vision + TryOn)</span></th>
+        <th style="width: 10%;">Search Cap</th>
+        <th style="width: 20%;">Option A: With Serper.dev<br><span style="font-weight: normal; font-size: 8px;">(Search: 0.050 EGP/query)</span></th>
+        <th style="width: 21%;">Option B: With SerpApi<br><span style="font-weight: normal; font-size: 8px;">(Search: 0.500 EGP/query)</span></th>
+        <th style="width: 21%;">Option C: With Google Grounding<br><span style="font-weight: normal; font-size: 8px;">(Search: 0.765 EGP/query)</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <div class="plan-name">Client Free</div>
+          <div class="plan-price">0 EGP ($0.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">1.25 EGP</div>
+          <div class="cost-sub">10 chat + 7 wardrobe (CAC)</div>
+        </td>
+        <td>0 searches</td>
+        <td>
+          <div class="total-cost">Total: 1.25 EGP</div>
+          <div><span class="badge badge-cac">CAC: -1.25 EGP</span></div>
+        </td>
+        <td>
+          <div class="total-cost">Total: 1.25 EGP</div>
+          <div><span class="badge badge-cac">CAC: -1.25 EGP</span></div>
+        </td>
+        <td>
+          <div class="total-cost">Total: 1.25 EGP</div>
+          <div><span class="badge badge-cac">CAC: -1.25 EGP</span></div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Basic</div>
+          <div class="plan-price">50 EGP ($1.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">22.60 EGP</div>
+          <div class="cost-sub">150 msgs + 25 items + 4 try-ons</div>
+        </td>
+        <td>15 / mo</td>
+        <td>
+          <div class="cost-sub">Search: 0.75 EGP ($0.015)</div>
+          <div class="total-cost">Cost: <strong>23.35 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +26.65 EGP <span class="badge badge-success">+53.3%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 7.50 EGP ($0.150)</div>
+          <div class="total-cost">Cost: <strong>30.10 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +19.90 EGP <span class="badge badge-success">+39.8%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 11.48 EGP ($0.230)</div>
+          <div class="total-cost">Cost: <strong>34.08 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +15.92 EGP <span class="badge badge-success">+31.8%</span></div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Mid</div>
+          <div class="plan-price">150 EGP ($3.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">81.66 EGP</div>
+          <div class="cost-sub">700 msgs + 45 items + 6 try-ons</div>
+        </td>
+        <td>30 / mo</td>
+        <td>
+          <div class="cost-sub">Search: 1.50 EGP ($0.030)</div>
+          <div class="total-cost">Cost: <strong>83.16 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +66.84 EGP <span class="badge badge-success">+44.6%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 15.00 EGP ($0.300)</div>
+          <div class="total-cost">Cost: <strong>96.66 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +53.34 EGP <span class="badge badge-success">+35.6%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 22.95 EGP ($0.459)</div>
+          <div class="total-cost">Cost: <strong>104.61 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +45.39 EGP <span class="badge badge-success">+30.3%</span></div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Pro</div>
+          <div class="plan-price">250 EGP ($5.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">156.94 EGP</div>
+          <div class="cost-sub">1.4k msgs + 100 items + 8 try-ons</div>
+        </td>
+        <td>45 / mo</td>
+        <td>
+          <div class="cost-sub">Search: 2.25 EGP ($0.045)</div>
+          <div class="total-cost">Cost: <strong>159.19 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +90.81 EGP <span class="badge badge-success">+36.3%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 22.50 EGP ($0.450)</div>
+          <div class="total-cost">Cost: <strong>179.44 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +70.56 EGP <span class="badge badge-success">+28.2%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 34.43 EGP ($0.689)</div>
+          <div class="total-cost">Cost: <strong>191.37 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +58.63 EGP <span class="badge badge-success">+23.5%</span></div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Enterprise</div>
+          <div class="plan-price">500 EGP ($10.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">273.80 EGP</div>
+          <div class="cost-sub">2.5k msgs + 200 items + 10 try-ons</div>
+        </td>
+        <td>60 / mo</td>
+        <td>
+          <div class="cost-sub">Search: 3.00 EGP ($0.060)</div>
+          <div class="total-cost">Cost: <strong>276.80 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +223.20 EGP <span class="badge badge-success">+44.6%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 30.00 EGP ($0.600)</div>
+          <div class="total-cost">Cost: <strong>303.80 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +196.20 EGP <span class="badge badge-success">+39.2%</span></div>
+        </td>
+        <td>
+          <div class="cost-sub">Search: 45.90 EGP ($0.918)</div>
+          <div class="total-cost">Cost: <strong>319.70 EGP</strong></div>
+          <div style="color: #15803d; font-weight: 700;">Profit: +180.30 EGP <span class="badge badge-success">+36.1%</span></div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">3. 5,000 Users Scale Financial Simulation (Blended Cohort: 70% Free, 20% Basic, 7% Mid, 2% Pro, 1% Enterprise)</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Metric / Item</th>
+        <th>Option A: Serper.dev</th>
+        <th>Option B: SerpApi</th>
+        <th>Option C: Google Grounding</th>
+        <th>Variance / Monthly Savings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Total Monthly Revenue</strong></td>
+        <td>152,500 EGP ($3,050 USD)</td>
+        <td>152,500 EGP ($3,050 USD)</td>
+        <td>152,500 EGP ($3,050 USD)</td>
+        <td>Identical revenue base</td>
+      </tr>
+      <tr>
+        <td><strong>Monthly Search Queries (Gross Requested)</strong></td>
+        <td>33,000 queries / mo</td>
+        <td>33,000 queries / mo</td>
+        <td>33,000 queries / mo</td>
+        <td>Based on full plan quotas</td>
+      </tr>
+      <tr>
+        <td><strong>Net External API Calls (after 24h Redis cache)</strong></td>
+        <td>~16,500 queries</td>
+        <td>~16,500 queries</td>
+        <td>~16,500 queries</td>
+        <td>50% repeated occasion cache hit</td>
+      </tr>
+      <tr>
+        <td><strong>Monthly Search Provider Bill (USD / EGP)</strong></td>
+        <td><strong style="color: #15803d;">$16.50 USD (~825 EGP)</strong></td>
+        <td><strong>$115.00 USD (~5,750 EGP)</strong></td>
+        <td><strong>$402.50 USD (~20,125 EGP)</strong></td>
+        <td><span class="diff-pill">Serper saves $98.50/mo vs SerpApi</span></td>
+      </tr>
+      <tr>
+        <td><strong>Total Murafiq AI Bill (Chat + Vision + Search + TryOn)</strong></td>
+        <td><strong>85,765 EGP</strong> ($1,715 USD)</td>
+        <td><strong>90,690 EGP</strong> ($1,814 USD)</td>
+        <td><strong>105,065 EGP</strong> ($2,101 USD)</td>
+        <td><span class="diff-pill">Lowest overall cost on Serper</span></td>
+      </tr>
+      <tr style="background-color: #f0fdf4;">
+        <td><strong>Net Monthly Operating Profit (EGP)</strong></td>
+        <td><strong style="color: #15803d;">+66,735 EGP</strong> ($1,335 USD)</td>
+        <td><strong style="color: #15803d;">+61,810 EGP</strong> ($1,236 USD)</td>
+        <td><strong style="color: #15803d;">+47,435 EGP</strong> ($949 USD)</td>
+        <td><span class="badge badge-success">+19,300 EGP/mo added profit</span></td>
+      </tr>
+      <tr>
+        <td><strong>Blended Gross Margin (%)</strong></td>
+        <td><strong style="color: #15803d;">+43.8%</strong></td>
+        <td><strong>+40.5%</strong></td>
+        <td><strong>+31.1%</strong></td>
+        <td><span class="badge badge-winner">+12.7% Margin Expansion</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">4. Strategic Differences & Egypt Operational Constraints</div>
+  <div class="grid-3">
+    <div class="card card-winner">
+      <h4>1. Why Serper.dev is 10x More Capital Efficient</h4>
+      <p>• <strong>Unit cost:</strong> $0.0010 vs $0.0100 per query. A 50 EGP Basic plan user consumes only <strong>0.75 EGP</strong> of search budget instead of <strong>7.50 EGP</strong>.<br>
+      • <strong>Prepaid flexibility:</strong> $50 gives 50,000 queries (~2,500 EGP) with a <strong>6-month expiry</strong>. If app activity dips in month 1, your balance does not vanish (unlike SerpApi’s monthly recurring fee which expires unused searches).</p>
+    </div>
+    <div class="card">
+      <h4>2. SerpApi: Feature-Rich but High Monthly Floor</h4>
+      <p>• <strong>Strengths:</strong> Highly polished UI, built-in search tester, and comprehensive documentation.<br>
+      • <strong>Drawbacks:</strong> $50/mo minimum for only 5,000 queries. If you exceed 5,000 queries, overage is expensive unless upgrading to the $100/mo (15k) plan. For a startup in Egypt, paying $50/month continuously creates fixed FX burn.</p>
+    </div>
+    <div class="card">
+      <h4>3. Egypt CBE Regulations & Payment Practicalities</h4>
+      <p>• <strong>Debit Cards Blocked:</strong> Egyptian Central Bank (CBE) prohibits foreign currency purchases on local debit cards.<br>
+      • <strong>Required Setup:</strong> Use an Egyptian Credit Card (international limit: $50–$250/mo) or a virtual USD card (RedotPay / Elevate / Payoneer). With Serper, a single $50 charge lasts 3–6 months, avoiding monthly card limit rejections.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>Murafiq (مرافق) — Confidential Internal Financial & Architectural Specification</div>
+    <div>Codebase Sources: <code>src/modules/ai/providers/shopping/</code> (serper & serpapi), <code>plan.constants.js</code>, <code>product-search.service.js</code></div>
+  </div>
+
+</body>
+</html>

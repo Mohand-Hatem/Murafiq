@@ -220,6 +220,16 @@ export const classifyAndExtract = async (message, options = {}) => {
     userParts.push(options.imagePart);
   }
 
+  if (Array.isArray(options.recentMessages) && options.recentMessages.length > 0) {
+    const contextLines = options.recentMessages
+      .slice(-3)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n');
+    userParts.push({
+      text: `<conversation_context>\n${contextLines}\n</conversation_context>`,
+    });
+  }
+
   userParts.push({
     text: `<user_styling_request>\n${String(message || '').trim()}\n</user_styling_request>`,
   });

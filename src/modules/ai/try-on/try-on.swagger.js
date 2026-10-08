@@ -27,20 +27,20 @@
  *               shapeModelId:
  *                 type: string
  *                 example: 66e5f32b842345001a123456
- *                 description: ObjectId of client's active Shape Model
+ *                 description: ObjectId of client's active Shape Model (Required)
  *               outfitId:
  *                 type: string
  *                 example: 66e5f32b842345001a123458
- *                 description: ObjectId of a saved or AI-generated outfit to try on in full (resolves its wardrobe items automatically)
+ *                 description: Optional. ObjectId of a saved or AI outfit. When provided, garments is not needed.
  *               itemId:
  *                 type: string
  *                 example: 66e5f32b842345001a123457
- *                 description: ObjectId of a single wardrobe item to try on
+ *                 description: Optional. ObjectId of a single wardrobe item to try on.
  *               garments:
  *                 type: array
  *                 minItems: 1
  *                 maxItems: 4
- *                 description: Optional explicit list of 1 to 4 garments (when not providing outfitId or itemId)
+ *                 description: Optional. Array of 1 to 4 garments (when outfitId or itemId not provided)
  *                 items:
  *                   type: object
  *                   required:
@@ -49,27 +49,32 @@
  *                     source:
  *                       type: string
  *                       enum: [wardrobe, upload]
+ *                       description: Required. Either "wardrobe" or "upload".
  *                     itemId:
  *                       type: string
  *                       example: 66e5f32b842345001a123457
- *                       description: Required when source is wardrobe
+ *                       description: Conditional. Required when source is "wardrobe".
  *                     imageRef:
  *                       type: string
  *                       example: murafiq/ai-chat/507f1f77bcf86cd799439011/item-123
- *                       description: Required when source is upload
+ *                       description: Conditional. Required when source is "upload". Must start with murafiq/ai-chat/<userId>/
  *                     slot:
  *                       type: string
  *                       enum: [top, bottom, outerwear, shoes, dress, accessory]
+ *                       description: Optional for wardrobe (defaults to wardrobe item category or 'top'); Required for upload.
  *                     label:
  *                       type: string
  *                       example: Navy Blazer
+ *                       description: Optional label for display/prompting.
  *               resolution:
  *                 type: string
  *                 enum: [512x512, 1024x1024]
  *                 default: 1024x1024
+ *                 description: Optional resolution. Defaults to server configuration (AI_IMAGE_RESOLUTION, default "1024x1024")
  *               promptVersion:
  *                 type: string
  *                 default: v1
+ *                 description: Optional prompt template version. Defaults to server configuration (AI_TRY_ON_PROMPT_VERSION, default "v1")
  *     responses:
  *       202:
  *         description: Try-on request accepted for background processing

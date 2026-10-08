@@ -1212,7 +1212,7 @@ Murafiq enforces quotas through the `UsageCounter` collection (`src/modules/subs
 | `ai.imageMessages.daily` | Daily (Cairo Midnight) | 1 / day | 3 / day | 10 / day | 25 / day | 60 / day |
 | `ai.productSearch.daily` | Daily (Cairo Midnight) | 0 / day | 1 / day | 3 / day | 5 / day | 10 / day |
 | `ai.tryOn.monthly` | Monthly (Cairo 1st) | 0 / month | 5 / month | 15 / month | 30 / month | 75 / month |
-| `ai.tryOn.trial.lifetime` | Lifetime Trial | 1 trial | 0 | 0 | 0 | 0 |
+| `ai.tryOn.trial.lifetime` | Lifetime Trial | 0 | 0 | 0 | 0 | 0 |
 
 ---
 

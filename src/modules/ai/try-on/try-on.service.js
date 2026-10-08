@@ -8,6 +8,7 @@ import uploadService from '../../uploads/upload.service.js';
 import outfitService from '../outfits/outfit.service.js';
 import wardrobeService from '../../wardrobe/wardrobe.service.js';
 import { logger } from '../../../config/logger.config.js';
+import env from '../../../config/env.config.js';
 import tryonQueue from '../../../jobs/queues/tryon.queue.js';
 
 let queueHelper = tryonQueue;
@@ -30,7 +31,12 @@ export const setQueueHelper = (helper) => {
  * @param {string} [promptVersion='v1']
  * @returns {string} SHA-256 hex digest
  */
-export const computeJobId = (userId, shapeModelId, garments, promptVersion = 'v1') => {
+export const computeJobId = (
+  userId,
+  shapeModelId,
+  garments,
+  promptVersion = env.AI_TRY_ON_PROMPT_VERSION || 'v1'
+) => {
   const sortedGarmentKeys = garments
     .map((g) => `${g.slot}:${g.itemId ? g.itemId.toString() : g.imageRef}`)
     .sort()
@@ -62,7 +68,14 @@ export const computeJobId = (userId, shapeModelId, garments, promptVersion = 'v1
  */
 export const createTryOnRequest = async (
   userId,
-  { shapeModelId, garments, outfitId, itemId, resolution = '1024x1024', promptVersion = 'v1' }
+  {
+    shapeModelId,
+    garments,
+    outfitId,
+    itemId,
+    resolution = env.AI_IMAGE_RESOLUTION || '1024x1024',
+    promptVersion = env.AI_TRY_ON_PROMPT_VERSION || 'v1',
+  }
 ) => {
   let inputGarments = garments;
   let resolvedOutfitId = null;

@@ -1139,14 +1139,12 @@ export const searchExternalProducts = async ({
 
   // 1b. Check if 3-tier Shopping Provider pipeline should execute
   const isTest = process.env.NODE_ENV === 'test';
+  const activeShoppingProvider = env.SHOPPING_PROVIDER;
   const shouldUseShoppingProvider =
     !forceGroundedSearch &&
     (useShoppingProvider ||
       Boolean(shoppingProviderOverride) ||
-      (!isTest &&
-        (activeShoppingProvider === 'serper' ||
-          activeShoppingProvider === 'serpapi' ||
-          activeShoppingProvider === 'mock')));
+      (!isTest && activeShoppingProvider === 'serper'));
 
   if (shouldUseShoppingProvider) {
     try {
