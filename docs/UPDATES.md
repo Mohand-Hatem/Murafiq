@@ -19,6 +19,9 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 12. [Update 11: Clean Response Schema & Honest Quota Feedback](#12-update-11-clean-response-schema--honest-quota-feedback)
 13. [OpenAPI / Swagger & `docs.json` Synchronization](#13-openapi--swagger--docsjson-synchronization)
 14. [Verification & Test Results](#14-verification--test-results)
+15. [Latest Updates: Free Tier Try-On Quota, OpenRouter Retirement & Google Grounding Removal](#15-latest-updates-free-tier-try-on-quota-openrouter-retirement--google-grounding-removal)
+16. [Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination](#16-update-12-multi-turn-conversation-context-10-messages--duplicate-outfit-elimination)
+17. [Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)](#17-update-13-synchronous-execution-with-resilient-polling-architecture-rule-5)
 
 ---
 
@@ -38,6 +41,8 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 | **Formality Adjacency** | Wardrobe / AI | Two-pass query for small closets | ✅ Verified |
 | **Clean Response & Multi-Look** | AI Render / Compose | Single `outfits` array & 2 distinct looks | ✅ Verified |
 | **OpenAPI / `docs.json` Sync** | Docs & Tooling | Complete API contract export | ✅ Verified |
+| **10-Message Multi-Turn & Anti-Duplicate** | AI Stylist / Compose | Context window extended to 10; zero duplicate outfits | ✅ Verified |
+| **Synchronous vs Polling (Rule #5)** | AI Stylist / Requests | Synchronous 200 return + Redis polling & cancel resilience | ✅ Verified |
 
 ---
 
@@ -305,8 +310,62 @@ npm run lint
 
 ---
 
-## 15. Latest Updates: Free Tier Try-On Quota & OpenRouter Retirement
+## 15. Latest Updates: Free Tier Try-On Quota, OpenRouter Retirement & Google Grounding Removal
 
-For complete details on the October 2026 Virtual Try-On updates, OpenRouter retirement (standardizing on Google Gemini "Nano Banana" / `gemini-3.1-flash-lite-image`), the free tier 0 try-on quota adjustment, and mobile endpoints, see the dedicated reference:
+For complete details on the October 2026 Virtual Try-On updates, OpenRouter retirement (standardizing on Google Gemini "Nano Banana" / `gemini-3.1-flash-lite-image`), the free tier 0 try-on quota adjustment, 100% transition from Google Grounding to Serper Shopping search, and 12 dedicated mobile endpoints, see the dedicated reference:
 👉 **[`docs/AI_TRY_ON_AND_FREE_TIER_UPDATES.md`](AI_TRY_ON_AND_FREE_TIER_UPDATES.md)**
+
+---
+
+## 16. Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination
+
+### Problems Addressed
+1. **Repetitive Outfit Loops in Chat:** When a user with limited wardrobe items asked for an alternative look (e.g. *"شوفلي طقم تاني"*), the AI stylist repeated the exact same outfit combinations previously proposed. The model had no visibility of what had already been recommended in earlier turns.
+2. **Context Window Starvation:** The recent message limit was restricted to 3 messages, which caused follow-up turns to lose earlier event/occasion parameters and user preferences.
+3. **Conversational Follow-ups Triggering False Clarifications:** When the user asked *"شوفلي طقم تاني"*, the intent classifier evaluated the phrase in isolation, saw no explicit occasion, and returned a greeting clarification question instead of styling the alternative outfit.
+
+### Solutions Implemented
+- **10-Message Chronological Context:**
+  - In `ai-conversation.repository.js` and `ai-conversation.service.js`, increased default `limit` to 10 messages with `.sort({ createdAt: -1 }).limit(10)` and `.reverse()` to return strict chronological order.
+  - In `intent.step.js`, expanded `<conversation_context>` slice from `.slice(-3)` to `.slice(-10)`.
+- **Duplicate Outfit Elimination:**
+  - In `stylist.orchestrator.js`, extracted `previouslySuggestedOutfits` (item ID arrays and rationales) from prior assistant messages in the conversation.
+  - In `compose.step.js`, injected `<previously_suggested_outfits_in_conversation>` into `userPrompt`.
+  - Added Rule 8 (*PREVENTING DUPLICATE SUGGESTIONS & CANDIDATE EXHAUSTION*) to `buildSystemPrompt`: Gemini must explore alternative combinations, and if wardrobe candidates are exhausted, it must set `sufficiency: 'partial'` or `'none'` with concrete `gapDescriptions` rather than repeating previously recommended looks.
+- **Conversational Follow-up Occasion Inheritance:**
+  - In `intent.step.js`, added `MULTI-TURN FOLLOW-UPS & ALTERNATIVE OUTFIT REQUESTS` rules so phrases like *"شوفلي طقم تاني"* inherit occasion, formality, and context from `<conversation_context>` with `confidence: 0.9` and `clarificationQuestion: null`.
+
+---
+
+## 17. Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)
+
+### Architectural Rationale
+Murafiq Phase 15 follows the architectural principle: **Synchronous Execution with Redis-Backed Polling Resilience** (Scope Rule #5).
+
+```
+[Mobile App]                       [Murafiq Backend]                    [Redis Cache / Memory]
+     |                                      |                                      |
+     |---- 1. POST /api/v1/ai/stylist ----->|                                      |
+     |                                      |-- 2. createRequest(requestId) ------>|
+     |                                      |      status: 'processing'            |
+     |                                      |                                      |
+     |   [HTTP connection stays open]       |-- 3. Run Pipeline (Synchronous):     |
+     |   [~30-50s pipeline processing]      |      - 5 Cooperative Checkpoints     |
+     |                                      |      - Gemini Reasoning & Vision     |
+     |                                      |      - Serper Shopping Search        |
+     |                                      |                                      |
+     |                                      |-- 4. updateRequest(requestId) ------>|
+     |                                      |      status: 'completed'             |
+     |                                      |      result: { outfits: [...] }      |
+     |                                      |                                      |
+     |<--- 5. 200 OK with full data --------|                                      |
+```
+
+### Key Principles
+1. **No Unnecessary Queue Overhead for Chat:** Main conversational stylist requests do not push jobs to BullMQ queues. This avoids `202 Accepted` queue latency, state machine polling churn on mobile chat screens, and race conditions.
+2. **Synchronous 200 Return:** The primary client endpoint `POST /api/v1/ai/stylist` keeps the connection open and returns `200 OK` with full outfit data upon completion.
+3. **Mobile Network-Drop Resilience:** While running, `stylistRequestService` tracks the request state in Redis (`ai:stylist:request:<requestId>`). If a mobile client experiences a network disconnect or socket timeout mid-flight, it can query `GET /api/v1/ai/stylist/requests/:requestId` upon reconnecting to retrieve the completed result without re-running Gemini or consuming extra quotas.
+4. **Cooperative Cancellation (`POST .../cancel`):** At 5 critical pipeline checkpoints, the backend checks `isCancelled(traceId)`. If the user cancels the request via mobile, execution halts immediately and consumed quotas are refunded.
+5. **Future-Readiness:** Because the REST contract already exposes `requestId` and status polling endpoints, migrating heavy requests to async background workers in Phase 16 requires zero breaking changes to frontend client apps.
+
 

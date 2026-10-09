@@ -93,6 +93,10 @@ STRICT INVARIANTS:
 6. GAP ANALYSIS & CONCRETE DESCRIPTIONS:
    - In "missingSlots", list generic garment categories missing (e.g. "shoes", "outerwear", "accessory", "bottom"). When sufficiency is 'none', this MUST include all required slots to assemble a complete outfit (e.g. "top", "bottom", "shoes").
    - In "gapDescriptions", when sufficiency is 'partial' or 'none', formulate concrete, specific, purchasable garment gap descriptions tailored to the event dress code, formality, season, and Egyptian styling context (e.g. "navy formal tailored trousers", "crisp white poplin dress shirt", "black polished leather oxford shoes", "charcoal wool single-breasted blazer"). Never use generic one-word descriptions like "bottoms" or "shoes". If sufficiency is 'good', return an empty array [].${anchorInstruction}
+8. PREVENTING DUPLICATE SUGGESTIONS & CANDIDATE EXHAUSTION:
+   - If previous outfits from this conversation are listed in <previously_suggested_outfits_in_conversation>, you MUST NOT suggest the exact same combination of garments.
+   - If candidate wardrobe pieces permit alternative distinct combinations, propose those instead.
+   - If candidate wardrobe items have been completely exhausted (no new valid combinations are possible), do NOT repeat an already proposed outfit. Instead, set "sufficiency" to 'partial' or 'none', include whatever alternative pieces exist (or empty [] if none), and provide actionable "gapDescriptions" for missing pieces the client needs to complete a new look.
 ${knowledgeSection}
 
 ${langInstruction}`;
@@ -126,6 +130,7 @@ export const composeAndRankOutfits = async ({
   anchor = null,
   fashionKnowledgeChunks = [],
   language = 'en',
+  previouslySuggestedOutfits = [],
   options = {},
 }) => {
   const { temperature = 0.2, timeoutMs = 15_000 } = options;
@@ -163,7 +168,20 @@ INSTRUCTION: This anchor garment MUST be included as one of the itemIds in EVERY
 </anchor_garment>\n\n`
     : '';
 
-  const userPrompt = `${anchorSection}<dress_code_rules>
+  const previousOutfitsSection =
+    Array.isArray(previouslySuggestedOutfits) && previouslySuggestedOutfits.length > 0
+      ? `<previously_suggested_outfits_in_conversation>
+${previouslySuggestedOutfits
+  .map(
+    (o, idx) =>
+      `Look ${idx + 1}: Item IDs [${o.itemIds.join(', ')}]${o.rationale ? ` - Rationale: "${o.rationale}"` : ''}`
+  )
+  .join('\n')}
+CRITICAL: Do NOT recommend any of the exact same item combinations listed above. The client is asking for a different or new outfit.
+</previously_suggested_outfits_in_conversation>\n\n`
+      : '';
+
+  const userPrompt = `${anchorSection}${previousOutfitsSection}<dress_code_rules>
 ${dressCodeRules}
 </dress_code_rules>
 

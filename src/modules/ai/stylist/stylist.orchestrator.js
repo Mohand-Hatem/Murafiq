@@ -65,42 +65,94 @@ export const runStylistPipeline = async ({
     conversationId,
   });
 
-  let recentMessages = [];
-  if (conversationId) {
-    try {
-      recentMessages = await conversationService.getRecentMessages(conversationId, userId, 3);
-    } catch {
-      recentMessages = [];
+  const buildCancelledResponse = () => ({
+    requestId: traceId,
+    traceId,
+    status: 'cancelled',
+    responseType: 'error',
+    searchStatus: 'skipped',
+    assistantMessage: 'Request cancelled by user',
+    outfits: [],
+    missingSlots: [],
+    suggestedToAcquire: [],
+  });
+
+  try {
+    let recentMessages = [];
+    let previouslySuggestedOutfits = [];
+    if (conversationId) {
+      try {
+        recentMessages = await conversationService.getRecentMessages(conversationId, userId, 10);
+        for (const msg of recentMessages) {
+          if (msg.role === 'assistant' && msg.structuredResult?.outfits?.length > 0) {
+            for (const outfit of msg.structuredResult.outfits) {
+              const fromWardrobeIds = Array.isArray(outfit.fromYourWardrobe)
+                ? outfit.fromYourWardrobe.map((i) => i?.itemId || i?._id).filter(Boolean).map(String)
+                : [];
+              const directItemIds = Array.isArray(outfit.itemIds)
+                ? outfit.itemIds.map(String).filter(Boolean)
+                : [];
+              const itemIds = fromWardrobeIds.length > 0 ? fromWardrobeIds : directItemIds;
+              if (itemIds.length > 0) {
+                previouslySuggestedOutfits.push({
+                  itemIds,
+                  rationale: outfit.rationale || '',
+                });
+              }
+            }
+          }
+        }
+      } catch {
+        recentMessages = [];
+        previouslySuggestedOutfits = [];
+      }
     }
-  }
 
-  // 0. Quota consumption:
-  // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
-  const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
-  const messageMetric =
-    userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+    // 0. Quota consumption:
+    // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
+    const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
+    const messageMetric =
+      userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
 
-  const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+    const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
 
-  // Helper to refund all consumed quotas on validation/scope refusal
-  const refundConsumedQuotas = async () => {
-    await entitlementService.refundQuota(userId, messageMetric, 1);
-    if (hasImageQuota) {
-      await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
-    }
-  };
-
-  await entitlementService.consume(userId, messageMetric, 1, 'client');
-
-  // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
-  if (hasImageQuota) {
-    try {
-      await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
-    } catch (err) {
+    // Helper to refund all consumed quotas on validation/scope refusal
+    const refundConsumedQuotas = async () => {
       await entitlementService.refundQuota(userId, messageMetric, 1);
-      throw err;
+      if (hasImageQuota) {
+        await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
+      }
+      try {
+        await stylistRequestService.updateRequest(traceId, { refunded: true });
+      } catch {
+        // fail-safe ignore
+      }
+    };
+
+    await entitlementService.consume(userId, messageMetric, 1, 'client');
+
+    // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
+    if (hasImageQuota) {
+      try {
+        await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
+      } catch (err) {
+        await entitlementService.refundQuota(userId, messageMetric, 1);
+        throw err;
+      }
     }
-  }
+
+    // Record consumed quota in tracker for accurate cancellation refund
+    await stylistRequestService.updateRequest(traceId, {
+      consumedQuota: [
+        { metric: messageMetric, count: 1 },
+        ...(hasImageQuota ? [{ metric: 'ai.imageMessages.daily', count: 1 }] : []),
+      ],
+    });
+
+    // Checkpoint 0: Cooperative cancellation check after quota consumption
+    if (await stylistRequestService.isCancelled(traceId)) {
+      return buildCancelledResponse();
+    }
 
   // 0b. Scope Guard Layer 1: message validation & refusal abuse rate limiting
   const l1Check = scopeGuard.validateLayer1(message);
@@ -184,6 +236,11 @@ export const runStylistPipeline = async ({
     latencyMs: intent.latencyMs,
   });
 
+  // Checkpoint 1: Cooperative cancellation check after intent classification
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
+
   // 1b. Scope Gate Verdict: If out-of-domain (or non-garment image), refund quotas and terminate
   if (!intent.inDomain) {
     await scopeGuard.recordScopeRefusal(userId);
@@ -218,6 +275,92 @@ export const runStylistPipeline = async ({
       searchStatus: 'skipped',
       assistantMessage: refusalMsg,
     };
+  }
+
+  // 1c. Clarification Branch: If request is a greeting, ambiguous, or lacks critical styling/anchor context
+  if (!hasImage && (!intent.eventType || (typeof intent.confidence === 'number' && intent.confidence < 0.4)) && intent.clarificationQuestion) {
+    let activeConversationId = conversationId;
+    let userMessageRecord = null;
+
+    if (!activeConversationId) {
+      try {
+        const newConv = await conversationService.createConversation(userId, 'Stylist Consultation');
+        activeConversationId = newConv._id ? newConv._id.toString() : String(newConv.id);
+      } catch (convErr) {
+        logger.warn('Failed to auto-create conversation for stylist session:', convErr.message);
+      }
+    }
+
+    if (activeConversationId) {
+      try {
+        userMessageRecord = await conversationService.addMessage(activeConversationId, userId, {
+          role: 'user',
+          content: message,
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record user AiMessage in clarification branch:', msgErr.message);
+      }
+    }
+
+    const messageId = userMessageRecord?._id ? userMessageRecord._id.toString() : null;
+    const clarificationText = intent.clarificationQuestion;
+
+    traceLogger.logTraceStep({
+      traceId,
+      step: 'clarification_response',
+      userId,
+      clarificationQuestion: clarificationText,
+    });
+
+    const clarificationResult = {
+      outfits: [],
+      sufficiency: 'none',
+      missingSlots: [],
+      gapDescriptions: [],
+      suggestedToAcquire: [],
+      suggestBookStylist: false,
+      stylistBookingCta: null,
+      searchQuotaBlocked: false,
+      productSearchUpgradeCta: null,
+      anchor: null,
+      matchHint: null,
+      canSaveToWardrobe: false,
+      saveToWardrobeCta: null,
+      saveMessageId: messageId ? String(messageId) : null,
+      language: intent.language,
+      requestId: traceId,
+      status: 'completed',
+      responseType: 'clarification',
+      searchStatus: 'skipped',
+      assistantMessage: clarificationText,
+      conversationId: activeConversationId,
+      traceId,
+    };
+
+    if (activeConversationId) {
+      try {
+        await conversationService.addMessage(activeConversationId, userId, {
+          role: 'assistant',
+          content: clarificationText,
+          structuredResult: clarificationResult,
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record assistant AiMessage in clarification branch:', msgErr.message);
+      }
+    }
+
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType: 'clarification',
+      searchStatus: 'skipped',
+      assistantMessage: clarificationText,
+      result: clarificationResult,
+      completedAt: new Date().toISOString(),
+    });
+
+    return clarificationResult;
   }
 
   // 2. Garment Match & Anchor Threading (Flow B) vs. Dress Code Resolution (Flow A)
@@ -309,6 +452,11 @@ export const runStylistPipeline = async ({
     }),
     stylePreferenceService.getPreferences(userId),
   ]);
+
+  // Checkpoint 2: Cooperative cancellation check after wardrobe retrieval
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
 
   // 4. Pre-Flight Wardrobe Capacity Guard
   const capacity = preflightGuard.evaluateWardrobeCapacity(candidatesBySlot, requiredSlots);
@@ -490,18 +638,38 @@ export const runStylistPipeline = async ({
       searchQuotaBlocked,
     });
 
+    let searchStatus = 'skipped';
+    if (searchQuotaBlocked) {
+      searchStatus = 'quota_blocked';
+    } else if (intent.isShoppingRequest || capacity.missingSlots?.length > 0) {
+      if (externalSuggestions && externalSuggestions.length > 0) {
+        searchStatus = 'success';
+      } else {
+        searchStatus = 'no_results';
+      }
+    }
+
+    let responseType = 'partial_results';
+    if (intent.isShoppingRequest) {
+      responseType = searchQuotaBlocked || externalSuggestions.length === 0 ? 'partial_results' : 'success';
+    }
+
+    const assistantContent = intent.isShoppingRequest && searchQuotaBlocked
+      ? (intent.language === 'ar'
+          ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
+          : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.')
+      : (rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.');
+
     if (activeConversationId) {
       try {
-        const assistantContent = intent.isShoppingRequest && searchQuotaBlocked
-          ? (intent.language === 'ar'
-              ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
-              : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.')
-          : (rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.');
-
         await conversationService.addMessage(activeConversationId, userId, {
           role: 'assistant',
           content: assistantContent,
-          structuredResult: rendered,
+          structuredResult: {
+            ...rendered,
+            responseType,
+            searchStatus,
+          },
           traceId,
         });
       } catch (msgErr) {
@@ -509,8 +677,22 @@ export const runStylistPipeline = async ({
       }
     }
 
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantContent,
+      result: rendered,
+      completedAt: new Date().toISOString(),
+    });
+
     return {
       ...rendered,
+      requestId: traceId,
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantContent,
       conversationId: activeConversationId,
       traceId,
     };
@@ -536,6 +718,11 @@ export const runStylistPipeline = async ({
     logger.warn('[Orchestrator] Fashion knowledge RAG retrieval failed (continuing fail-open):', kbErr.message);
   }
 
+  // Checkpoint 3: Cooperative cancellation check before expensive composition
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
+
   // 5. Compose & Rank Outfits (anchor is threaded and pinned if Flow B, grounded by editorial knowledge)
   let compResult = await composeStep.composeAndRankOutfits({
     candidatesBySlot,
@@ -545,6 +732,7 @@ export const runStylistPipeline = async ({
     anchor,
     fashionKnowledgeChunks,
     language: intent.language,
+    previouslySuggestedOutfits,
     options,
   });
 
@@ -581,6 +769,7 @@ export const runStylistPipeline = async ({
       anchor,
       fashionKnowledgeChunks,
       language: intent.language,
+      previouslySuggestedOutfits,
       options: {
         ...options,
         correctiveInstruction: correctivePrompt,
@@ -677,6 +866,10 @@ export const runStylistPipeline = async ({
     searchQuotaBlocked = !quotaCheck.allowed;
 
     if (quotaCheck.allowed) {
+      // Checkpoint 4: Cooperative cancellation check before external product search
+      if (await stylistRequestService.isCancelled(traceId)) {
+        return buildCancelledResponse();
+      }
       try {
         await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
@@ -818,18 +1011,22 @@ export const runStylistPipeline = async ({
   }
 
   let responseType = 'success';
-  if (compResult.clarificationQuestion || intent.clarificationQuestion) {
+  if ((!rendered.outfits || rendered.outfits.length === 0) && (compResult.clarificationQuestion || intent.clarificationQuestion)) {
     responseType = 'clarification';
+  } else if (intent.isShoppingRequest) {
+    responseType = searchQuotaBlocked ? 'partial_results' : 'success';
   } else if (
-    (rendered.outfits?.length > 0 &&
-      (rendered.missingSlots?.length > 0 || !rendered.suggestedToAcquire || rendered.suggestedToAcquire.length === 0)) ||
-    rendered.sufficiency === 'partial'
+    (rendered.outfits?.length > 0 && rendered.missingSlots?.length > 0) ||
+    rendered.sufficiency === 'partial' ||
+    rendered.sufficiency === 'none'
   ) {
     responseType = 'partial_results';
   }
 
   let assistantRationale;
-  if (intent.isShoppingRequest && searchQuotaBlocked) {
+  if ((!rendered.outfits || rendered.outfits.length === 0) && (compResult.clarificationQuestion || intent.clarificationQuestion)) {
+    assistantRationale = compResult.clarificationQuestion || intent.clarificationQuestion;
+  } else if (intent.isShoppingRequest && searchQuotaBlocked) {
     assistantRationale = intent.language === 'ar'
       ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
       : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.';
@@ -845,42 +1042,60 @@ export const runStylistPipeline = async ({
       : 'Your current wardrobe does not have enough pieces for this occasion. Here are pieces suggested to acquire from online retailers to complete your look.';
   }
 
-  if (activeConversationId) {
-    try {
-      await conversationService.addMessage(activeConversationId, userId, {
-        role: 'assistant',
-        content: assistantRationale,
-        structuredResult: {
-          ...rendered,
-          responseType,
-          searchStatus,
-        },
-        traceId,
-      });
-    } catch (msgErr) {
-      logger.warn('Failed to record assistant AiMessage:', msgErr.message);
+    // Checkpoint 5: Cooperative cancellation check before final response persistence
+    if (await stylistRequestService.isCancelled(traceId)) {
+      return buildCancelledResponse();
     }
+
+    if (activeConversationId) {
+      try {
+        await conversationService.addMessage(activeConversationId, userId, {
+          role: 'assistant',
+          content: assistantRationale,
+          structuredResult: {
+            ...rendered,
+            responseType,
+            searchStatus,
+          },
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record assistant AiMessage:', msgErr.message);
+      }
+    }
+
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantRationale,
+      result: rendered,
+      completedAt: new Date().toISOString(),
+    });
+
+    return {
+      ...rendered,
+      requestId: traceId,
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantRationale,
+      conversationId: activeConversationId,
+      traceId,
+    };
+  } catch (error) {
+    const current = await stylistRequestService.getRequestRecord(traceId);
+    if (current && !['completed', 'cancelled'].includes(current.status)) {
+      await stylistRequestService.updateRequest(traceId, {
+        status: 'failed',
+        responseType: 'error',
+        searchStatus: 'skipped',
+        assistantMessage: 'Stylist request failed to process',
+        completedAt: new Date().toISOString(),
+      });
+    }
+    throw error;
   }
-
-  await stylistRequestService.updateRequest(traceId, {
-    status: 'completed',
-    responseType,
-    searchStatus,
-    assistantMessage: assistantRationale,
-    result: rendered,
-    completedAt: new Date().toISOString(),
-  });
-
-  return {
-    ...rendered,
-    requestId: traceId,
-    status: 'completed',
-    responseType,
-    searchStatus,
-    assistantMessage: assistantRationale,
-    conversationId: activeConversationId,
-    traceId,
-  };
 };
 
 export default {

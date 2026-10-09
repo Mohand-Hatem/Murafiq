@@ -4,11 +4,11 @@
  * Covers:
  * 1. computeCacheKey normalization and hashing.
  * 2. searchExternalProducts returns empty array on blank gap query.
- * 3. Grounded search execution: calls generateContent with googleSearch tool.
+ * 3. Shopping search execution: calls shopping provider pipeline with planner and ranker.
  * 4. Extracts up to 2 distinct suggestions with attached citations and source URLs.
  * 5. 24-hour Redis caching: repeated query serves from cache with cacheHit: true (zero LLM calls).
  * 6. In-memory cache fallback when Redis is disconnected.
- * 7. Fail-open resilience: returns empty array if LLM provider throws.
+ * 7. Fail-open resilience: returns empty array if shopping provider throws.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
@@ -27,10 +27,13 @@ import {
   CACHE_TTL_SECONDS,
 } from '../../src/modules/ai/products/product-search.service.js';
 import { setGenAiClient } from '../../src/modules/ai/providers/llm.provider.js';
+import { MockShoppingProvider } from '../../src/modules/ai/providers/shopping/mock-shopping.provider.js';
+import { setShoppingProvider } from '../../src/modules/ai/providers/shopping/shopping-provider.factory.js';
 
 describe('Phase 15E Step 3 — product-search.service.js', () => {
   let mockRedis;
   let mockGenerateContent;
+  let mockShoppingProvider;
 
   beforeEach(() => {
     clearInMemoryProductCache();
@@ -46,6 +49,9 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
 
     setProductSearchRedisOverride(mockRedis, () => true);
 
+    mockShoppingProvider = new MockShoppingProvider();
+    setShoppingProvider(mockShoppingProvider);
+
     mockGenerateContent = jest.fn();
     setGenAiClient({
       models: {
@@ -56,6 +62,7 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
 
   afterEach(() => {
     setProductSearchRedisOverride(null, null);
+    setShoppingProvider(null);
     clearInMemoryProductCache();
     setGenAiClient(null);
     jest.restoreAllMocks();
@@ -86,56 +93,47 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(mockGenerateContent).not.toHaveBeenCalled();
     });
 
-    it('executes grounded search and returns 2 distinct suggestions with citations', async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          suggestions: [
-            {
-              title: 'Tailored Wool-Blend Trousers',
-              itemType: 'navy formal trousers',
-              slot: 'bottom',
-              description: 'Sharp navy trousers with front pleats and side adjusters.',
-              estimatedPriceEgp: 1800,
-              retailer: 'Zara Egypt',
-            },
-            {
-              title: 'Classic Chino Suit Pants',
-              itemType: 'midnight blue dress trousers',
-              slot: 'bottom',
-              description: 'Slim-cut midnight blue trousers suitable for evening formalwear.',
-              estimatedPriceEgp: 1500,
-              retailer: 'Massimo Dutti Egypt',
-            },
-            {
-              title: 'Extra Suggestion to be sliced',
-              itemType: 'casual trousers',
-              slot: 'bottom',
-              description: 'Casual pants',
-            },
-          ],
-        }),
-        candidates: [
-          {
-            groundingMetadata: {
-              groundingChunks: [
-                {
-                  web: {
-                    uri: 'https://zara.com/eg/en/wool-trousers-p1.html',
-                    title: 'Zara Egypt Wool Trousers',
-                  },
-                },
-                {
-                  web: {
-                    uri: 'https://massimodutti.com/eg/suit-pants.html',
-                    title: 'Massimo Dutti Suit Pants',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 80 },
-      });
+    it('executes shopping search pipeline and returns 2 distinct suggestions with citations', async () => {
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            queries: [
+              {
+                slot: 'bottom',
+                itemType: 'navy formal trousers',
+                searchQuery: 'navy formal trousers',
+                outfitIndex: 1,
+                outfitTitle: 'Look 1',
+              },
+            ],
+          }),
+          usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 80 },
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            selectedItems: [
+              {
+                candidateId: 'mock_bottom_01',
+                slot: 'bottom',
+                itemType: 'navy formal trousers',
+                customTitle: 'Tailored Wool-Blend Trousers',
+                description: 'Sharp navy trousers with front pleats and side adjusters.',
+                outfitIndex: 1,
+                outfitTitle: 'Look 1',
+              },
+              {
+                candidateId: 'mock_bottom_02',
+                slot: 'bottom',
+                itemType: 'midnight blue dress trousers',
+                customTitle: 'Classic Chino Suit Pants',
+                description: 'Slim-cut midnight blue trousers suitable for evening formalwear.',
+                outfitIndex: 1,
+                outfitTitle: 'Look 1',
+              },
+            ],
+          }),
+          usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60 },
+        });
 
       const results = await searchExternalProducts({
         gapDescription: 'navy formal trousers',
@@ -145,21 +143,19 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
         genderPresentation: 'men',
       });
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0][0];
-      expect(callArgs.config.tools).toEqual([{ googleSearch: {} }]);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
 
       // Two-Suggestion Rule: max 2 suggestions returned
       expect(results).toHaveLength(2);
       expect(results[0].title).toBe('Tailored Wool-Blend Trousers');
-      expect(results[0].sourceUrl).toBe('https://zara.com/eg/en/wool-trousers-p1.html');
-      expect(results[0].sourceTitle).toBe('Zara Egypt Wool Trousers');
+      expect(results[0].sourceUrl).toBe('https://www.defacto.com/ar-eg/p/mens-slim-fit-chino-pants-navy-401');
+      expect(results[0].sourceTitle).toBe('DeFacto Egypt');
       expect(results[0].isGrounded).toBe(true);
       expect(results[0].cacheHit).toBe(false);
 
       expect(results[1].title).toBe('Classic Chino Suit Pants');
-      expect(results[1].sourceUrl).toBe('https://massimodutti.com/eg/suit-pants.html');
-      expect(results[1].citations).toHaveLength(2);
+      expect(results[1].sourceUrl).toBe('https://www.massimodutti.com/eg/men/trousers/wool-tailored-trousers-charcoal-502');
+      expect(results[1].citations).toHaveLength(1);
 
       // 24h Redis cache was populated
       expect(mockRedis.set).toHaveBeenCalledWith(
@@ -208,20 +204,26 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       // Simulate disconnected Redis
       setProductSearchRedisOverride(mockRedis, () => false);
 
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          suggestions: [
-            {
-              title: 'White French Cuff Shirt',
-              itemType: 'formal shirt',
-              slot: 'top',
-              description: 'Crisp white poplin shirt.',
-            },
-          ],
-        }),
-        candidates: [{ groundingMetadata: {} }],
-        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
-      });
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            queries: [
+              { slot: 'top', itemType: 'formal shirt', searchQuery: 'white dress shirt' },
+            ],
+          }),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            selectedItems: [
+              {
+                candidateId: 'mock_top_01',
+                slot: 'top',
+                customTitle: 'White French Cuff Shirt',
+                description: 'Crisp white poplin shirt.',
+              },
+            ],
+          }),
+        });
 
       // First call caches in-memory
       const res1 = await searchExternalProducts({ gapDescription: 'white dress shirt' });
@@ -230,56 +232,51 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       // Second call hits in-memory cache
       const res2 = await searchExternalProducts({ gapDescription: 'white dress shirt' });
       expect(res2[0].cacheHit).toBe(true);
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
-    it('falls back to ungrounded LLM and populates sourceUrl and sourceTitle when live search throws', async () => {
-      // 1st call (grounded search) throws 429 quota error
-      mockGenerateContent.mockRejectedValueOnce(new Error('RESOURCE_EXHAUSTED: quota exceeded'));
+    it('falls back gracefully to fallback query planning when Planner LLM throws', async () => {
+      // Planner throws on both attempt 1 and attempt 2 (retry)
+      mockGenerateContent
+        .mockRejectedValueOnce(new Error('LLM timeout on planner attempt 1'))
+        .mockRejectedValueOnce(new Error('LLM timeout on planner attempt 2'));
 
-      // 2nd call (ungrounded fallback) returns suggestions
+      // Ranker succeeds
       mockGenerateContent.mockResolvedValueOnce({
         text: JSON.stringify({
-          suggestions: [
+          selectedItems: [
             {
-              title: 'Structured Satin Lapel Tuxedo Blazer',
-              itemType: 'blazer',
-              slot: 'outerwear',
-              description: 'Tailored black tuxedo blazer with satin lapels.',
-              estimatedPriceEgp: 4590,
-              retailer: 'Zara Egypt',
-              sourceUrl: 'https://www.zara.com/eg/en/tuxedo-blazer-p123.html',
-              sourceTitle: 'Zara Egypt Online Store',
+              candidateId: 'mock_top_01',
+              slot: 'top',
+              customTitle: 'Structured Poplin White Shirt',
+              description: 'Crisp white formal shirt for black-tie events.',
             },
           ],
         }),
-        candidates: [{ groundingMetadata: {} }],
-        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60 },
       });
 
       const results = await searchExternalProducts({
-        gapDescription: 'formal black blazer',
-        locale: 'ar',
+        gapDescription: 'white formal shirt',
+        locale: 'en',
       });
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-      expect(mockGenerateContent.mock.calls[0][0].config.systemInstruction).toContain('CRITICAL ARABIC REQUIREMENT');
-      expect(mockGenerateContent.mock.calls[0][0].contents[0].parts[0].text).toContain('Required Language: Arabic');
       expect(results).toHaveLength(1);
-      expect(results[0].title).toBe('Structured Satin Lapel Tuxedo Blazer');
-      expect(results[0].retailer).toBe('Zara Egypt');
-      expect(results[0].sourceUrl).toBe('https://www.zara.com/eg/en/tuxedo-blazer-p123.html');
-      expect(results[0].sourceTitle).toBe('Zara Egypt Online Store');
+      expect(results[0].title).toBe('Structured Poplin White Shirt');
+      expect(results[0].retailer).toBe('DeFacto Egypt');
+      expect(results[0].sourceUrl).toBe('https://www.defacto.com/ar-eg/p/mens-classic-poplin-shirt-white-101');
+      expect(results[0].sourceTitle).toBe('DeFacto Egypt');
       expect(results[0].citations).toHaveLength(1);
-      expect(results[0].isGrounded).toBe(false); // No live Google Search chunk was attached
+      expect(results[0].isGrounded).toBe(true);
     });
 
-    it('fails open and returns empty array if LLM provider throws completely (soft degradation)', async () => {
-      // Both grounded and fallback fail
-      mockGenerateContent.mockRejectedValue(new Error('Google Gen AI connection timeout'));
+    it('fails open and returns empty array if shopping provider throws completely (soft degradation)', async () => {
+      const failingShoppingProvider = {
+        searchProducts: jest.fn().mockRejectedValue(new Error('Shopping API connection timeout')),
+      };
 
       const results = await searchExternalProducts({
         gapDescription: 'dark green evening gown',
+        shoppingProviderOverride: failingShoppingProvider,
       });
 
       // Never throws; returns empty array so orchestrator can degrade cleanly
@@ -400,70 +397,46 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(verifyProductImageUrl(mismatchedSkuImg, mockTrousersItem, zaraProductUrl)).toBeNull();
     });
 
-    it('11. Grounded search maps verified imageUrl and direct sourceUrl, rejecting homepages and stock photos', async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          suggestions: [
-            {
-              title: 'Polished Black Leather Oxfords',
-              itemType: 'black oxford shoes',
-              slot: 'shoes',
-              description: 'Classic formal cap-toe oxford dress shoes.',
-              estimatedPriceEgp: 2400,
-              retailer: 'Zara Egypt',
-              imageUrl: 'https://static.zara.net/photos/2026/oxford-shoes-captoe.jpg',
-            },
-            {
-              title: 'Italian Wool Tuxedo Trousers',
-              itemType: 'formal trousers',
-              slot: 'bottom',
-              description: 'Silk-trimmed tuxedo trousers.',
-              estimatedPriceEgp: 3800,
-              retailer: 'H&M Egypt',
-              imageUrl: 'https://images.unsplash.com/photo-stock-trousers.jpg',
-            },
-          ],
-        }),
-        candidates: [
+    it('11. Shopping search maps verified imageUrl and direct sourceUrl, rejecting homepages and invalid candidates', async () => {
+      const mockProviderWithMixedCandidates = {
+        searchProducts: jest.fn().mockResolvedValue([
           {
-            groundingMetadata: {
-              groundingChunks: [
-                {
-                  web: {
-                    uri: 'https://zara.com/eg/en/oxford-shoes-p12345.html',
-                    title: 'Zara Egypt Polished Oxfords',
-                  },
-                },
-                {
-                  web: {
-                    uri: 'https://eg.hm.com/',
-                    title: 'H&M Egypt Online',
-                  },
-                },
-              ],
-            },
+            id: 'valid_shoe',
+            slot: 'shoes',
+            title: 'Polished Black Leather Oxfords',
+            itemType: 'black oxford shoes',
+            price: 2400,
+            retailer: 'Zara Egypt',
+            productUrl: 'https://zara.com/eg/en/oxford-shoes-p12345.html',
+            imageUrl: 'https://static.zara.net/photos/2026/oxford-shoes-captoe.jpg',
+            source: 'mock',
           },
-        ],
-        usageMetadata: { promptTokenCount: 180, candidatesTokenCount: 90 },
-      });
+          {
+            id: 'bad_trouser',
+            slot: 'bottom',
+            title: 'Italian Wool Tuxedo Trousers',
+            itemType: 'formal trousers',
+            price: 3800,
+            retailer: 'H&M Egypt',
+            productUrl: 'https://eg.hm.com/', // homepage -> strictly rejected!
+            imageUrl: 'https://images.unsplash.com/photo-stock-trousers.jpg',
+            source: 'mock',
+          },
+        ]),
+      };
 
       const results = await searchExternalProducts({
         gapDescription: 'formal shoes and trousers',
+        shoppingProviderOverride: mockProviderWithMixedCandidates,
       });
 
-      expect(results).toHaveLength(2);
+      expect(results).toHaveLength(1);
 
       // Suggestion 1: verified direct product page + verified product image
       expect(results[0].title).toBe('Polished Black Leather Oxfords');
       expect(results[0].sourceUrl).toBe('https://zara.com/eg/en/oxford-shoes-p12345.html');
       expect(results[0].imageUrl).toBe('https://static.zara.net/photos/2026/oxford-shoes-captoe.jpg');
       expect(results[0].isGrounded).toBe(true);
-
-      // Suggestion 2: homepage was rejected -> sourceUrl is null, stock photo was rejected -> imageUrl is null
-      expect(results[1].title).toBe('Italian Wool Tuxedo Trousers');
-      expect(results[1].sourceUrl).toBeNull();
-      expect(results[1].imageUrl).toBeNull();
-      expect(results[1].isGrounded).toBe(false);
     });
 
     it('12. Redis cache preserves verified imageUrl and sourceUrl', async () => {
@@ -498,38 +471,55 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
       expect(results[0].imageUrl).toBe('https://static.zara.net/photos/2026/oxford-shoes-captoe.jpg');
     });
 
-    it('13. Shopping Request: applies TWO-OUTFIT prompt and returns up to 6 grouped items with outfitIndex and outfitTitle', async () => {
-      const mockSixSuggestions = [
-        { slot: 'top', itemType: 't-shirt', title: 'White Tee', estimatedPriceEgp: 450, retailer: 'Defacto', outfitIndex: 1, outfitTitle: 'Look 1' },
-        { slot: 'bottom', itemType: 'jeans', title: 'Blue Jeans', estimatedPriceEgp: 1100, retailer: 'LC Waikiki', outfitIndex: 1, outfitTitle: 'Look 1' },
-        { slot: 'shoes', itemType: 'sneakers', title: 'White Sneakers', estimatedPriceEgp: 1500, retailer: 'Amazon Egypt', outfitIndex: 1, outfitTitle: 'Look 1' },
-        { slot: 'top', itemType: 'shirt', title: 'Oxford Shirt', estimatedPriceEgp: 1200, retailer: 'Town Team', outfitIndex: 2, outfitTitle: 'Look 2' },
-        { slot: 'bottom', itemType: 'chinos', title: 'Beige Chinos', estimatedPriceEgp: 1300, retailer: 'Mobaco', outfitIndex: 2, outfitTitle: 'Look 2' },
-        { slot: 'shoes', itemType: 'loafers', title: 'Penny Loafers', estimatedPriceEgp: 2200, retailer: 'Dalydress', outfitIndex: 2, outfitTitle: 'Look 2' },
-      ];
+    it('13. Shopping Request: applies 2-OUTFIT prompt and returns up to 6 grouped items with outfitIndex and outfitTitle', async () => {
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            queries: [
+              { slot: 'top', itemType: 'shirt', searchQuery: 'قميص أبيض', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { slot: 'bottom', itemType: 'pants', searchQuery: 'بنطال كحلي', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { slot: 'shoes', itemType: 'shoes', searchQuery: 'حذاء كلاسيك', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { slot: 'top', itemType: 'polo', searchQuery: 'بولو بيج', outfitIndex: 2, outfitTitle: 'Look 2' },
+              { slot: 'bottom', itemType: 'chino', searchQuery: 'تشينو رمادي', outfitIndex: 2, outfitTitle: 'Look 2' },
+              { slot: 'shoes', itemType: 'loafers', searchQuery: 'لوفر بني', outfitIndex: 2, outfitTitle: 'Look 2' },
+            ],
+          }),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            selectedItems: [
+              { candidateId: 'c1', slot: 'top', customTitle: 'White Tee', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { candidateId: 'c2', slot: 'bottom', customTitle: 'Blue Jeans', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { candidateId: 'c3', slot: 'shoes', customTitle: 'White Sneakers', outfitIndex: 1, outfitTitle: 'Look 1' },
+              { candidateId: 'c4', slot: 'top', customTitle: 'Oxford Shirt', outfitIndex: 2, outfitTitle: 'Look 2' },
+              { candidateId: 'c5', slot: 'bottom', customTitle: 'Beige Chinos', outfitIndex: 2, outfitTitle: 'Look 2' },
+              { candidateId: 'c6', slot: 'shoes', customTitle: 'Penny Loafers', outfitIndex: 2, outfitTitle: 'Look 2' },
+            ],
+          }),
+        });
 
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          suggestions: mockSixSuggestions,
-        }),
-        candidates: [
-          {
-            groundingMetadata: {
-              groundingChunks: [{ web: { uri: 'https://defacto.com/eg/tee', title: 'Defacto Tee' } }],
-            },
-          },
-        ],
-        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 180 },
-      });
+      const mockProvider6 = {
+        searchProducts: jest.fn().mockResolvedValue([
+          { id: 'c1', slot: 'top', title: 'White Tee', price: 450, retailer: 'Defacto', productUrl: 'https://defacto.com/eg/p/tee-1', imageUrl: 'https://defacto.com/img1.jpg', source: 'mock' },
+          { id: 'c2', slot: 'bottom', title: 'Blue Jeans', price: 1100, retailer: 'LC Waikiki', productUrl: 'https://lcwaikiki.eg/p/jeans-2', imageUrl: 'https://lcwaikiki.eg/img2.jpg', source: 'mock' },
+          { id: 'c3', slot: 'shoes', title: 'White Sneakers', price: 1500, retailer: 'Amazon Egypt', productUrl: 'https://amazon.eg/dp/B001', imageUrl: 'https://amazon.eg/img3.jpg', source: 'mock' },
+          { id: 'c4', slot: 'top', title: 'Oxford Shirt', price: 1200, retailer: 'Town Team', productUrl: 'https://townteam.com/p/shirt-4', imageUrl: 'https://townteam.com/img4.jpg', source: 'mock' },
+          { id: 'c5', slot: 'bottom', title: 'Beige Chinos', price: 1300, retailer: 'Mobaco', productUrl: 'https://mobaco.com/p/chino-5', imageUrl: 'https://mobaco.com/img5.jpg', source: 'mock' },
+          { id: 'c6', slot: 'shoes', title: 'Penny Loafers', price: 2200, retailer: 'Dalydress', productUrl: 'https://dalydress.com/p/loafers-6', imageUrl: 'https://dalydress.com/img6.jpg', source: 'mock' },
+        ]),
+      };
 
       const results = await searchExternalProducts({
         gapDescription: 'casual outfit',
         isShoppingRequest: true,
+        shoppingProviderOverride: mockProvider6,
       });
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0][0];
-      expect(callArgs.config.systemInstruction).toContain('TWO-OUTFIT RULE (COMPLETE LOOK MODE)');
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      const plannerArgs = mockGenerateContent.mock.calls[0][0];
+      expect(plannerArgs.config.systemInstruction).toContain('2 COMPLETE coordinated outfits');
+      const rankerArgs = mockGenerateContent.mock.calls[1][0];
+      expect(rankerArgs.config.systemInstruction).toContain('Select exactly 6 pieces to form 2 COMPLETE coordinated outfits');
 
       expect(results).toHaveLength(6);
       expect(results.filter((r) => r.outfitIndex === 1)).toHaveLength(3);

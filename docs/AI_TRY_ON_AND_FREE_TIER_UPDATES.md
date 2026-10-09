@@ -16,6 +16,9 @@ This document outlines the recent architectural improvements, business rule alig
 3. **Sparse Wardrobe Invariant Guard (Wedding Look Fix):** Fixed the empty-outfit bug by guaranteeing complete outfit acquisition recommendations (`top`, `bottom`, `shoes`) when wardrobe items are insufficient.
 4. **12 Dedicated Mobile AI Endpoints:** Delivered the complete mobile REST contract under `/api/v1/ai` for conversations, outfits, shape models, product search, and virtual try-ons.
 5. **Configurable Runtime Environment Defaults:** Externalized optional try-on and shape model parameters (`AI_TRY_ON_PROMPT_VERSION`, `AI_SHAPE_MODEL_DEFAULT_FORMAT`, `AI_SHAPE_MODEL_MAX_BYTES`, `AI_IMAGE_RESOLUTION`) to simplify client payloads.
+6. **10-Message Conversation Context Window:** Extended `conversationService` and intent classification to 10 chronologically sorted messages for consistent multi-turn consultation.
+7. **Multi-Turn Duplicate Outfit Elimination:** Passed `previouslySuggestedOutfits` into composition, preventing repetitive looks and gracefully signaling acquisition gaps when wardrobe items are exhausted.
+
 
 ---
 
@@ -122,7 +125,32 @@ Mobile clients uploading shape models or requesting try-ons only need to supply 
 
 ---
 
-## 7. Master List of Updated & Removed Files
+---
+
+## 7. Update 6: Complete Removal of Google Search Grounding (100% Reliance on Serper Shopping Pipeline)
+
+### What Was Changed
+- **Removed Google Search Grounding from `src/modules/ai/products/product-search.service.js`:**
+  - Removed `tools: [{ googleSearch: {} }]` and `candidates[0].groundingMetadata` processing.
+  - Removed `PRODUCT_SEARCH_RESPONSE_SCHEMA` and monolithic LLM-based product search generation.
+  - Routed `searchExternalProducts` exclusively through the 3-Tier decoupled Shopping Provider pipeline (`searchWithShoppingProvider`).
+- **Cleaned LLM Provider (`src/modules/ai/providers/llm.provider.js`):**
+  - Removed `groundingMetadata` extraction from completion candidates.
+- **Removed Obsolete Grounding Test (`tests/unit/ai-llm-grounding.test.js`):**
+  - Deleted obsolete test asserting Google Grounding tool pass-through.
+- **Updated Product Search Unit Tests (`tests/unit/ai-product-search-service.test.js`):**
+  - Refactored `searchExternalProducts` test suite to assert the decoupled Shopping Provider pipeline (Planner -> Shopping Provider -> Ranker) using `MockShoppingProvider`.
+  - Replaced legacy Google Search prompt checks with 2-outfit shopping planning checks.
+  - Verified 24-hour Redis caching, in-memory cache fallbacks, candidate syntax/image verification, and soft degradation failure modes.
+
+### Why We Made It
+- **Latency & Reliability:** Google Search Grounding suffered from 4,000–8,000ms latency, high rate-limit volatility (429 errors), lack of structured product metadata, and frequent omission of product images.
+- **Cost Reduction:** Google Search Grounding cost up to $0.035 per request ($35 / 1,000 queries). Serper Shopping API costs only $0.001 per query ($1 / 1,000 queries) — a **97% cost reduction**.
+- **Accurate Product Images & Store URLs:** Serper Shopping returns structured commercial product cards for Egypt with verified thumbnails, direct retailer deep links, and real EGP prices, eliminating LLM URL hallucination entirely.
+
+---
+
+## 8. Master List of Updated & Removed Files
 
 ### Modified Files
 - [`src/config/env.config.js`](file:///d:/JOBS/Test/Murafiq/src/config/env.config.js) — Removed OpenRouter schema, narrowed image provider enum to `['gemini', 'mock']`, added try-on env variables.
@@ -130,6 +158,8 @@ Mobile clients uploading shape models or requesting try-ons only need to supply 
 - [`src/modules/subscriptions/plan.constants.js`](file:///d:/JOBS/Test/Murafiq/src/modules/subscriptions/plan.constants.js) — Changed `ai.tryOn.trial.lifetime` to `0` for `client.free` and `FALLBACK_FREE_ENTITLEMENTS`.
 - [`src/modules/ai/providers/image-provider.factory.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/providers/image-provider.factory.js) — Removed OpenRouter dispatch; supports `gemini` and `mock`.
 - [`src/modules/ai/providers/gemini-image.provider.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/providers/gemini-image.provider.js) — Normalized model name resolution for Gemini Nano Banana.
+- [`src/modules/ai/providers/llm.provider.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/providers/llm.provider.js) — Removed `groundingMetadata` candidate extraction.
+- [`src/modules/ai/products/product-search.service.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/products/product-search.service.js) — Removed Google Search Grounding; routed `searchExternalProducts` exclusively through `searchWithShoppingProvider`.
 - [`src/modules/ai/stylist/stylist.orchestrator.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/stylist/stylist.orchestrator.js) — Added sparse-wardrobe invariant consistency check.
 - [`src/modules/ai/stylist/compose.step.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/stylist/compose.step.js) — Strengthened prompt rules against partial sufficiency without outfits.
 - [`src/modules/ai/ai.routes.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/ai.routes.js) — Mounted mobile endpoints.
@@ -139,6 +169,7 @@ Mobile clients uploading shape models or requesting try-ons only need to supply 
 - [`src/modules/ai/try-on/try-on.service.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/try-on.service.js) — Injected env defaults for prompt version and resolution.
 - [`tests/unit/ai-image-provider.test.js`](file:///d:/JOBS/Test/Murafiq/tests/unit/ai-image-provider.test.js) — Updated unknown provider error assertions.
 - [`tests/unit/ai-tryon-entitlement.test.js`](file:///d:/JOBS/Test/Murafiq/tests/unit/ai-tryon-entitlement.test.js) — Updated plan expectations and free tier 0 quota rejection tests.
+- [`tests/unit/ai-product-search-service.test.js`](file:///d:/JOBS/Test/Murafiq/tests/unit/ai-product-search-service.test.js) — Updated tests to verify decoupled shopping search pipeline with `MockShoppingProvider`.
 - [`docs/operations/PRODUCTION_DEPLOYMENT_READINESS.md`](file:///d:/JOBS/Test/Murafiq/docs/operations/PRODUCTION_DEPLOYMENT_READINESS.md) — Updated try-on deployment prerequisite keys.
 - [`docs/next-phase/PHASE_15F_VIRTUAL_TRY_ON.md`](file:///d:/JOBS/Test/Murafiq/docs/next-phase/PHASE_15F_VIRTUAL_TRY_ON.md) — Updated quota matrix table.
 - [`docs/next-phase/PHASE_15_POSTMAN_TESTING.md`](file:///d:/JOBS/Test/Murafiq/docs/next-phase/PHASE_15_POSTMAN_TESTING.md) — Updated quota walkthrough table.
@@ -146,6 +177,7 @@ Mobile clients uploading shape models or requesting try-ons only need to supply 
 ### Deleted Files
 - `src/modules/ai/providers/openrouter-image.provider.js`
 - `tests/unit/openrouter-image-provider.test.js`
+- `tests/unit/ai-llm-grounding.test.js`
 
 ### Newly Added Files
 - [`src/modules/ai/ai.dto.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/ai.dto.js) — DTO mappers for mobile responses.
@@ -155,7 +187,7 @@ Mobile clients uploading shape models or requesting try-ons only need to supply 
 
 ---
 
-## 8. Verification & Test Results
+## 9. Verification & Test Results
 
 ```bash
 # 1. ESLint Check
@@ -166,19 +198,31 @@ npm run lint
 npm run validate:openapi
 # Result: Exit 0 — 160/160 routes documented, 0 ghosts, 0 broken references
 
-# 3. Virtual Try-On Entitlement & Quota Tests
+# 3. Product Search Service & 3-Tier Shopping Search Tests
+npm test -- tests/unit/ai-product-search-service.test.js tests/unit/ai-3tier-product-search.test.js tests/unit/ai-shopping-provider.test.js
+# Result: 3 passed, 61/61 tests passed
+
+# 4. Virtual Try-On Entitlement & Quota Tests
 npm test -- tests/unit/ai-tryon-entitlement.test.js
 # Result: 1 passed, 15/15 tests passed
 
-# 4. Virtual Try-On Core & Worker Tests
+# 5. Virtual Try-On Core & Worker Tests
 npm test -- tests/unit/ai-image-provider.test.js tests/unit/ai-tryon-service.test.js tests/unit/ai-tryon-worker.test.js tests/integration/ai-tryon-routes.test.js
 # Result: 4 passed, 61/61 tests passed
 
-# 5. Mobile AI Routes Integration Tests
+# 6. Mobile AI Routes Integration Tests
 npm test -- tests/integration/ai-mobile-routes.test.js
 # Result: 1 passed, 25/25 tests passed
 
-# 6. Full Repository Test Suite
-npm test
-# Result: 199 passed, 199 total suites, 1,773/1,773 tests passed
+# 7. Complete AI Subsystem Unit Test Suite
+npm test -- tests/unit/ai-
+# Result: 38 passed, 38 total suites, 387/387 tests passed
 ```
+
+---
+
+## 8. Multi-Turn Context & Anti-Duplicate Styling Fixes
+
+For full details on the 10-message conversation context window, `previouslySuggestedOutfits` composition guard, conversational follow-up occasion inheritance, and Scope Rule #5 synchronous vs polling architecture, see:
+👉 **[`docs/UPDATES.md`](UPDATES.md#16-update-12-multi-turn-conversation-context-10-messages--duplicate-outfit-elimination)**
+

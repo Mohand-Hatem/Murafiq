@@ -10,7 +10,6 @@ import crypto from 'crypto';
 import * as llmProvider from '../providers/llm.provider.js';
 import { getRedisClient, isRedisConnected } from '../../../config/redis.config.js';
 import { logger } from '../../../config/logger.config.js';
-import env from '../../../config/env.config.js';
 import { getShoppingProvider } from '../providers/shopping/shopping-provider.factory.js';
 
 export const CACHE_TTL_SECONDS = 86_400; // 24 hours
@@ -72,38 +71,6 @@ export const SEARCH_RANKER_SCHEMA = Object.freeze({
     generalRationale: { type: 'STRING' },
   },
   required: ['selectedItems'],
-});
-
-export const PRODUCT_SEARCH_RESPONSE_SCHEMA = Object.freeze({
-  type: 'OBJECT',
-  properties: {
-    suggestions: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          title: { type: 'STRING' },
-          itemType: { type: 'STRING' },
-          slot: {
-            type: 'STRING',
-            enum: ['top', 'bottom', 'shoes', 'outerwear', 'accessory', 'dress'],
-          },
-          description: { type: 'STRING' },
-          estimatedPriceEgp: { type: 'NUMBER' },
-          retailer: { type: 'STRING' },
-          sourceUrl: { type: 'STRING' },
-          sourceTitle: { type: 'STRING' },
-          imageUrl: { type: 'STRING' },
-          searchQueryUsed: { type: 'STRING' },
-          outfitIndex: { type: 'NUMBER' },
-          outfitTitle: { type: 'STRING' },
-        },
-        required: ['title', 'itemType', 'slot', 'description'],
-      },
-    },
-    rationale: { type: 'STRING' },
-  },
-  required: ['suggestions'],
 });
 
 const KNOWN_RETAILERS = [
@@ -1106,8 +1073,8 @@ export const searchExternalProducts = async ({
   locale = 'en',
   budget,
   isShoppingRequest = false,
-  useShoppingProvider = false,
-  forceGroundedSearch = false,
+  _useShoppingProvider = false,
+  _forceGroundedSearch = false,
   shoppingProviderOverride = null,
   anchorGarment = null,
 } = {}) => {
@@ -1137,232 +1104,40 @@ export const searchExternalProducts = async ({
     logger.warn(`[ProductSearch] Cache read failed for key ${cacheKey}:`, cacheErr.message);
   }
 
-  // 1b. Check if 3-tier Shopping Provider pipeline should execute
-  const isTest = process.env.NODE_ENV === 'test';
-  const activeShoppingProvider = env.SHOPPING_PROVIDER;
-  const shouldUseShoppingProvider =
-    !forceGroundedSearch &&
-    (useShoppingProvider ||
-      Boolean(shoppingProviderOverride) ||
-      (!isTest && activeShoppingProvider === 'serper'));
-
-  if (shouldUseShoppingProvider) {
-    try {
-      const shoppingSuggestions = await searchWithShoppingProvider({
-        gapDescription: query,
-        gapItems,
-        occasion,
-        formality,
-        season,
-        genderPresentation,
-        locale,
-        budget,
-        isShoppingRequest,
-        shoppingProviderOverride,
-        anchorGarment,
-      });
-
-      if (shoppingSuggestions && shoppingSuggestions.length > 0) {
-        const zeroNullSuggestions = shoppingSuggestions.filter(
-          (s) => Boolean(s.sourceUrl && s.imageUrl)
-        );
-        if (zeroNullSuggestions.length > 0) {
-          await cacheSuggestions(cacheKey, zeroNullSuggestions);
-          return zeroNullSuggestions;
-        }
-      }
-    } catch (shopErr) {
-      logger.warn('[ProductSearch] 3-tier shopping search failed, falling back to grounded search:', shopErr.message);
-    }
-  }
-
-  // 2. Perform Grounded Product Search using Gemini 3.1 Flash Lite + Google Search Tool
-  const langPrompt =
-    locale === 'ar'
-      ? 'CRITICAL ARABIC REQUIREMENT: The user speaks Arabic. You MUST formulate the response entirely in elegant, modern Arabic (العربية). All product titles (title), item types (itemType), detailed styling descriptions (description), and retailer names or translations MUST be in Arabic. Do not output English words unless referring to international brand names.'
-      : 'Write product titles, descriptions, and rationales in fluent, elegant English.';
-
-  const itemFields = `  * slot: garment category (top, bottom, shoes, outerwear, accessory, dress)
-  * itemType: specific fashion garment type
-  * title: exact descriptive title
-  * retailer: retailer name in Egypt
-  * estimatedPriceEgp: estimated price in EGP
-  * sourceUrl: direct product purchase URL or exact store item page found in Google Search results for Egypt (e.g. from Zara, Noon, Amazon Egypt, Jumia, LC Waikiki, DeFacto, Massimo Dutti, dstore, Mango, or Egyptian brand stores). You MUST extract the actual URL from the search result.
-  * sourceTitle: store product title or item name from the search result
-  * imageUrl: direct product image URL found in the search result, store thumbnail, or product metadata. NEVER use Unsplash, stock photography, or placeholder domains.
-  * description: detailed styling description.`;
-
-  const suggestionRule = isShoppingRequest
-    ? `TWO-OUTFIT RULE (COMPLETE LOOK MODE):
-- The user explicitly asked to shop for a COMPLETE outfit from the internet.
-- Generate exactly 2 COMPLETE coordinated outfits. Each outfit MUST contain 3 items: one top, one bottom, and one pair of shoes.
-- Total: 6 items. Outfit 1 and Outfit 2 must represent DIFFERENT styling directions (e.g. casual vs smart casual, streetwear vs classic, sporty vs elegant).
-- Each item must specify:
-${itemFields}
-  * outfitIndex: outfit group number (1 or 2)
-  * outfitTitle: localized outfit name describing the style direction (e.g. "الإطلالة الأولى (كاجوال يومي)" or "Look 1 (Casual Daily)").
-- Never duplicate products or suggest identical items under different names.`
-    : `TWO-SUGGESTION RULE:
-- Generate up to 2 distinct acquisition suggestions representing different aesthetic choices or price alternatives.
-- Each suggestion must specify:
-${itemFields}
-- Never duplicate products or suggest identical items under different names.`;
-
-  const systemPrompt = `You are the Murafiq Senior Fashion Personal Shopper and Acquisition Assistant.
-Your duty is to recommend real, purchasable clothing and footwear pieces available for the Egyptian market (Cairo, Alexandria, online retail in Egypt) to close specific wardrobe gaps for clients.
-Search across ANY legitimate fashion retailer, marketplace, or brand delivering in Egypt (including but not limited to Amazon Egypt, Jumia, Noon, ASOS, Zara, H&M, Mango, DeFacto, LC Waikiki, Massimo Dutti, Pull&Bear, Bershka, Stradivarius, Max, and Egyptian brands like Concrete, Town Team, Mobaco Cottons, Dalydress, Tie House, local boutiques, etc.). DO NOT restrict recommendations to only Zara or H&M; explore diverse online stores and find the exact piece the user needs wherever it is purchasable online.
-
-${suggestionRule}
-
-${langPrompt}`;
-
-  const budgetClause = budget ? ` Target Budget: ~${budget} EGP.` : '';
-  const gapContext =
-    Array.isArray(gapItems) && gapItems.length > 0
-      ? `\nSpecific Missing Gaps: ${gapItems.map((g) => `${g.slot}: ${g.description || g.slot}`).join(', ')}`
-      : '';
-  const langClause =
-    locale === 'ar'
-      ? '\nRequired Language: Arabic (أجب باللغة العربية حصراً لجميع الحقول).'
-      : '';
-
-  const userParts = `Search for purchasable fashion items in Egypt for:
-Target Gap: ${query}${gapContext}
-Occasion: ${occasion}
-Formality: ${formality}
-Season: ${season}
-Gender Presentation: ${genderPresentation}${budgetClause}${langClause}`;
-
-  let result;
-  let isGrounded = true;
-
+  // 2. Execute Shopping Provider Pipeline (Serper / SerpApi / Mock)
   try {
-    // Primary execution: Live Google Search Grounding (active for production)
-    result = await llmProvider.complete({
-      task: 'reasoning',
-      systemPrompt,
-      userParts,
-      responseSchema: PRODUCT_SEARCH_RESPONSE_SCHEMA,
-      tools: [{ googleSearch: {} }],
-      temperature: 0.2,
-      timeoutMs: 25_000,
+    const shoppingSuggestions = await searchWithShoppingProvider({
+      gapDescription: query,
+      gapItems,
+      occasion,
+      formality,
+      season,
+      genderPresentation,
+      locale,
+      budget,
+      isShoppingRequest,
+      shoppingProviderOverride,
+      anchorGarment,
     });
-  } catch (searchErr) {
-    logger.warn('[ProductSearch] Grounded search execution failed, falling back to ungrounded LLM recommendations:', searchErr.message);
-    isGrounded = false;
 
-    try {
-      // Resilient fallback: Query Gemini without search tool to close gaps with real items & prices
-      result = await llmProvider.complete({
-        task: 'reasoning',
-        systemPrompt,
-        userParts,
-        responseSchema: PRODUCT_SEARCH_RESPONSE_SCHEMA,
-        tools: null,
-        temperature: 0.2,
-        timeoutMs: 15_000,
-      });
-    } catch (fallbackErr) {
-      logger.error('[ProductSearch] Fallback ungrounded search failed:', fallbackErr.message);
-      return [];
+    if (shoppingSuggestions && shoppingSuggestions.length > 0) {
+      const zeroNullSuggestions = shoppingSuggestions.filter(
+        (s) => Boolean(s.sourceUrl && s.imageUrl)
+      );
+      if (zeroNullSuggestions.length > 0) {
+        await cacheSuggestions(cacheKey, zeroNullSuggestions);
+        return zeroNullSuggestions;
+      }
     }
+  } catch (shopErr) {
+    logger.warn('[ProductSearch] Shopping search failed:', shopErr.message);
   }
 
-  // 3. Extract Citations & Map to Suggestions with Strict Grounding & Association
-  const groundingMetadata = result?.groundingMetadata || {};
-  const chunks = Array.isArray(groundingMetadata.groundingChunks)
-    ? groundingMetadata.groundingChunks
-    : [];
-
-  const citations = chunks
-    .map((chunk) => {
-      const uri = chunk.web?.uri;
-      const title = chunk.web?.title || 'Web Retailer';
-      return uri ? { title, url: uri } : null;
-    })
-    .filter(Boolean);
-
-  const maxSuggestions = isShoppingRequest ? 6 : 2;
-  const rawSuggestions = Array.isArray(result?.data?.suggestions)
-    ? result.data.suggestions.slice(0, maxSuggestions)
-    : [];
-
-  const suggestions = await Promise.all(
-    rawSuggestions.map(async (s, index) => {
-      const primaryCitation = citations[index] || citations[0] || null;
-      const knownRetailer = getKnownRetailerInfo(s.retailer);
-
-      // Evaluate candidate product URLs in order: primary citation from grounding, then candidate sourceUrl
-      const candidateUrls = [primaryCitation?.url, s.sourceUrl].filter(Boolean);
-      let resolvedUrl = null;
-      let resolvedTitle = null;
-
-      for (const candUrl of candidateUrls) {
-        // Resolve redirects (such as vertexaisearch.cloud.google.com grounding redirects)
-        const unredirected = await resolveRedirectUrl(candUrl);
-        const verifiedSyntax = verifyDirectProductUrl(unredirected, s, citations);
-        if (verifiedSyntax) {
-          const verifiedLive = await verifyLiveUrlStatus(verifiedSyntax);
-          if (verifiedLive) {
-            resolvedUrl = verifiedLive;
-            resolvedTitle =
-              (candUrl === primaryCitation?.url ? primaryCitation?.title : s.sourceTitle) ||
-              knownRetailer?.title ||
-              s.retailer ||
-              null;
-            break;
-          }
-        }
-      }
-
-      // Verify candidate product image URL with strict anti-fabrication / anti-stock rules
-      let resolvedImageUrl = verifyProductImageUrl(s.imageUrl, s, resolvedUrl);
-
-      // If imageUrl is missing or rejected, but we have a verified product page, extract og:image
-      if (!resolvedImageUrl && resolvedUrl) {
-        const ogImage = await extractOgImage(resolvedUrl);
-        if (ogImage) {
-          resolvedImageUrl = verifyProductImageUrl(ogImage, s, resolvedUrl);
-        }
-      }
-
-      // Verify that the resolved product image actually loads and returns HTTP 200
-      if (resolvedImageUrl) {
-        resolvedImageUrl = await verifyLiveImageUrl(resolvedImageUrl);
-      }
-
-      const itemCitations = citations.length > 0
-        ? citations
-        : (resolvedUrl ? [{ title: resolvedTitle || 'Retailer', url: resolvedUrl }] : []);
-
-      return {
-        slot: s.slot || 'accessory',
-        itemType: s.itemType || s.title || 'Fashion Garment',
-        title: s.title || 'Suggested Piece',
-        description: s.description || '',
-        estimatedPriceEgp: typeof s.estimatedPriceEgp === 'number' ? s.estimatedPriceEgp : null,
-        retailer: s.retailer || resolvedTitle || 'Online Retailer',
-        sourceUrl: resolvedUrl,
-        sourceTitle: resolvedTitle,
-        imageUrl: resolvedImageUrl,
-        citations: itemCitations,
-        isGrounded: Boolean(isGrounded && primaryCitation?.url && resolvedUrl),
-        outfitIndex: typeof s.outfitIndex === 'number' ? s.outfitIndex : null,
-        outfitTitle: s.outfitTitle || null,
-        cacheHit: false,
-      };
-    })
-  );
-
-  // 4. Cache in 24-hour Redis Store
-  await cacheSuggestions(cacheKey, suggestions);
-
-  return suggestions;
+  return [];
 };
 
 export default {
   CACHE_TTL_SECONDS,
-  PRODUCT_SEARCH_RESPONSE_SCHEMA,
   SEARCH_PLANNER_SCHEMA,
   SEARCH_RANKER_SCHEMA,
   STOCK_AND_PLACEHOLDER_DOMAINS,

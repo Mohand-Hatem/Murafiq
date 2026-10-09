@@ -32,8 +32,14 @@ export const handleStylistRequest = asyncHandler(async (req, res) => {
     imageRef,
   });
 
+  const successMessage = result.refused
+    ? 'Stylist request out of domain'
+    : (result.responseType === 'clarification'
+      ? 'Stylist consultation response'
+      : 'Stylist outfits generated successfully');
+
   return ApiResponse.success(res, {
-    message: result.refused ? 'Stylist request out of domain' : 'Stylist outfits generated successfully',
+    message: successMessage,
     data: result,
   });
 });

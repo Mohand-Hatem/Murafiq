@@ -168,7 +168,6 @@ export const complete = async ({
 
       const inputTokens = response?.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
-      const groundingMetadata = response?.candidates?.[0]?.groundingMetadata || null;
 
       return {
         data: parsedData,
@@ -176,7 +175,6 @@ export const complete = async ({
           inputTokens,
           outputTokens,
         },
-        groundingMetadata,
         latencyMs,
       };
     } catch (err) {

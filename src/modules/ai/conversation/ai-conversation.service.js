@@ -84,15 +84,12 @@ export const updateMessage = async (messageId, updateData) => {
   return conversationRepo.updateMessageById(messageId, updateData);
 };
 
-export const getRecentMessages = async (conversationId, userId, limit = 3) => {
+export const getRecentMessages = async (conversationId, userId, limit = 10) => {
   const conversation = await getConversation(conversationId, userId);
   if (!conversation) {
     return [];
   }
-  const messages = await conversationRepo.findMessagesByConversationId(conversationId, {
-    limit,
-    skip: 0,
-  });
+  const messages = await conversationRepo.findRecentMessagesByConversationId(conversationId, limit);
   return messages;
 };
 

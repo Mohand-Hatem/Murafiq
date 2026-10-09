@@ -31,7 +31,7 @@ const getCacheKey = (requestId) => `ai:stylist:request:${requestId}`;
 /**
  * Creates or initializes a tracked stylist request.
  */
-export const createRequest = async ({ requestId, userId, message, conversationId }) => {
+export const createRequest = async ({ requestId, userId, message, conversationId, consumedQuota = null }) => {
   const record = {
     requestId,
     userId: String(userId),
@@ -42,6 +42,8 @@ export const createRequest = async ({ requestId, userId, message, conversationId
     searchStatus: null,
     assistantMessage: null,
     result: null,
+    consumedQuota: consumedQuota || null,
+    refunded: false,
     createdAt: new Date().toISOString(),
     completedAt: null,
   };
@@ -80,6 +82,11 @@ export const updateRequest = async (requestId, updateData = {}) => {
 
   if (!record) {
     record = { requestId, createdAt: new Date().toISOString() };
+  }
+
+  // Race Guard (Case C): If request is already cancelled, prevent overwriting to completed or failed
+  if (record.status === 'cancelled' && updateData.status && updateData.status !== 'cancelled') {
+    return record;
   }
 
   Object.assign(record, updateData);
@@ -181,7 +188,8 @@ export const cancelRequest = async (requestId, userId) => {
     return null;
   }
 
-  // Idempotent: if already completed, failed, or cancelled, return existing state
+  // Race Guard (Case B) & Idempotency:
+  // If already completed, failed, or cancelled, return existing state without modifying status or refunding
   if (['completed', 'failed', 'cancelled'].includes(record.status)) {
     return {
       requestId: record.requestId,
@@ -193,11 +201,25 @@ export const cancelRequest = async (requestId, userId) => {
     };
   }
 
-  // Transition to cancelled & refund quota
-  try {
-    await entitlementService.refundQuota(currentUserId, 'ai.messages.daily', 'client');
-  } catch (refundErr) {
-    logger.warn(`[StylistRequest] Quota refund on cancel failed: ${refundErr.message}`);
+  // Quota refund: refund exactly once using the metric that was consumed
+  if (!record.refunded) {
+    try {
+      if (Array.isArray(record.consumedQuota) && record.consumedQuota.length > 0) {
+        for (const item of record.consumedQuota) {
+          if (item && item.metric) {
+            await entitlementService.refundQuota(currentUserId, item.metric, Number(item.count) || 1);
+          }
+        }
+      } else {
+        // Fallback: determine metric based on active subscription entitlements
+        const { entitlements: userEntitlements } = await entitlementService.getEntitlements(currentUserId, 'client');
+        const metric =
+          userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+        await entitlementService.refundQuota(currentUserId, metric, 1);
+      }
+    } catch (refundErr) {
+      logger.warn(`[StylistRequest] Quota refund on cancel failed: ${refundErr.message}`);
+    }
   }
 
   const updated = await updateRequest(requestId, {
@@ -205,6 +227,7 @@ export const cancelRequest = async (requestId, userId) => {
     responseType: 'error',
     searchStatus: 'skipped',
     assistantMessage: 'Request cancelled by user',
+    refunded: true,
     completedAt: new Date().toISOString(),
   });
 
@@ -218,10 +241,55 @@ export const cancelRequest = async (requestId, userId) => {
   };
 };
 
+/**
+ * Checks whether a request has been marked as cancelled.
+ * Used for cooperative pipeline cancellation.
+ */
+export const isCancelled = async (requestId) => {
+  let record = inMemoryStore.get(requestId) || null;
+
+  if (checkRedisConnected()) {
+    try {
+      const redis = resolveRedisClient();
+      const raw = await redis.get(getCacheKey(requestId));
+      if (raw) {
+        record = JSON.parse(raw);
+      }
+    } catch (err) {
+      logger.warn(`[StylistRequest] Redis read failure on isCancelled: ${err.message}`);
+    }
+  }
+
+  return Boolean(record && record.status === 'cancelled');
+};
+
+/**
+ * Retrieves the raw tracking record for internal lifecycle checks.
+ */
+export const getRequestRecord = async (requestId) => {
+  let record = inMemoryStore.get(requestId) || null;
+
+  if (checkRedisConnected()) {
+    try {
+      const redis = resolveRedisClient();
+      const raw = await redis.get(getCacheKey(requestId));
+      if (raw) {
+        record = JSON.parse(raw);
+      }
+    } catch (err) {
+      logger.warn(`[StylistRequest] Redis read failure on getRequestRecord: ${err.message}`);
+    }
+  }
+
+  return record;
+};
+
 export default {
   createRequest,
   updateRequest,
   getRequest,
   cancelRequest,
+  isCancelled,
+  getRequestRecord,
   setStylistRequestRedisOverride,
 };
