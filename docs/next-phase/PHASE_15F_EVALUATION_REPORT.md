@@ -79,7 +79,7 @@ Heap Memory Delta      : -3.11 MB (GC stable)
 ===============================================================
 ```
 
-*(Note: In production with `gemini-3.1-flash-image`, network + cloud inference latency averages between 4.2s and 8.5s per image; the async BullMQ worker decouples this latency completely from client HTTP response cycles).*
+*(Note: The default `npm run eval:tryon` evaluates schema, buffer sizing, and latency compliance using `MockImageProvider` for offline CI stability. To evaluate live multimodal generation against Google Gemini with output images saved to disk, use `npm run eval:tryon:gemini` or the dedicated standalone benchmark `npm run benchmark:tryon:gemini`. Generated images are saved under `artifacts/` for human visual review).*
 
 ---
 

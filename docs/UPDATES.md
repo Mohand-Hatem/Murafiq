@@ -368,4 +368,41 @@ Murafiq Phase 15 follows the architectural principle: **Synchronous Execution wi
 4. **Cooperative Cancellation (`POST .../cancel`):** At 5 critical pipeline checkpoints, the backend checks `isCancelled(traceId)`. If the user cancels the request via mobile, execution halts immediately and consumed quotas are refunded.
 5. **Future-Readiness:** Because the REST contract already exposes `requestId` and status polling endpoints, migrating heavy requests to async background workers in Phase 16 requires zero breaking changes to frontend client apps.
 
+---
+
+## 18. Update 14: Stylist Request Lifecycle Hardening, Atomic Refunds & Real Try-On Quality Benchmark
+
+### Issues Resolved
+
+1. **Try-On Enqueue Failure Quota Leak (P1):**
+   - **Root Cause:** In `try-on.service.js`, if BullMQ failed to enqueue the generation job, the service logged a warning and returned `202 Accepted` to the caller. However, the user's try-on quota had already been consumed prior to enqueueing, charging users for jobs that were never executed.
+   - **Fix:** Wrapped job enqueueing in a `try...catch` block. Upon enqueue failure, `entitlementService.refundQuota` is immediately called to restore the user's quota, the generation record is transitioned to `status: 'failed'` (`errorMessage: 'Failed to enqueue generation job'`, `quotaRefunded: true`), its partial unique index is unlocked by appending a random suffix to `jobId`, and `ApiError(500)` is thrown.
+
+2. **Stylist Request Cancellation Double-Refund & Poison-Pill Race (P1):**
+   - **Root Cause:** In `stylist-request.service.js`, if `refundQuota` threw an error during cancellation, the record was still marked `refunded: true`, permanently blocking future refund retries. Additionally, concurrent cancellation requests could both enter the refund logic before either updated status.
+   - **Fix:** Implemented atomic status transition to `'cancelling'` before initiating async refund logic, locking out concurrent requests (`409` or returning in-flight cancellation). If `refundQuota` fails, `refunded` remains `false`, `lastRefundError` is recorded, and subsequent cancellation retries safely retry the refund without throwing double-refund exceptions.
+
+3. **Stylist Pipeline Failure Transition Verification (P1):**
+   - **Root Cause:** In `ai-stylist-lifecycle.test.js` Test 3, the test artificially created a separate dummy request and marked it failed itself rather than asserting that an unhandled crash in `runStylistPipeline` caused the actual pipeline request to transition to `status: 'failed'`.
+   - **Fix:** Spied on `stylistRequestService.createRequest`, captured the real `requestId` allocated during pipeline initiation, and verified that the orchestrator's catch block directly transitioned the crashed request to `status: 'failed'` with `assistantMessage: 'Stylist request failed to process'`.
+
+4. **Empty Shopping Results responseType Semantics (P2):**
+   - **Root Cause:** When an explicit shopping request (`intent.isShoppingRequest: true`) returned 0 external retailer results (`searchStatus: 'no_results'`), the orchestrator set `responseType: 'success'`.
+   - **Fix:** Updated `responseType` resolution in `stylist.orchestrator.js` to return `responseType: 'partial_results'` when `searchStatus === 'no_results'`, with an accurate Arabic/English rationale informing the user that no matching store items were found.
+
+5. **Try-On Generation User Deletion Cleanup (P2):**
+   - **Root Cause:** Deleting a try-on generation via `DELETE /api/v1/ai/try-on/:id` updated its status to `status: 'failed'` with `errorMessage: 'Deleted by user'`. Consequently, deleted generations lingered in `GET /api/v1/ai/try-on` (`listUserGenerations`) as failed jobs.
+   - **Fix:** Added `deleteById(id, userId)` to `try-on-generation.repository.js` using `TryOnGeneration.findOneAndDelete({ _id: id, userId })`, cleanly deleting the MongoDB record and destroying the authenticated Cloudinary asset.
+
+6. **Real Gemini Try-On Quality Evaluation Harness (P1):**
+   - **Root Cause:** The 11 try-on evaluation scenarios only ran against `MockImageProvider` using solid-color blocks, leaving actual multimodal vision/generation quality with Google Gemini Nano Banana unverified.
+   - **Fix:**
+     - Enhanced `scripts/evaluate-tryon-quality.js` with `--provider=gemini|mock`, `--save-outputs`, `--scenario=<id>`, and anatomical fixture synthesis (`createSyntheticPerson`, `createSyntheticGarment`).
+     - Created `scripts/benchmark-real-gemini-tryon.js` standalone runner. Live execution against Google Gemini (`gemini-3.1-flash-lite-image`) verified high-fidelity composite generation (1024x1024, sRGB, 392 KB) in 6,892 ms.
+     - Added `npm run eval:tryon:gemini` and `npm run benchmark:tryon:gemini` scripts.
+
+7. **Production Knowledge Index Verification Diagnostic (P2):**
+   - **Created `scripts/verify-knowledge-index.js`:** Confirmed 27 fashion knowledge chunks across 5 canonical topics in MongoDB, verified Upstash Vector index retrieval (similarity scores: 0.854 and 0.798), and verified MongoDB text search fallback.
+
+
 

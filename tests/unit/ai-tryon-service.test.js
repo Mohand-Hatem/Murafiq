@@ -308,6 +308,51 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       );
     });
 
+    it('refunds quota, marks generation as failed, and throws 500 when queueHelper.addTryOnJob throws', async () => {
+      jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
+      jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
+      const consumeQuotaSpy = jest
+        .spyOn(entitlementService, 'consumeTryOnQuota')
+        .mockResolvedValue({ success: true, quotaSource: 'monthly' });
+      const refundQuotaSpy = jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
+      const updateByIdSpy = jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue();
+
+      const newGenDoc = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        shapeModelId,
+        status: 'pending',
+        garments: resolvedGarments,
+        resolution: '1024x1024',
+        promptVersion: 'v1',
+        quotaSource: 'monthly',
+      };
+      jest.spyOn(tryOnRepository, 'create').mockResolvedValue(newGenDoc);
+
+      const mockQueue = {
+        addTryOnJob: jest.fn().mockRejectedValue(new Error('Redis connection lost')),
+      };
+      setQueueHelper(mockQueue);
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          garments: [{ source: 'wardrobe', itemId: wardrobeItemId1 }],
+        })
+      ).rejects.toThrow(ApiError);
+
+      expect(consumeQuotaSpy).toHaveBeenCalled();
+      expect(refundQuotaSpy).toHaveBeenCalledWith(userId, 'ai.tryOn.monthly', 1);
+      expect(updateByIdSpy).toHaveBeenCalledWith(
+        newGenDoc._id,
+        expect.objectContaining({
+          status: 'failed',
+          errorMessage: 'Failed to enqueue generation job',
+          quotaRefunded: true,
+        })
+      );
+    });
+
     it('resolves garments and links outfitId when outfitId is provided', async () => {
       const mockOutfitId = new mongoose.Types.ObjectId().toString();
       const mockOutfit = {
@@ -521,24 +566,21 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       await expect(deleteGeneration(userId, doc._id.toString())).rejects.toThrow(ApiError);
     });
 
-    it('cleans up Cloudinary output asset and marks status', async () => {
+    it('cleans up Cloudinary output asset and deletes generation record', async () => {
       const doc = {
         _id: new mongoose.Types.ObjectId(),
         userId,
         resultPublicId: 'murafiq/try-on-results/user/output123',
       };
       jest.spyOn(tryOnRepository, 'findById').mockResolvedValue(doc);
-      const deleteSpy = jest.spyOn(uploadService, 'deleteFile').mockResolvedValue({ result: 'ok' });
-      const updateSpy = jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue({});
+      const deleteCloudinarySpy = jest.spyOn(uploadService, 'deleteFile').mockResolvedValue({ result: 'ok' });
+      const deleteRepoSpy = jest.spyOn(tryOnRepository, 'deleteById').mockResolvedValue(doc);
 
       const res = await deleteGeneration(userId, doc._id.toString());
 
       expect(res.success).toBe(true);
-      expect(deleteSpy).toHaveBeenCalledWith(doc.resultPublicId, { type: 'authenticated' });
-      expect(updateSpy).toHaveBeenCalledWith(
-        doc._id.toString(),
-        expect.objectContaining({ status: 'failed' })
-      );
+      expect(deleteCloudinarySpy).toHaveBeenCalledWith(doc.resultPublicId, { type: 'authenticated' });
+      expect(deleteRepoSpy).toHaveBeenCalledWith(doc._id.toString(), userId);
     });
   });
 });

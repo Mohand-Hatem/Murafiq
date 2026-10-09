@@ -199,6 +199,25 @@ export const createTryOnRequest = async (
       });
     } catch (err) {
       logger.error('Failed to enqueue try-on generation job:', err);
+
+      const metric =
+        quotaSource === 'monthly'
+          ? 'ai.tryOn.monthly'
+          : 'ai.tryOn.trial.lifetime';
+      try {
+        await entitlementService.refundQuota(userId, metric, 1);
+      } catch (refundErr) {
+        logger.error('Failed to refund try-on quota after enqueue failure:', refundErr);
+      }
+
+      await tryOnRepository.updateById(generation._id, {
+        status: 'failed',
+        errorMessage: 'Failed to enqueue generation job',
+        failedAt: new Date(),
+        quotaRefunded: true,
+      });
+
+      throw new ApiError(500, 'Failed to process virtual try-on request. Your quota has been refunded.');
     }
   }
 
@@ -280,7 +299,7 @@ export const deleteGeneration = async (userId, id) => {
     }
   }
 
-  await tryOnRepository.updateById(id, { status: 'failed', errorMessage: 'Deleted by user' });
+  await tryOnRepository.deleteById(id, userId);
 
   return {
     success: true,

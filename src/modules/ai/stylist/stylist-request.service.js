@@ -84,8 +84,8 @@ export const updateRequest = async (requestId, updateData = {}) => {
     record = { requestId, createdAt: new Date().toISOString() };
   }
 
-  // Race Guard (Case C): If request is already cancelled, prevent overwriting to completed or failed
-  if (record.status === 'cancelled' && updateData.status && updateData.status !== 'cancelled') {
+  // Race Guard (Case C): If request is already cancelled or cancelling, prevent overwriting to completed or failed
+  if (['cancelled', 'cancelling'].includes(record.status) && updateData.status && !['cancelled', 'cancelling'].includes(updateData.status)) {
     return record;
   }
 
@@ -189,8 +189,8 @@ export const cancelRequest = async (requestId, userId) => {
   }
 
   // Race Guard (Case B) & Idempotency:
-  // If already completed, failed, or cancelled, return existing state without modifying status or refunding
-  if (['completed', 'failed', 'cancelled'].includes(record.status)) {
+  // If already completed or failed, return existing state without modifying status or refunding
+  if (['completed', 'failed'].includes(record.status)) {
     return {
       requestId: record.requestId,
       status: record.status,
@@ -201,7 +201,37 @@ export const cancelRequest = async (requestId, userId) => {
     };
   }
 
+  // If already cancelled AND successfully refunded, return existing cancelled state
+  if (record.status === 'cancelled' && record.refunded) {
+    return {
+      requestId: record.requestId,
+      status: 'cancelled',
+      responseType: record.responseType || 'error',
+      searchStatus: record.searchStatus || 'skipped',
+      assistantMessage: record.assistantMessage || 'Request cancelled by user',
+      result: record.result || null,
+    };
+  }
+
+  // Concurrency Guard: If another cancellation call is currently in flight, return in-progress cancelled state
+  if (record.status === 'cancelling') {
+    return {
+      requestId: record.requestId,
+      status: 'cancelled',
+      responseType: record.responseType || 'error',
+      searchStatus: record.searchStatus || 'skipped',
+      assistantMessage: 'Request cancelled by user',
+      result: null,
+    };
+  }
+
+  // Atomically mark status as 'cancelling' before starting async refund to lock out concurrent cancels
+  await updateRequest(requestId, {
+    status: 'cancelling',
+  });
+
   // Quota refund: refund exactly once using the metric that was consumed
+  let refundSucceeded = false;
   if (!record.refunded) {
     try {
       if (Array.isArray(record.consumedQuota) && record.consumedQuota.length > 0) {
@@ -217,8 +247,15 @@ export const cancelRequest = async (requestId, userId) => {
           userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
         await entitlementService.refundQuota(currentUserId, metric, 1);
       }
+      refundSucceeded = true;
     } catch (refundErr) {
       logger.warn(`[StylistRequest] Quota refund on cancel failed: ${refundErr.message}`);
+      await updateRequest(requestId, {
+        status: 'cancelled',
+        refunded: false,
+        lastRefundError: refundErr.message,
+      });
+      throw new ApiError(500, `Failed to refund quota during cancellation: ${refundErr.message}`);
     }
   }
 
@@ -227,7 +264,7 @@ export const cancelRequest = async (requestId, userId) => {
     responseType: 'error',
     searchStatus: 'skipped',
     assistantMessage: 'Request cancelled by user',
-    refunded: true,
+    refunded: refundSucceeded || Boolean(record.refunded),
     completedAt: new Date().toISOString(),
   });
 
@@ -260,7 +297,7 @@ export const isCancelled = async (requestId) => {
     }
   }
 
-  return Boolean(record && record.status === 'cancelled');
+  return Boolean(record && ['cancelled', 'cancelling'].includes(record.status));
 };
 
 /**

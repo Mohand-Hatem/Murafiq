@@ -129,6 +129,70 @@ describe('Phase 15 Stylist Request Lifecycle & Cancellation Tests', () => {
       expect(refundSpy).toHaveBeenCalledTimes(1); // Not called again!
     });
 
+    it('Test 7b — Failed refund leaves refunded: false and permits successful retry', async () => {
+      const requestId = 'req-retry-refund-' + Date.now();
+      const userId = 'user_retry_123';
+
+      const refundSpy = jest
+        .spyOn(entitlementService, 'refundQuota')
+        .mockRejectedValueOnce(new Error('Redis transient disconnect'))
+        .mockResolvedValueOnce();
+
+      await stylistRequestService.createRequest({
+        requestId,
+        userId,
+        message: 'Retry refund test',
+        consumedQuota: [{ metric: 'ai.messages.lifetime', count: 1 }],
+      });
+
+      // First attempt fails during refundQuota
+      await expect(stylistRequestService.cancelRequest(requestId, userId)).rejects.toThrow(ApiError);
+      const recordAfterFail = await stylistRequestService.getRequestRecord(requestId);
+      expect(recordAfterFail.status).toBe('cancelled');
+      expect(recordAfterFail.refunded).toBe(false);
+
+      // Second attempt succeeds
+      const res2 = await stylistRequestService.cancelRequest(requestId, userId);
+      expect(res2.status).toBe('cancelled');
+      expect(refundSpy).toHaveBeenCalledTimes(2);
+
+      const recordAfterSuccess = await stylistRequestService.getRequestRecord(requestId);
+      expect(recordAfterSuccess.refunded).toBe(true);
+    });
+
+    it('Test 7c — Concurrent cancellation calls: Promise.all must not execute double refunds', async () => {
+      const requestId = 'req-concurrent-' + Date.now();
+      const userId = 'user_concurrent_123';
+
+      let resolveRefund;
+      const refundPromise = new Promise((resolve) => {
+        resolveRefund = resolve;
+      });
+
+      const refundSpy = jest.spyOn(entitlementService, 'refundQuota').mockImplementation(async () => {
+        await refundPromise;
+      });
+
+      await stylistRequestService.createRequest({
+        requestId,
+        userId,
+        message: 'Concurrent cancel test',
+        consumedQuota: [{ metric: 'ai.messages.lifetime', count: 1 }],
+      });
+
+      // Launch both simultaneously
+      const cancelPromise1 = stylistRequestService.cancelRequest(requestId, userId);
+      const cancelPromise2 = stylistRequestService.cancelRequest(requestId, userId);
+
+      // Unblock the refund
+      resolveRefund();
+
+      const [res1, res2] = await Promise.all([cancelPromise1, cancelPromise2]);
+      expect(res1.status).toBe('cancelled');
+      expect(res2.status).toBe('cancelled');
+      expect(refundSpy).toHaveBeenCalledTimes(1); // Exactly once!
+    });
+
     it('Test 9 — Completed request cannot incorrectly become cancelled', async () => {
       const requestId = 'req-completed-' + Date.now();
       const userId = 'user_completed_123';
@@ -249,6 +313,14 @@ describe('Phase 15 Stylist Request Lifecycle & Cancellation Tests', () => {
 
     it('Test 3 — Unexpected exception: tracker transitions to failed and error is rethrown', async () => {
       setupBasicMocks();
+
+      let createdRequestId = null;
+      const originalCreateRequest = stylistRequestService.createRequest;
+      jest.spyOn(stylistRequestService, 'createRequest').mockImplementation(async (params) => {
+        createdRequestId = params.requestId;
+        return originalCreateRequest(params);
+      });
+
       jest.spyOn(intentStep, 'classifyAndExtract').mockRejectedValue(new Error('AI Provider crash'));
 
       let caughtError = null;
@@ -263,16 +335,14 @@ describe('Phase 15 Stylist Request Lifecycle & Cancellation Tests', () => {
 
       expect(caughtError).not.toBeNull();
       expect(caughtError.message).toBe('AI Provider crash');
+      expect(createdRequestId).not.toBeNull();
 
-      const testReqId = 'crash-req-' + Date.now();
-      await stylistRequestService.createRequest({ requestId: testReqId, userId: mockUserId, message: 'Crash test' });
-      await stylistRequestService.updateRequest(testReqId, {
-        status: 'failed',
-        responseType: 'error',
-        assistantMessage: 'Stylist request failed to process',
-      });
-      const check = await stylistRequestService.getRequest(testReqId, mockUserId);
+      // Verify that the ACTUAL crashed request reached 'failed' status via the orchestrator catch block
+      const check = await stylistRequestService.getRequest(createdRequestId, mockUserId);
+      expect(check).not.toBeNull();
       expect(check.status).toBe('failed');
+      expect(check.responseType).toBe('error');
+      expect(check.assistantMessage).toBe('Stylist request failed to process');
     });
 
     it('Test 8 — Cancellation during pipeline: stops execution cooperatively', async () => {
@@ -355,6 +425,42 @@ describe('Phase 15 Stylist Request Lifecycle & Cancellation Tests', () => {
 
       expect(result.missingSlots.length).toBeGreaterThan(0);
       expect(result.responseType).toBe('partial_results');
+    });
+
+    it('Test 11b — Shopping request with no external search results -> responseType = partial_results and searchStatus = no_results', async () => {
+      setupBasicMocks();
+      jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValue({
+        inDomain: true,
+        eventType: 'wedding',
+        language: 'en',
+        isShoppingRequest: true,
+      });
+      jest.spyOn(preflightGuard, 'evaluateWardrobeCapacity').mockReturnValue({
+        canCompose: true,
+        missingSlots: [],
+      });
+      jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValue({
+        outfits: [{ itemIds: ['item_top', 'item_bottom', 'item_shoes'], score: 90, rationale: 'Shopping base' }],
+        sufficiency: 'good',
+        missingSlots: [],
+      });
+      jest.spyOn(outfitValidator, 'validateOutfitItemIds').mockReturnValue({ valid: true });
+      jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValue([
+        { _id: 'item_top', name: 'Top', category: 'top' },
+        { _id: 'item_bottom', name: 'Bottom', category: 'bottom' },
+        { _id: 'item_shoes', name: 'Shoes', category: 'shoes' },
+      ]);
+      // External product search returns empty list
+      jest.spyOn(productSearchService, 'searchExternalProducts').mockResolvedValue([]);
+
+      const result = await orchestrator.runStylistPipeline({
+        userId: mockUserId,
+        message: 'Find me outfits to buy for a wedding',
+      });
+
+      expect(result.searchStatus).toBe('no_results');
+      expect(result.responseType).toBe('partial_results');
+      expect(result.assistantMessage).toMatch(/Could not find matching items in online stores currently/i);
     });
   });
 });

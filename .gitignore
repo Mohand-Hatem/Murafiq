@@ -49,6 +49,7 @@ build/
 tmp/
 temp/
 uploads/temp/
+artifacts/
 
 # -----------------------------------------------------------------------------
 # OS & Editor Files

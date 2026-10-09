@@ -1014,7 +1014,7 @@ export const runStylistPipeline = async ({
   if ((!rendered.outfits || rendered.outfits.length === 0) && (compResult.clarificationQuestion || intent.clarificationQuestion)) {
     responseType = 'clarification';
   } else if (intent.isShoppingRequest) {
-    responseType = searchQuotaBlocked ? 'partial_results' : 'success';
+    responseType = (searchQuotaBlocked || searchStatus === 'no_results') ? 'partial_results' : 'success';
   } else if (
     (rendered.outfits?.length > 0 && rendered.missingSlots?.length > 0) ||
     rendered.sufficiency === 'partial' ||
@@ -1031,9 +1031,13 @@ export const runStylistPipeline = async ({
       ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
       : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.';
   } else if (intent.isShoppingRequest) {
-    assistantRationale = intent.language === 'ar'
-      ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
-      : 'Here are clothing pieces suggested from online retailers for you.';
+    assistantRationale = searchStatus === 'no_results'
+      ? (intent.language === 'ar'
+          ? 'لم نتمكن من العثور على قطع متوفرة حالياً في المتاجر تطابق طلبك بدقة.'
+          : 'Could not find matching items in online stores currently.')
+      : (intent.language === 'ar'
+          ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
+          : 'Here are clothing pieces suggested from online retailers for you.');
   } else if (compResult.outfits.length > 0) {
     assistantRationale = compResult.outfits[0]?.rationale || (intent.language === 'ar' ? 'إليك التنسيقات المقترحة لإطلالتك.' : 'Stylist recommendations generated');
   } else {
