@@ -14,6 +14,7 @@ import composeStep from '../../src/modules/ai/stylist/compose.step.js';
 import outfitValidator from '../../src/modules/ai/stylist/outfit.validator.js';
 import renderStep from '../../src/modules/ai/stylist/render.step.js';
 import aiRouter from '../../src/modules/ai/ai.routes.js';
+import garmentResolver, { validateSlotCompatibility } from '../../src/modules/ai/try-on/garment-resolver.js';
 
 describe('Phase 15 — Regression Test Suite (P1 & P2 Fixes)', () => {
   beforeEach(() => {
@@ -401,6 +402,60 @@ describe('Phase 15 — Regression Test Suite (P1 & P2 Fixes)', () => {
       expect(registeredRoutes).toContainEqual({ method: 'GET', path: '/try-on/:id' });
       expect(registeredRoutes).toContainEqual({ method: 'GET', path: '/try-on' });
       expect(registeredRoutes).toContainEqual({ method: 'DELETE', path: '/try-on/:id' });
+    });
+  });
+
+  // ── 9. Layered Tops Disambiguation in Virtual Try-On ──────────────────
+  describe('9. Disambiguate layered tops (shirt + blazer/jacket) in virtual try-on', () => {
+    it('promotes outer top to outerwear when two tops are provided and outerwear is vacant', () => {
+      const garments = [
+        { slot: 'top', label: 'White Oxford Shirt' },
+        { slot: 'top', label: 'Navy Wool Blazer' },
+      ];
+
+      validateSlotCompatibility(garments);
+
+      expect(garments[0].slot).toBe('top');
+      expect(garments[1].slot).toBe('outerwear');
+    });
+
+    it('identifies outerwear-like garment keywords and sets slot to outerwear', () => {
+      const garments = [
+        { slot: 'top', label: 'Black Leather Jacket' },
+        { slot: 'top', label: 'Crewneck T-Shirt' },
+      ];
+
+      validateSlotCompatibility(garments);
+
+      // The jacket should be promoted to outerwear regardless of order
+      const jacket = garments.find((g) => g.label.includes('Jacket'));
+      const tee = garments.find((g) => g.label.includes('T-Shirt'));
+
+      expect(jacket.slot).toBe('outerwear');
+      expect(tee.slot).toBe('top');
+    });
+
+    it('still rejects duplicate bottom slots with 400', () => {
+      const garments = [
+        { slot: 'bottom', label: 'Blue Jeans' },
+        { slot: 'bottom', label: 'Khaki Chinos' },
+      ];
+
+      expect(() => validateSlotCompatibility(garments)).toThrow(
+        /Multiple garments specified for slot 'bottom'/
+      );
+    });
+
+    it('rejects three tops if outerwear is already occupied', () => {
+      const garments = [
+        { slot: 'top', label: 'Shirt 1' },
+        { slot: 'top', label: 'Shirt 2' },
+        { slot: 'outerwear', label: 'Blazer' },
+      ];
+
+      expect(() => validateSlotCompatibility(garments)).toThrow(
+        /Multiple garments specified for slot 'top'/
+      );
     });
   });
 });

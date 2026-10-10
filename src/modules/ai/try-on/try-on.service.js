@@ -97,12 +97,27 @@ export const createTryOnRequest = async (
       throw new ApiError(400, 'None of the wardrobe items in this outfit could be found');
     }
 
-    inputGarments = wardrobeItems.slice(0, 4).map((item) => ({
-      source: 'wardrobe',
-      itemId: item._id.toString(),
-      slot: item.category,
-      label: item.title || item.aiDescription || item.category || 'Wardrobe item',
-    }));
+    const assignedSlots = new Set();
+    inputGarments = wardrobeItems.slice(0, 4).map((item) => {
+      let slot = item.category || 'top';
+      const text = `${item.subcategory || ''} ${item.name || ''} ${item.title || ''} ${item.aiDescription || ''}`.toLowerCase();
+      const isOuterwearLike = /\b(blazer|jacket|suit_jacket|coat|trench|overcoat|parka|vest|cardigan|sweater|hoodie|sweatshirt|shacket|overshirt)\b/.test(text);
+
+      if (slot === 'top' && isOuterwearLike) {
+        slot = 'outerwear';
+      } else if (slot === 'top' && assignedSlots.has('top') && !assignedSlots.has('outerwear')) {
+        slot = 'outerwear';
+      }
+
+      assignedSlots.add(slot);
+
+      return {
+        source: 'wardrobe',
+        itemId: item._id.toString(),
+        slot,
+        label: item.title || item.aiDescription || item.subcategory || item.category || 'Wardrobe item',
+      };
+    });
     resolvedOutfitId = outfit._id;
   } else if (itemId && (!Array.isArray(inputGarments) || inputGarments.length === 0)) {
     inputGarments = [

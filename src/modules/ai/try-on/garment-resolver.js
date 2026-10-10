@@ -14,6 +14,26 @@ export const validateSlotCompatibility = (garments) => {
     slotCounts[g.slot] = (slotCounts[g.slot] || 0) + 1;
   }
 
+  // Disambiguate layered tops: if multiple tops are specified and outerwear is vacant,
+  // promote the outer/layering garment (or the second top) to 'outerwear'
+  if (slotCounts.top > 1 && !slotCounts.outerwear) {
+    const isOuterwearLike = (g) => {
+      const text = `${g.label || ''} ${g.slot || ''}`.toLowerCase();
+      return /\b(blazer|jacket|suit_jacket|coat|trench|overcoat|parka|vest|cardigan|sweater|hoodie|sweatshirt|shacket|overshirt)\b/.test(text);
+    };
+
+    const topIndices = garments
+      .map((g, idx) => (g.slot === 'top' ? idx : -1))
+      .filter((idx) => idx !== -1);
+
+    if (topIndices.length > 1) {
+      const preferredOuterIdx = topIndices.find((idx) => isOuterwearLike(garments[idx])) ?? topIndices[1];
+      garments[preferredOuterIdx].slot = 'outerwear';
+      slotCounts.top -= 1;
+      slotCounts.outerwear = 1;
+    }
+  }
+
   if (slotCounts.dress && (slotCounts.top || slotCounts.bottom)) {
     throw new ApiError(400, 'Conflicting outfit slots: A dress cannot be combined with a separate top or bottom');
   }
@@ -55,7 +75,12 @@ export const resolveGarments = async (userId, garments) => {
 
       // getWardrobeItemById enforces user ownership and throws 404/403 if unowned
       const item = await wardrobeService.getWardrobeItemById(userId, g.itemId);
-      const slot = g.slot || item.category || 'top';
+      let slot = g.slot;
+      if (!slot) {
+        const text = `${item.subcategory || ''} ${item.name || ''} ${item.title || ''} ${item.aiDescription || ''}`.toLowerCase();
+        const isOuterwearLike = /\b(blazer|jacket|suit_jacket|coat|trench|overcoat|parka|vest|cardigan|sweater|hoodie|sweatshirt|shacket|overshirt)\b/.test(text);
+        slot = (item.category === 'top' && isOuterwearLike) ? 'outerwear' : (item.category || 'top');
+      }
 
       if (!ALLOWED_SLOTS.has(slot)) {
         throw new ApiError(400, `Unsupported garment slot: ${slot}`);

@@ -205,8 +205,34 @@ Because `WardrobeItem` documents in MongoDB store classification attributes (`ca
 | | Formats natural Arabic names | PASS |
 | | Preserves explicit custom names | PASS |
 | **8. Route Registration** | Registers all 7 Try-On & Shape-Model endpoints | PASS |
+| **9. Layered Tops in Try-On** | Disambiguates dress shirt + blazer/jacket to top + outerwear | PASS |
+| | Detects outerwear-like keywords from garment attributes | PASS |
+| | Rejects duplicate bottoms with 400 | PASS |
+| | Rejects three tops when outerwear is occupied | PASS |
 
 ### Complete Test Results
-- **Phase 15 Unit Test Suites:** 9 passed, 9 total (**116 / 116 tests passing, 100%**)
+- **Phase 15 Unit Test Suites:** 9 passed, 9 total (**123 / 123 tests passing, 100%**)
 - **Phase 15 Integration Suites:** 2 passed, 2 total (**16 / 16 tests passing, 100%**)
-- **Total Test Count:** **132 automated tests passing cleanly.**
+- **Total Test Count:** **139 automated tests passing cleanly.**
+
+---
+
+## 11. P1.8 — Layered Tops Disambiguation in Virtual Try-On
+
+### Problem
+When clients or stylists attempted to initiate a Virtual Try-On using an outfit (`POST /api/v1/ai/try-on` with `outfitId`) that includes both a base shirt (e.g. Oxford shirt) and a layering piece (e.g. Blazer, Jacket, Cardigan), the API returned an HTTP `400 Bad Request`:
+`"Conflicting outfit slots: Multiple garments specified for slot 'top'"` at `validateSlotCompatibility (garment-resolver.js:25:13)`.
+
+### Root Cause
+1. In `src/modules/wardrobe/wardrobe-attribute.normalizer.js`, blazers and jackets are normalized under `category: 'top'`.
+2. In `src/modules/ai/try-on/try-on.service.js`, unpacking `outfitId` directly assigned `slot: item.category`, resulting in multiple garments assigned to `slot: 'top'`.
+3. In `src/modules/ai/try-on/garment-resolver.js`, `validateSlotCompatibility` treated `top` as non-repeatable, causing false-positive collisions for valid layered looks.
+
+### Implementation
+1. **Try-On Service Garment Mapper ([`src/modules/ai/try-on/try-on.service.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/try-on.service.js)):**
+   - Automatically detects outerwear-like attributes (`blazer`, `jacket`, `suit_jacket`, `coat`, `cardigan`, `sweater`, `hoodie`, `overshirt`) from item metadata (`subcategory`, `title`, `name`, `aiDescription`).
+   - If an item's category is `'top'` but it represents outerwear/layering, or if `slot: 'top'` is already assigned while `'outerwear'` is vacant, assigns `slot: 'outerwear'`.
+2. **Garment Resolver Slot Disambiguation ([`src/modules/ai/try-on/garment-resolver.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/garment-resolver.js)):**
+   - In `validateSlotCompatibility`: If `slotCounts.top > 1` and `outerwear` is vacant, automatically promotes the outer/layering top (or the second top) to `'outerwear'`, allowing layered base + outerwear composition.
+   - In `resolveGarments`: When resolving an unspecified slot from wardrobe, checks if the item is outerwear-like and sets `slot: 'outerwear'`.
+   - Strict defenses remain intact: multiple bottoms (`bottom`), multiple shoes (`shoes`), or combining a dress with tops/bottoms still strictly reject with `400 Bad Request`.

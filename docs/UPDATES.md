@@ -23,6 +23,7 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 16. [Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination](#16-update-12-multi-turn-conversation-context-10-messages--duplicate-outfit-elimination)
 17. [Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)](#17-update-13-synchronous-execution-with-resilient-polling-architecture-rule-5)
 18. [Update 14: Phase 15 AI Stylist, API Validation & Reliability Hardening](#18-update-14-phase-15-ai-stylist-api-validation--reliability-hardening)
+19. [Update 15: Layered Tops Disambiguation in Virtual Try-On (`outerwear` Auto-Promotion)](#19-update-15-layered-tops-disambiguation-in-virtual-try-on-outerwear-auto-promotion)
 
 ---
 
@@ -44,6 +45,7 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 | **OpenAPI / `docs.json` Sync** | Docs & Tooling | Complete API contract export | ✅ Verified |
 | **10-Message Multi-Turn & Anti-Duplicate** | AI Stylist / Compose | Context window extended to 10; zero duplicate outfits | ✅ Verified |
 | **Synchronous vs Polling (Rule #5)** | AI Stylist / Requests | Synchronous 200 return + Redis polling & cancel resilience | ✅ Verified |
+| **Layered Tops in Try-On** | Virtual Try-On | Resolves dress shirt + blazer/jacket outfits to `top` + `outerwear` without slot collisions | ✅ Verified |
 
 ---
 
@@ -422,7 +424,36 @@ Comprehensive fixes and production hardening were applied across the AI Stylist 
 6. **Safe Outfit Integrity Fallback (P1.6):** Enhances Anti-Hallucination Gate with `filterValidOutfits` to retain strictly valid candidate looks and gracefully degrade to `outfits = []` with `sufficiency = 'none'` instead of throwing a 500 internal error.
 7. **Meaningful Wardrobe Item Names in EN & AR (P1.7):** Dynamically formats title-cased English names (`"Navy Blazer"`, `"Black Jeans"`) and natural Arabic names (`"بليزر كحلي"`, `"بنطلون جينز أسود"`) from wardrobe classification attributes without altering the database schema.
 8. **Pruned Dead Route Files (P2):** Safely removed `try-on/try-on.routes.js` and `shape-model/shape-model.routes.js` after verifying zero references, while preserving all 7 inline route registrations in `ai.routes.js`.
-9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (19/19 passing). Full suite of 132 Phase 15 automated tests passing (100% green).
+9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (23/23 passing). Full suite of 136 Phase 15 automated tests passing (100% green).
+
+---
+
+## 19. Update 15: Layered Tops Disambiguation in Virtual Try-On (`outerwear` Auto-Promotion)
+
+### Problem
+When clients or stylists attempted to initiate a Virtual Try-On using an outfit (`POST /api/v1/ai/try-on` with `outfitId`) that includes both a base shirt (e.g. Oxford shirt) and a layering piece (e.g. Blazer, Jacket, Cardigan), the API returned an HTTP `400 Bad Request`:
+```json
+{
+  "success": false,
+  "message": "Conflicting outfit slots: Multiple garments specified for slot 'top'"
+}
+```
+
+### Root Cause
+1. In the wardrobe normalizer (`wardrobe-attribute.normalizer.js`), blazers, suit jackets, and outerwear pieces are categorized under `category: 'top'`.
+2. When unpacking an `Outfit` for try-on in `try-on.service.js`, the service mapped `slot: item.category`, resulting in multiple garments assigned to `slot: 'top'`.
+3. In `garment-resolver.js`, `validateSlotCompatibility` treated `top` as non-repeatable, rejecting valid layered outfits composed by the AI Stylist.
+
+### Solution
+1. **Try-On Service Garment Mapper ([`src/modules/ai/try-on/try-on.service.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/try-on.service.js)):**
+   - Automatically detects outerwear-like attributes (`blazer`, `jacket`, `suit_jacket`, `coat`, `cardigan`, `sweater`, `hoodie`, `overshirt`) from item metadata (`subcategory`, `title`, `name`, `aiDescription`).
+   - If an item's category is `'top'` but it represents outerwear/layering, or if `slot: 'top'` is already claimed while `'outerwear'` is vacant, assigns `slot: 'outerwear'`.
+2. **Garment Resolver Slot Disambiguation ([`src/modules/ai/try-on/garment-resolver.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/garment-resolver.js)):**
+   - In `validateSlotCompatibility`: If `slotCounts.top > 1` and `outerwear` is vacant, automatically promotes the outer/layering top (or the second top) to `'outerwear'`, allowing layered base + outerwear composition.
+   - Preserves strict defense for impossible clothing combinations: multiple bottoms (`bottom`), multiple shoes (`shoes`), or combining a dress with tops/bottoms still reject with `400 Bad Request`.
+3. **Automated Verification:**
+   - Added unit tests in `tests/unit/ai-tryon-service.test.js` verifying that layered outfits with shirts and blazers resolve to `top` + `outerwear` without conflicts (30/30 passing).
+   - Added section 9 regression tests in `tests/unit/phase15-regression-fixes.test.js` (23/23 passing).
 
 
 
