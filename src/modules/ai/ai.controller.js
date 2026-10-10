@@ -17,6 +17,13 @@ export const handleStylistRequest = asyncHandler(async (req, res) => {
   const { message, conversationId, imageRef } = req.body;
   const userId = req.user.id;
 
+  if (conversationId) {
+    const conversation = await conversationService.getConversation(conversationId, userId);
+    if (!conversation) {
+      throw new ApiError(404, 'AI conversation not found');
+    }
+  }
+
   if (imageRef) {
     const parts = imageRef.split('/');
     // Expected format: murafiq/ai-chat/<userId>/<uuid>

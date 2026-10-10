@@ -208,7 +208,7 @@ export class GeminiImageProvider extends ImageGenerationProvider {
       throw new ApiError(504, `Image generation timed out after ${timeoutMs}ms`);
     }
 
-    throw new ApiError(502, `AI image generation failed: ${lastError?.message || 'Unknown error'}`);
+    throw new ApiError(502, 'AI image generation service is temporarily unavailable. Please try again shortly.');
   }
 }
 

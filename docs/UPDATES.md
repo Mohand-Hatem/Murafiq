@@ -22,6 +22,7 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 15. [Latest Updates: Free Tier Try-On Quota, OpenRouter Retirement & Google Grounding Removal](#15-latest-updates-free-tier-try-on-quota-openrouter-retirement--google-grounding-removal)
 16. [Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination](#16-update-12-multi-turn-conversation-context-10-messages--duplicate-outfit-elimination)
 17. [Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)](#17-update-13-synchronous-execution-with-resilient-polling-architecture-rule-5)
+18. [Update 14: Phase 15 AI Stylist, API Validation & Reliability Hardening](#18-update-14-phase-15-ai-stylist-api-validation--reliability-hardening)
 
 ---
 
@@ -403,6 +404,25 @@ Murafiq Phase 15 follows the architectural principle: **Synchronous Execution wi
 
 7. **Production Knowledge Index Verification Diagnostic (P2):**
    - **Created `scripts/verify-knowledge-index.js`:** Confirmed 27 fashion knowledge chunks across 5 canonical topics in MongoDB, verified Upstash Vector index retrieval (similarity scores: 0.854 and 0.798), and verified MongoDB text search fallback.
+
+---
+
+## 18. Update 14: Phase 15 AI Stylist, API Validation & Reliability Hardening
+
+Comprehensive fixes and production hardening were applied across the AI Stylist pipeline, provider resilience, mobile security, and route registration.
+
+**Detailed Architecture Document:** See [`docs/PHASE_15_RELIABILITY_AND_CLEANUP_UPDATES.md`](PHASE_15_RELIABILITY_AND_CLEANUP_UPDATES.md).
+
+### Summary of Improvements
+1. **Conversation Validation & Ownership (P1.1):** Strict MongoDB ObjectId validation on `conversationId` via Zod regex (`400 Bad Request` on malformed IDs) and ownership lookup via `conversationService.getConversation` (`404 Not Found` on non-owned or nonexistent IDs before quota consumption or AI processing).
+2. **Pre-Quota Attached Image Validation (P1.2):** Validates image namespace and downloads/validates image format (bounded 8s timeout, 10MB limit, allowed MIME types) before deducting user quota. Eliminates silent text-only continuations on broken image downloads.
+3. **Bounded Provider Timeouts & Cancellation (P1.3):** Integrates native `AbortController.signal` with Google AI SDK. Local timeouts abort and fail closed with `504 Gateway Timeout` without duplicate, parallel executions.
+4. **Mobile Error Sanitization (P1.4):** Completely strips stack traces (`meta.stack`), local filesystem paths, and internal provider diagnostics from production responses. Maps 504 and 502/503 to friendly mobile messages while logging server-side with `req.id`.
+5. **Explicit Constraints & Contradiction Detection (P1.5):** Detects mutually contradictory constraints (e.g. summer beach wedding with heavy winter clothing; all-black outfit without black pieces), sets confidence to `0.3`, and asks a targeted clarification question. Injects explicit constraints into composition prompt.
+6. **Safe Outfit Integrity Fallback (P1.6):** Enhances Anti-Hallucination Gate with `filterValidOutfits` to retain strictly valid candidate looks and gracefully degrade to `outfits = []` with `sufficiency = 'none'` instead of throwing a 500 internal error.
+7. **Meaningful Wardrobe Item Names in EN & AR (P1.7):** Dynamically formats title-cased English names (`"Navy Blazer"`, `"Black Jeans"`) and natural Arabic names (`"بليزر كحلي"`, `"بنطلون جينز أسود"`) from wardrobe classification attributes without altering the database schema.
+8. **Pruned Dead Route Files (P2):** Safely removed `try-on/try-on.routes.js` and `shape-model/shape-model.routes.js` after verifying zero references, while preserving all 7 inline route registrations in `ai.routes.js`.
+9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (19/19 passing). Full suite of 132 Phase 15 automated tests passing (100% green).
 
 
 

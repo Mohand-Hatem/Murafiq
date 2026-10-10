@@ -184,7 +184,43 @@ MULTI-TURN FOLLOW-UPS & ALTERNATIVE OUTFIT REQUESTS:
   2. Inherit the occasion ("eventType"), "formality", "genderPresentation", and context from the previous user/assistant turns in <conversation_context>.
   3. Set "confidence": 0.9.
   4. Set "clarificationQuestion": null (do NOT block with clarification; immediately proceed to compose an alternative outfit).
-  5. Formulate "retrievalQueryEn" reflecting an alternative look for that same occasion.`;
+  5. Formulate "retrievalQueryEn" reflecting an alternative look for that same occasion.
+
+CONTRADICTORY REQUIREMENTS & CLARIFICATION:
+- If the user provides directly contradictory, mutually exclusive constraints (e.g. requesting a summer beach look but specifying heavy winter clothing, or requesting an all-black look while prohibiting black pieces):
+  1. You MUST set "confidence": 0.3.
+  2. You MUST NOT invent an arbitrary interpretation or ignore one of the conflicting requirements.
+  3. Formulate one concise, polite clarification question in the user's language asking them to clarify which direction they prefer.
+     - Arabic example: "لاحظت وجود تعارض بين طلب ملابس صيفية وملابس شتوية ثقيلة، هل تفضل إطلالة صيفية خفيفة أم شتوية دافئة؟"
+     - English example: "I noticed conflicting requirements regarding the season and clothing weight. Would you prefer a lightweight summer look or heavier winter attire?"`;
+
+export const detectContradictions = (message = '', constraints = []) => {
+  const text = (message + ' ' + constraints.join(' ')).toLowerCase();
+
+  // Season / temperature contradiction
+  const hasSummer = /(summer|beach|صيف|صيفي|شاطئ|بحر)/i.test(text);
+  const hasWinter = /(heavy winter|winter clothing|winter coat|wool coat|شتوي|شتاء|ثقيل|صوف)/i.test(text);
+  if (hasSummer && hasWinter) {
+    return {
+      hasContradiction: true,
+      questionEn: 'I noticed conflicting requirements regarding summer and winter clothing. Would you prefer a lightweight summer look or heavier winter attire?',
+      questionAr: 'لاحظت وجود تعارض بين طلب ملابس صيفية وملابس شتوية ثقيلة. هل تفضل إطلالة صيفية خفيفة أم شتوية دافئة؟',
+    };
+  }
+
+  // Color contradiction: all black vs no black
+  const wantsBlack = /(all[- ]black|entirely black|كامل باللون الأسود|طقم أسود|طقم اسود|ملابس سوداء)/i.test(text);
+  const forbidsBlack = /(no black|without black|بدون أسود|بدون اسود|لا أريد أسود|لا اريد اسود|ممنوع الأسود|ممنوع الاسود)/i.test(text);
+  if (wantsBlack && forbidsBlack) {
+    return {
+      hasContradiction: true,
+      questionEn: 'You requested an all-black outfit while also asking for no black pieces. Could you clarify your color preference?',
+      questionAr: 'طلبت إطلالة سوداء بالكامل مع استبعاد اللون الأسود في نفس الوقت. هل تفضل اعتماد اللون الأسود أم لوناً آخر؟',
+    };
+  }
+
+  return { hasContradiction: false };
+};
 
 /**
  * Classifies the incoming message for domain compliance and extracts structured styling intent.
@@ -305,11 +341,17 @@ export const classifyAndExtract = async (message, options = {}) => {
 
   const langKey = parsed.language === 'ar' ? 'ar' : 'en';
   let clarificationQuestion = parsed.clarificationQuestion ? String(parsed.clarificationQuestion).trim() : null;
+  let confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 1.0;
+  const explicitConstraints = Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints : [];
 
-  // If the request has high confidence and a resolved occasion/event, do not block outfit generation with clarification
-  if (typeof parsed.confidence === 'number' && parsed.confidence >= 0.4 && parsed.eventType) {
+  const contradiction = detectContradictions(message, explicitConstraints);
+  if (contradiction.hasContradiction) {
+    confidence = 0.3;
+    clarificationQuestion = langKey === 'ar' ? contradiction.questionAr : contradiction.questionEn;
+  } else if (confidence >= 0.4 && parsed.eventType) {
+    // If the request has high confidence and a resolved occasion/event, do not block outfit generation with clarification
     clarificationQuestion = null;
-  } else if (!isRefusal && !hasImage && !parsed.eventType && !clarificationQuestion && (typeof parsed.confidence === 'number' && parsed.confidence < 0.4)) {
+  } else if (!isRefusal && !hasImage && !parsed.eventType && !clarificationQuestion && confidence < 0.4) {
     // Fallback for greetings or ambiguous queries if model omitted clarificationQuestion
     clarificationQuestion = langKey === 'ar'
       ? 'أهلاً بك! أنا مٌرافق، منسق أزياؤك الشخصي. كيف يمكنني مساعدتك اليوم؟ هل تبحث عن إطلالة لمناسبة معينة، أو ملابس عمل، أو خروجة كاجوال؟'
@@ -329,9 +371,9 @@ export const classifyAndExtract = async (message, options = {}) => {
     timeOfDay: parsed.timeOfDay || null,
     setting: parsed.setting || null,
     genderPresentation: parsed.genderPresentation || null,
-    explicitConstraints: Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints : [],
+    explicitConstraints,
     retrievalQueryEn: parsed.retrievalQueryEn ? String(parsed.retrievalQueryEn).trim() : '',
-    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 1.0,
+    confidence,
     clarificationQuestion,
     isShoppingRequest: Boolean(parsed.isShoppingRequest),
     usage: result.usage,

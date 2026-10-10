@@ -24,6 +24,59 @@ import { logger } from '../../../config/logger.config.js';
 import cloudinary from '../../../config/cloudinary.config.js';
 import stylistRequestService from './stylist-request.service.js';
 
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const IMAGE_FETCH_TIMEOUT_MS = 8_000; // 8s bounded fetch
+
+export const resolveAndValidateImage = async (imageRef) => {
+  const secureUrl = cloudinary.url(imageRef, { secure: true });
+  let res;
+  try {
+    res = await fetch(secureUrl, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
+      throw new ApiError(400, 'Attached image download timed out. Please try uploading again.');
+    }
+    throw new ApiError(400, 'Failed to retrieve attached image from storage.');
+  }
+
+  if (!res.ok) {
+    throw new ApiError(400, `Attached image could not be retrieved (status ${res.status}).`);
+  }
+
+  const rawMime = res.headers.get('content-type')?.split(';')[0]?.trim()?.toLowerCase();
+  if (!rawMime || !SUPPORTED_IMAGE_MIME_TYPES.has(rawMime)) {
+    throw new ApiError(
+      400,
+      `Unsupported image format (${rawMime || 'unknown'}). Allowed formats: JPEG, PNG, WEBP, HEIC.`
+    );
+  }
+
+  const contentLength = Number(res.headers.get('content-length'));
+  if (contentLength && contentLength > MAX_IMAGE_SIZE_BYTES) {
+    throw new ApiError(400, 'Attached image exceeds maximum allowed size (10MB).');
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    throw new ApiError(400, 'Attached image file is empty or corrupted.');
+  }
+  if (arrayBuffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+    throw new ApiError(400, 'Attached image exceeds maximum allowed size (10MB).');
+  }
+
+  return {
+    mimeType: rawMime,
+    data: Buffer.from(arrayBuffer).toString('base64'),
+  };
+};
+
 /**
  * End-to-end AI Stylist Pipeline Orchestrator.
  *
@@ -81,31 +134,48 @@ export const runStylistPipeline = async ({
     let recentMessages = [];
     let previouslySuggestedOutfits = [];
     if (conversationId) {
-      try {
-        recentMessages = await conversationService.getRecentMessages(conversationId, userId, 10);
-        for (const msg of recentMessages) {
-          if (msg.role === 'assistant' && msg.structuredResult?.outfits?.length > 0) {
-            for (const outfit of msg.structuredResult.outfits) {
-              const fromWardrobeIds = Array.isArray(outfit.fromYourWardrobe)
-                ? outfit.fromYourWardrobe.map((i) => i?.itemId || i?._id).filter(Boolean).map(String)
-                : [];
-              const directItemIds = Array.isArray(outfit.itemIds)
-                ? outfit.itemIds.map(String).filter(Boolean)
-                : [];
-              const itemIds = fromWardrobeIds.length > 0 ? fromWardrobeIds : directItemIds;
-              if (itemIds.length > 0) {
-                previouslySuggestedOutfits.push({
-                  itemIds,
-                  rationale: outfit.rationale || '',
-                });
-              }
+      const existingConv = await conversationService.getConversation(conversationId, userId);
+      if (!existingConv) {
+        throw new ApiError(404, 'AI conversation not found');
+      }
+      recentMessages = await conversationService.getRecentMessages(conversationId, userId, 10);
+      for (const msg of recentMessages) {
+        if (msg.role === 'assistant' && msg.structuredResult?.outfits?.length > 0) {
+          for (const outfit of msg.structuredResult.outfits) {
+            const fromWardrobeIds = Array.isArray(outfit.fromYourWardrobe)
+              ? outfit.fromYourWardrobe.map((i) => i?.itemId || i?._id).filter(Boolean).map(String)
+              : [];
+            const directItemIds = Array.isArray(outfit.itemIds)
+              ? outfit.itemIds.map(String).filter(Boolean)
+              : [];
+            const itemIds = fromWardrobeIds.length > 0 ? fromWardrobeIds : directItemIds;
+            if (itemIds.length > 0) {
+              previouslySuggestedOutfits.push({
+                itemIds,
+                rationale: outfit.rationale || '',
+              });
             }
           }
         }
-      } catch {
-        recentMessages = [];
-        previouslySuggestedOutfits = [];
       }
+    }
+
+    // Validate attached image before quota consumption or AI processing
+    let imageData = options.imageData || null;
+    if (hasImage && !imageData) {
+      imageData = await resolveAndValidateImage(imageRef);
+    } else if (hasImage && imageData) {
+      if (
+        !imageData.data ||
+        !imageData.mimeType ||
+        !SUPPORTED_IMAGE_MIME_TYPES.has(imageData.mimeType.toLowerCase())
+      ) {
+        throw new ApiError(400, 'Invalid attached image data format.');
+      }
+    }
+
+    if (hasImage && !imageData) {
+      throw new ApiError(400, 'Attached image could not be loaded.');
     }
 
     // 0. Quota consumption:
@@ -192,25 +262,6 @@ export const runStylistPipeline = async ({
       searchStatus: 'skipped',
       assistantMessage: refusalMsg,
     };
-  }
-
-  // Optional image data loading for multimodal inlineData
-  let imageData = options.imageData || null;
-  if (!imageData && imageRef) {
-    try {
-      const secureUrl = cloudinary.url(imageRef, { secure: true });
-      const res = await fetch(secureUrl);
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
-        imageData = {
-          mimeType,
-          data: Buffer.from(arrayBuffer).toString('base64'),
-        };
-      }
-    } catch (fetchErr) {
-      logger.warn('Failed to fetch image from Cloudinary for inlineData:', fetchErr.message);
-    }
   }
 
   // 1. Intent Classification & User Profile Retrieval in parallel (multimodal when image is attached)
@@ -409,6 +460,7 @@ export const runStylistPipeline = async ({
     timeOfDay: intent.timeOfDay,
     setting: intent.setting,
     genderPresentation: resolvedGenderPresentation,
+    explicitConstraints: intent.explicitConstraints || [],
   };
 
   // 3. Parallel Retrieval: Candidate garments & client style preferences
@@ -733,6 +785,7 @@ export const runStylistPipeline = async ({
     fashionKnowledgeChunks,
     language: intent.language,
     previouslySuggestedOutfits,
+    explicitConstraints: intent.explicitConstraints || [],
     options,
   });
 
@@ -770,6 +823,7 @@ export const runStylistPipeline = async ({
       fashionKnowledgeChunks,
       language: intent.language,
       previouslySuggestedOutfits,
+      explicitConstraints: intent.explicitConstraints || [],
       options: {
         ...options,
         correctiveInstruction: correctivePrompt,
@@ -781,10 +835,20 @@ export const runStylistPipeline = async ({
     if (!validation.valid) {
       traceLogger.logTraceStep({
         traceId,
-        step: 'hallucination_fail_closed',
+        step: 'hallucination_safe_fallback',
         userId,
+        invalidIds: validation.invalidIds,
       });
-      throw new ApiError(500, 'AI outfit generation failed candidate integrity verification');
+
+      // P1.6: Never throw a 500 internal error or persist invalid/hallucinated items.
+      // Recover safely using strictly validated candidate outfits only.
+      const safeOutfits = outfitValidator.filterValidOutfits(compResult.outfits, candidatesBySlot, anchor);
+      if (safeOutfits.length > 0) {
+        compResult.outfits = safeOutfits;
+      } else {
+        compResult.outfits = [];
+        compResult.sufficiency = 'none';
+      }
     }
   }
 

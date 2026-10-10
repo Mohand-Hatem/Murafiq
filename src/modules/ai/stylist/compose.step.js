@@ -131,6 +131,7 @@ export const composeAndRankOutfits = async ({
   fashionKnowledgeChunks = [],
   language = 'en',
   previouslySuggestedOutfits = [],
+  explicitConstraints = [],
   options = {},
 }) => {
   const { temperature = 0.2, timeoutMs = 15_000 } = options;
@@ -181,7 +182,16 @@ CRITICAL: Do NOT recommend any of the exact same item combinations listed above.
 </previously_suggested_outfits_in_conversation>\n\n`
       : '';
 
-  const userPrompt = `${anchorSection}${previousOutfitsSection}<dress_code_rules>
+  const effectiveConstraints = (Array.isArray(explicitConstraints) && explicitConstraints.length > 0)
+    ? explicitConstraints
+    : (Array.isArray(eventContext.explicitConstraints) ? eventContext.explicitConstraints : []);
+
+  const explicitConstraintsSection =
+    effectiveConstraints.length > 0
+      ? `<explicit_user_constraints>\n${effectiveConstraints.map((c) => `- ${c}`).join('\n')}\nCRITICAL: These explicit user constraints are strictly MANDATORY. You MUST respect them in candidate selection and outfit composition.\n</explicit_user_constraints>\n\n`
+      : '';
+
+  const userPrompt = `${anchorSection}${previousOutfitsSection}${explicitConstraintsSection}<dress_code_rules>
 ${dressCodeRules}
 </dress_code_rules>
 

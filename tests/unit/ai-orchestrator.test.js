@@ -228,7 +228,7 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
     expect(result.traceId).toBeDefined();
   });
 
-  it('Gate 6: anti-hallucination gate triggers single retry and fails closed if forgery persists', async () => {
+  it('Gate 6: anti-hallucination gate triggers single retry and recovers safely if forgery persists', async () => {
     jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({ success: true });
     jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
       inDomain: true,
@@ -260,12 +260,14 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
         missingSlots: [],
       });
 
-    await expect(
-      runStylistPipeline({
-        userId,
-        message: 'wedding outfit',
-      })
-    ).rejects.toThrow(ApiError);
+    const result = await runStylistPipeline({
+      userId,
+      message: 'wedding outfit',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.outfits).toEqual([]);
+    expect(result.sufficiency).toBe('none');
   });
 
   it('resolves genderPresentation from user profile when message intent is neutral', async () => {
@@ -489,6 +491,10 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
       },
     ];
 
+    jest.spyOn(conversationService, 'getConversation').mockResolvedValueOnce({
+      _id: 'conv_123',
+      userId,
+    });
     jest.spyOn(conversationService, 'getRecentMessages').mockResolvedValueOnce([
       {
         role: 'user',

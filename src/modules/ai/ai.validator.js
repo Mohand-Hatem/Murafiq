@@ -12,7 +12,10 @@ export const stylistRequestSchema = {
         .trim()
         .min(1, 'Message cannot be empty')
         .max(500, 'Message cannot exceed 500 characters'),
-      conversationId: z.string().optional(),
+      conversationId: z
+        .string()
+        .regex(OBJECT_ID_REGEX, 'Invalid conversation ID format')
+        .optional(),
       imageRef: z.string().optional(),
     })
     .strict(),
