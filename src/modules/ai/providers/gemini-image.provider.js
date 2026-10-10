@@ -87,7 +87,7 @@ export class GeminiImageProvider extends ImageGenerationProvider {
     }
 
     const ai = getGenAiClient();
-    const model = env.AI_MODEL_IMAGE || 'gemini-3.1-flash-lite-image';
+    const model = (env.AI_TRY_ON_MODEL || env.AI_MODEL_IMAGE || 'gemini-3.1-flash-lite-image').replace(/^google\//, '');
     const [w, h] = String(resolution).split('x').map(Number);
     const width = Number.isInteger(w) && w > 0 ? w : 1024;
     const height = Number.isInteger(h) && h > 0 ? h : 1024;
@@ -208,7 +208,7 @@ export class GeminiImageProvider extends ImageGenerationProvider {
       throw new ApiError(504, `Image generation timed out after ${timeoutMs}ms`);
     }
 
-    throw new ApiError(502, `AI image generation failed: ${lastError?.message || 'Unknown error'}`);
+    throw new ApiError(502, 'AI image generation service is temporarily unavailable. Please try again shortly.');
   }
 }
 

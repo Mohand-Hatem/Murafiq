@@ -8,6 +8,7 @@ import uploadService from '../../uploads/upload.service.js';
 import outfitService from '../outfits/outfit.service.js';
 import wardrobeService from '../../wardrobe/wardrobe.service.js';
 import { logger } from '../../../config/logger.config.js';
+import env from '../../../config/env.config.js';
 import tryonQueue from '../../../jobs/queues/tryon.queue.js';
 
 let queueHelper = tryonQueue;
@@ -30,7 +31,12 @@ export const setQueueHelper = (helper) => {
  * @param {string} [promptVersion='v1']
  * @returns {string} SHA-256 hex digest
  */
-export const computeJobId = (userId, shapeModelId, garments, promptVersion = 'v1') => {
+export const computeJobId = (
+  userId,
+  shapeModelId,
+  garments,
+  promptVersion = env.AI_TRY_ON_PROMPT_VERSION || 'v1'
+) => {
   const sortedGarmentKeys = garments
     .map((g) => `${g.slot}:${g.itemId ? g.itemId.toString() : g.imageRef}`)
     .sort()
@@ -62,7 +68,14 @@ export const computeJobId = (userId, shapeModelId, garments, promptVersion = 'v1
  */
 export const createTryOnRequest = async (
   userId,
-  { shapeModelId, garments, outfitId, itemId, resolution = '1024x1024', promptVersion = 'v1' }
+  {
+    shapeModelId,
+    garments,
+    outfitId,
+    itemId,
+    resolution = env.AI_IMAGE_RESOLUTION || '1024x1024',
+    promptVersion = env.AI_TRY_ON_PROMPT_VERSION || 'v1',
+  }
 ) => {
   let inputGarments = garments;
   let resolvedOutfitId = null;
@@ -84,12 +97,27 @@ export const createTryOnRequest = async (
       throw new ApiError(400, 'None of the wardrobe items in this outfit could be found');
     }
 
-    inputGarments = wardrobeItems.slice(0, 4).map((item) => ({
-      source: 'wardrobe',
-      itemId: item._id.toString(),
-      slot: item.category,
-      label: item.title || item.aiDescription || item.category || 'Wardrobe item',
-    }));
+    const assignedSlots = new Set();
+    inputGarments = wardrobeItems.slice(0, 4).map((item) => {
+      let slot = item.category || 'top';
+      const text = `${item.subcategory || ''} ${item.name || ''} ${item.title || ''} ${item.aiDescription || ''}`.toLowerCase();
+      const isOuterwearLike = /\b(blazer|jacket|suit_jacket|coat|trench|overcoat|parka|vest|cardigan|sweater|hoodie|sweatshirt|shacket|overshirt)\b/.test(text);
+
+      if (slot === 'top' && isOuterwearLike) {
+        slot = 'outerwear';
+      } else if (slot === 'top' && assignedSlots.has('top') && !assignedSlots.has('outerwear')) {
+        slot = 'outerwear';
+      }
+
+      assignedSlots.add(slot);
+
+      return {
+        source: 'wardrobe',
+        itemId: item._id.toString(),
+        slot,
+        label: item.title || item.aiDescription || item.subcategory || item.category || 'Wardrobe item',
+      };
+    });
     resolvedOutfitId = outfit._id;
   } else if (itemId && (!Array.isArray(inputGarments) || inputGarments.length === 0)) {
     inputGarments = [
@@ -186,6 +214,25 @@ export const createTryOnRequest = async (
       });
     } catch (err) {
       logger.error('Failed to enqueue try-on generation job:', err);
+
+      const metric =
+        quotaSource === 'monthly'
+          ? 'ai.tryOn.monthly'
+          : 'ai.tryOn.trial.lifetime';
+      try {
+        await entitlementService.refundQuota(userId, metric, 1);
+      } catch (refundErr) {
+        logger.error('Failed to refund try-on quota after enqueue failure:', refundErr);
+      }
+
+      await tryOnRepository.updateById(generation._id, {
+        status: 'failed',
+        errorMessage: 'Failed to enqueue generation job',
+        failedAt: new Date(),
+        quotaRefunded: true,
+      });
+
+      throw new ApiError(500, 'Failed to process virtual try-on request. Your quota has been refunded.');
     }
   }
 
@@ -267,7 +314,7 @@ export const deleteGeneration = async (userId, id) => {
     }
   }
 
-  await tryOnRepository.updateById(id, { status: 'failed', errorMessage: 'Deleted by user' });
+  await tryOnRepository.deleteById(id, userId);
 
   return {
     success: true,

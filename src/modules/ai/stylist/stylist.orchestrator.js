@@ -22,6 +22,60 @@ import {
 import { BUSINESS_TIMEZONE } from '../../../common/constants/defaults.constant.js';
 import { logger } from '../../../config/logger.config.js';
 import cloudinary from '../../../config/cloudinary.config.js';
+import stylistRequestService from './stylist-request.service.js';
+
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const IMAGE_FETCH_TIMEOUT_MS = 8_000; // 8s bounded fetch
+
+export const resolveAndValidateImage = async (imageRef) => {
+  const secureUrl = cloudinary.url(imageRef, { secure: true });
+  let res;
+  try {
+    res = await fetch(secureUrl, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
+      throw new ApiError(400, 'Attached image download timed out. Please try uploading again.');
+    }
+    throw new ApiError(400, 'Failed to retrieve attached image from storage.');
+  }
+
+  if (!res.ok) {
+    throw new ApiError(400, `Attached image could not be retrieved (status ${res.status}).`);
+  }
+
+  const rawMime = res.headers.get('content-type')?.split(';')[0]?.trim()?.toLowerCase();
+  if (!rawMime || !SUPPORTED_IMAGE_MIME_TYPES.has(rawMime)) {
+    throw new ApiError(
+      400,
+      `Unsupported image format (${rawMime || 'unknown'}). Allowed formats: JPEG, PNG, WEBP, HEIC.`
+    );
+  }
+
+  const contentLength = Number(res.headers.get('content-length'));
+  if (contentLength && contentLength > MAX_IMAGE_SIZE_BYTES) {
+    throw new ApiError(400, 'Attached image exceeds maximum allowed size (10MB).');
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    throw new ApiError(400, 'Attached image file is empty or corrupted.');
+  }
+  if (arrayBuffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+    throw new ApiError(400, 'Attached image exceeds maximum allowed size (10MB).');
+  }
+
+  return {
+    mimeType: rawMime,
+    data: Buffer.from(arrayBuffer).toString('base64'),
+  };
+};
 
 /**
  * End-to-end AI Stylist Pipeline Orchestrator.
@@ -57,33 +111,118 @@ export const runStylistPipeline = async ({
   const traceId = traceLogger.createTraceId();
   const hasImage = Boolean(imageRef);
 
-  // 0. Quota consumption:
-  // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
-  const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
-  const messageMetric =
-    userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+  await stylistRequestService.createRequest({
+    requestId: traceId,
+    userId,
+    message,
+    conversationId,
+  });
 
-  const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+  const buildCancelledResponse = () => ({
+    requestId: traceId,
+    traceId,
+    status: 'cancelled',
+    responseType: 'error',
+    searchStatus: 'skipped',
+    assistantMessage: 'Request cancelled by user',
+    outfits: [],
+    missingSlots: [],
+    suggestedToAcquire: [],
+  });
 
-  // Helper to refund all consumed quotas on validation/scope refusal
-  const refundConsumedQuotas = async () => {
-    await entitlementService.refundQuota(userId, messageMetric, 1);
-    if (hasImageQuota) {
-      await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
+  try {
+    let recentMessages = [];
+    let previouslySuggestedOutfits = [];
+    if (conversationId) {
+      const existingConv = await conversationService.getConversation(conversationId, userId);
+      if (!existingConv) {
+        throw new ApiError(404, 'AI conversation not found');
+      }
+      recentMessages = await conversationService.getRecentMessages(conversationId, userId, 10);
+      for (const msg of recentMessages) {
+        if (msg.role === 'assistant' && msg.structuredResult?.outfits?.length > 0) {
+          for (const outfit of msg.structuredResult.outfits) {
+            const fromWardrobeIds = Array.isArray(outfit.fromYourWardrobe)
+              ? outfit.fromYourWardrobe.map((i) => i?.itemId || i?._id).filter(Boolean).map(String)
+              : [];
+            const directItemIds = Array.isArray(outfit.itemIds)
+              ? outfit.itemIds.map(String).filter(Boolean)
+              : [];
+            const itemIds = fromWardrobeIds.length > 0 ? fromWardrobeIds : directItemIds;
+            if (itemIds.length > 0) {
+              previouslySuggestedOutfits.push({
+                itemIds,
+                rationale: outfit.rationale || '',
+              });
+            }
+          }
+        }
+      }
     }
-  };
 
-  await entitlementService.consume(userId, messageMetric, 1, 'client');
+    // Validate attached image before quota consumption or AI processing
+    let imageData = options.imageData || null;
+    if (hasImage && !imageData) {
+      imageData = await resolveAndValidateImage(imageRef);
+    } else if (hasImage && imageData) {
+      if (
+        !imageData.data ||
+        !imageData.mimeType ||
+        !SUPPORTED_IMAGE_MIME_TYPES.has(imageData.mimeType.toLowerCase())
+      ) {
+        throw new ApiError(400, 'Invalid attached image data format.');
+      }
+    }
 
-  // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
-  if (hasImageQuota) {
-    try {
-      await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
-    } catch (err) {
+    if (hasImage && !imageData) {
+      throw new ApiError(400, 'Attached image could not be loaded.');
+    }
+
+    // 0. Quota consumption:
+    // Determine message quota metric based on active plan (ai.messages.daily for paid, ai.messages.lifetime for free trial)
+    const { entitlements: userEntitlements } = await entitlementService.getEntitlements(userId, 'client');
+    const messageMetric =
+      userEntitlements?.['ai.messages.daily'] !== undefined ? 'ai.messages.daily' : 'ai.messages.lifetime';
+
+    const hasImageQuota = hasImage && userEntitlements?.['ai.imageMessages.daily'] !== undefined;
+
+    // Helper to refund all consumed quotas on validation/scope refusal
+    const refundConsumedQuotas = async () => {
       await entitlementService.refundQuota(userId, messageMetric, 1);
-      throw err;
+      if (hasImageQuota) {
+        await entitlementService.refundQuota(userId, 'ai.imageMessages.daily', 1);
+      }
+      try {
+        await stylistRequestService.updateRequest(traceId, { refunded: true });
+      } catch {
+        // fail-safe ignore
+      }
+    };
+
+    await entitlementService.consume(userId, messageMetric, 1, 'client');
+
+    // If image is attached and plan defines a daily image quota, consume vision quota; refund message quota on failure
+    if (hasImageQuota) {
+      try {
+        await entitlementService.consume(userId, 'ai.imageMessages.daily', 1, 'client');
+      } catch (err) {
+        await entitlementService.refundQuota(userId, messageMetric, 1);
+        throw err;
+      }
     }
-  }
+
+    // Record consumed quota in tracker for accurate cancellation refund
+    await stylistRequestService.updateRequest(traceId, {
+      consumedQuota: [
+        { metric: messageMetric, count: 1 },
+        ...(hasImageQuota ? [{ metric: 'ai.imageMessages.daily', count: 1 }] : []),
+      ],
+    });
+
+    // Checkpoint 0: Cooperative cancellation check after quota consumption
+    if (await stylistRequestService.isCancelled(traceId)) {
+      return buildCancelledResponse();
+    }
 
   // 0b. Scope Guard Layer 1: message validation & refusal abuse rate limiting
   const l1Check = scopeGuard.validateLayer1(message);
@@ -105,31 +244,24 @@ export const runStylistPipeline = async ({
       refusalCategory: rateLimitCheck.refusalCategory,
     });
 
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType: 'error',
+      searchStatus: 'skipped',
+      assistantMessage: refusalMsg,
+      completedAt: new Date().toISOString(),
+    });
+
     return {
       refused: true,
       refusalCategory: rateLimitCheck.refusalCategory,
       message: refusalMsg,
       traceId,
+      requestId: traceId,
+      responseType: 'error',
+      searchStatus: 'skipped',
+      assistantMessage: refusalMsg,
     };
-  }
-
-  // Optional image data loading for multimodal inlineData
-  let imageData = options.imageData || null;
-  if (!imageData && imageRef) {
-    try {
-      const secureUrl = cloudinary.url(imageRef, { secure: true });
-      const res = await fetch(secureUrl);
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
-        imageData = {
-          mimeType,
-          data: Buffer.from(arrayBuffer).toString('base64'),
-        };
-      }
-    } catch (fetchErr) {
-      logger.warn('Failed to fetch image from Cloudinary for inlineData:', fetchErr.message);
-    }
   }
 
   // 1. Intent Classification & User Profile Retrieval in parallel (multimodal when image is attached)
@@ -138,6 +270,7 @@ export const runStylistPipeline = async ({
       ...options,
       imageData,
       imageRef,
+      recentMessages,
     }),
     userService.getProfile(userId).catch(() => null),
   ]);
@@ -154,6 +287,11 @@ export const runStylistPipeline = async ({
     latencyMs: intent.latencyMs,
   });
 
+  // Checkpoint 1: Cooperative cancellation check after intent classification
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
+
   // 1b. Scope Gate Verdict: If out-of-domain (or non-garment image), refund quotas and terminate
   if (!intent.inDomain) {
     await scopeGuard.recordScopeRefusal(userId);
@@ -169,13 +307,111 @@ export const runStylistPipeline = async ({
       refusalCategory: intent.refusalCategory,
     });
 
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType: 'error',
+      searchStatus: 'skipped',
+      assistantMessage: refusalMsg,
+      completedAt: new Date().toISOString(),
+    });
+
     return {
       refused: true,
       refusalCategory: intent.refusalCategory,
       message: refusalMsg,
       language: intent.language,
       traceId,
+      requestId: traceId,
+      responseType: 'error',
+      searchStatus: 'skipped',
+      assistantMessage: refusalMsg,
     };
+  }
+
+  // 1c. Clarification Branch: If request is a greeting, ambiguous, or lacks critical styling/anchor context
+  if (!hasImage && (!intent.eventType || (typeof intent.confidence === 'number' && intent.confidence < 0.4)) && intent.clarificationQuestion) {
+    let activeConversationId = conversationId;
+    let userMessageRecord = null;
+
+    if (!activeConversationId) {
+      try {
+        const newConv = await conversationService.createConversation(userId, 'Stylist Consultation');
+        activeConversationId = newConv._id ? newConv._id.toString() : String(newConv.id);
+      } catch (convErr) {
+        logger.warn('Failed to auto-create conversation for stylist session:', convErr.message);
+      }
+    }
+
+    if (activeConversationId) {
+      try {
+        userMessageRecord = await conversationService.addMessage(activeConversationId, userId, {
+          role: 'user',
+          content: message,
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record user AiMessage in clarification branch:', msgErr.message);
+      }
+    }
+
+    const messageId = userMessageRecord?._id ? userMessageRecord._id.toString() : null;
+    const clarificationText = intent.clarificationQuestion;
+
+    traceLogger.logTraceStep({
+      traceId,
+      step: 'clarification_response',
+      userId,
+      clarificationQuestion: clarificationText,
+    });
+
+    const clarificationResult = {
+      outfits: [],
+      sufficiency: 'none',
+      missingSlots: [],
+      gapDescriptions: [],
+      suggestedToAcquire: [],
+      suggestBookStylist: false,
+      stylistBookingCta: null,
+      searchQuotaBlocked: false,
+      productSearchUpgradeCta: null,
+      anchor: null,
+      matchHint: null,
+      canSaveToWardrobe: false,
+      saveToWardrobeCta: null,
+      saveMessageId: messageId ? String(messageId) : null,
+      language: intent.language,
+      requestId: traceId,
+      status: 'completed',
+      responseType: 'clarification',
+      searchStatus: 'skipped',
+      assistantMessage: clarificationText,
+      conversationId: activeConversationId,
+      traceId,
+    };
+
+    if (activeConversationId) {
+      try {
+        await conversationService.addMessage(activeConversationId, userId, {
+          role: 'assistant',
+          content: clarificationText,
+          structuredResult: clarificationResult,
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record assistant AiMessage in clarification branch:', msgErr.message);
+      }
+    }
+
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType: 'clarification',
+      searchStatus: 'skipped',
+      assistantMessage: clarificationText,
+      result: clarificationResult,
+      completedAt: new Date().toISOString(),
+    });
+
+    return clarificationResult;
   }
 
   // 2. Garment Match & Anchor Threading (Flow B) vs. Dress Code Resolution (Flow A)
@@ -224,6 +460,7 @@ export const runStylistPipeline = async ({
     timeOfDay: intent.timeOfDay,
     setting: intent.setting,
     genderPresentation: resolvedGenderPresentation,
+    explicitConstraints: intent.explicitConstraints || [],
   };
 
   // 3. Parallel Retrieval: Candidate garments & client style preferences
@@ -267,6 +504,11 @@ export const runStylistPipeline = async ({
     }),
     stylePreferenceService.getPreferences(userId),
   ]);
+
+  // Checkpoint 2: Cooperative cancellation check after wardrobe retrieval
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
 
   // 4. Pre-Flight Wardrobe Capacity Guard
   const capacity = preflightGuard.evaluateWardrobeCapacity(candidatesBySlot, requiredSlots);
@@ -320,14 +562,43 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest) {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          if (anchor) {
+            const anchorDesc = [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ');
+            gapQuery = intent.language === 'ar'
+              ? `تنسيق ملابس مع ${anchorDesc}`
+              : `Outfits coordinating with ${anchorDesc}`;
+
+            const isTopOrOuterwear = anchor.category === 'top' || anchor.category === 'outerwear';
+            if (isTopOrOuterwear) {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص داخلي كلاسيكي للارتداء تحت السترة' : 'layering collared shirt' },
+                { slot: 'bottom', description: intent.language === 'ar' ? 'بنطال تشينو أو قماش متناسق' : 'coordinating trousers or chinos' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء لوفر أو رسمي متناسق' : 'coordinating leather shoes or loafers' },
+              ];
+            } else if (anchor.category === 'bottom') {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص أو تيشيرت متناسق' : 'coordinating shirt' },
+                { slot: 'outerwear', description: intent.language === 'ar' ? 'جاكيت أو سترة متناسقة' : 'coordinating jacket or layer' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء متناسق' : 'coordinating shoes' },
+              ];
+            } else {
+              const compSlots = deriveComplementarySlots(anchor.category);
+              gapItems = compSlots.map((s) => ({ slot: s }));
+            }
+          } else {
+            gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+            gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          }
         } else {
-          const gapDescriptions = capacity.missingSlots.map((s) =>
+          // If wardrobe cannot compose and there is no anchor, the user needs a COMPLETE outfit
+          const missingSlotsToAcquire = anchor
+            ? capacity.missingSlots
+            : Array.from(new Set([...(capacity.missingSlots || []), ...(resolvedDressCode.requiredSlots || ['top', 'bottom', 'shoes'])]));
+          const gapDescriptions = missingSlotsToAcquire.map((s) =>
             renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
           );
-          gapQuery = gapDescriptions.join(', ') || intent.occasion || 'formal attire';
-          gapItems = capacity.missingSlots.map((s, idx) => ({ slot: s, description: gapDescriptions[idx] }));
+          gapQuery = gapDescriptions.join(', ') || intent.occasion || `${primaryFormality} attire`;
+          gapItems = missingSlotsToAcquire.map((s, idx) => ({ slot: s, description: gapDescriptions[idx] }));
         }
 
         externalSuggestions = await productSearchService.searchExternalProducts({
@@ -340,6 +611,8 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          useShoppingProvider: true,
+          anchorGarment: anchor,
         });
 
         traceLogger.logTraceStep({
@@ -396,11 +669,14 @@ export const runStylistPipeline = async ({
       groundedQueriesCount: externalSuggestions.length > 0 ? 1 : 0,
     });
 
+    const preflightMissingSlots = anchor
+      ? capacity.missingSlots
+      : Array.from(new Set([...(capacity.missingSlots || []), ...(resolvedDressCode.requiredSlots || ['top', 'bottom', 'shoes'])]));
     const rendered = renderStep.renderStylistResponse({
       outfits: [],
       sufficiency: 'none',
-      missingSlots: capacity.missingSlots,
-      gapDescriptions: capacity.missingSlots.map((s) =>
+      missingSlots: preflightMissingSlots,
+      gapDescriptions: preflightMissingSlots.map((s) =>
         renderStep.getLocalizedGapDescription(s, resolvedDressCode.formality?.[0] || 'formal', intent.language)
       ),
       externalSuggestions,
@@ -414,18 +690,38 @@ export const runStylistPipeline = async ({
       searchQuotaBlocked,
     });
 
+    let searchStatus = 'skipped';
+    if (searchQuotaBlocked) {
+      searchStatus = 'quota_blocked';
+    } else if (intent.isShoppingRequest || capacity.missingSlots?.length > 0) {
+      if (externalSuggestions && externalSuggestions.length > 0) {
+        searchStatus = 'success';
+      } else {
+        searchStatus = 'no_results';
+      }
+    }
+
+    let responseType = 'partial_results';
+    if (intent.isShoppingRequest) {
+      responseType = searchQuotaBlocked || externalSuggestions.length === 0 ? 'partial_results' : 'success';
+    }
+
+    const assistantContent = intent.isShoppingRequest && searchQuotaBlocked
+      ? (intent.language === 'ar'
+          ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
+          : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.')
+      : (rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.');
+
     if (activeConversationId) {
       try {
-        const assistantContent = intent.isShoppingRequest && searchQuotaBlocked
-          ? (intent.language === 'ar'
-              ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
-              : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.')
-          : (rendered.stylistBookingCta || 'Wardrobe insufficient for this occasion.');
-
         await conversationService.addMessage(activeConversationId, userId, {
           role: 'assistant',
           content: assistantContent,
-          structuredResult: rendered,
+          structuredResult: {
+            ...rendered,
+            responseType,
+            searchStatus,
+          },
           traceId,
         });
       } catch (msgErr) {
@@ -433,8 +729,22 @@ export const runStylistPipeline = async ({
       }
     }
 
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantContent,
+      result: rendered,
+      completedAt: new Date().toISOString(),
+    });
+
     return {
       ...rendered,
+      requestId: traceId,
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantContent,
       conversationId: activeConversationId,
       traceId,
     };
@@ -460,6 +770,11 @@ export const runStylistPipeline = async ({
     logger.warn('[Orchestrator] Fashion knowledge RAG retrieval failed (continuing fail-open):', kbErr.message);
   }
 
+  // Checkpoint 3: Cooperative cancellation check before expensive composition
+  if (await stylistRequestService.isCancelled(traceId)) {
+    return buildCancelledResponse();
+  }
+
   // 5. Compose & Rank Outfits (anchor is threaded and pinned if Flow B, grounded by editorial knowledge)
   let compResult = await composeStep.composeAndRankOutfits({
     candidatesBySlot,
@@ -469,6 +784,8 @@ export const runStylistPipeline = async ({
     anchor,
     fashionKnowledgeChunks,
     language: intent.language,
+    previouslySuggestedOutfits,
+    explicitConstraints: intent.explicitConstraints || [],
     options,
   });
 
@@ -505,6 +822,8 @@ export const runStylistPipeline = async ({
       anchor,
       fashionKnowledgeChunks,
       language: intent.language,
+      previouslySuggestedOutfits,
+      explicitConstraints: intent.explicitConstraints || [],
       options: {
         ...options,
         correctiveInstruction: correctivePrompt,
@@ -516,11 +835,43 @@ export const runStylistPipeline = async ({
     if (!validation.valid) {
       traceLogger.logTraceStep({
         traceId,
-        step: 'hallucination_fail_closed',
+        step: 'hallucination_safe_fallback',
         userId,
+        invalidIds: validation.invalidIds,
       });
-      throw new ApiError(500, 'AI outfit generation failed candidate integrity verification');
+
+      // P1.6: Never throw a 500 internal error or persist invalid/hallucinated items.
+      // Recover safely using strictly validated candidate outfits only.
+      const safeOutfits = outfitValidator.filterValidOutfits(compResult.outfits, candidatesBySlot, anchor);
+      if (safeOutfits.length > 0) {
+        compResult.outfits = safeOutfits;
+      } else {
+        compResult.outfits = [];
+        compResult.sufficiency = 'none';
+      }
     }
+  }
+
+  // Invariant Consistency Guard:
+  // If the composition step returned no outfits (outfits.length === 0),
+  // the wardrobe has provided ZERO wearable looks for this occasion.
+  // Sufficiency cannot be 'partial'; it must be 'none'.
+  // And missingSlots must cover ALL required slots for the event (unless anchor is present)
+  // so external search and acquisition recommendations recommend a COMPLETE outfit to buy.
+  if (compResult.outfits.length === 0) {
+    compResult.sufficiency = 'none';
+    const allRequired = resolvedDressCode.requiredSlots || ['top', 'bottom', 'shoes'];
+    const missingSet = new Set(compResult.missingSlots || []);
+    if (!anchor) {
+      for (const slot of allRequired) {
+        missingSet.add(slot);
+      }
+    }
+    compResult.missingSlots = Array.from(missingSet);
+    const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
+    compResult.gapDescriptions = compResult.missingSlots.map((s) =>
+      renderStep.getLocalizedGapDescription(s, primaryFormality, intent.language)
+    );
   }
 
   // 7. Hydrate Authentic Garment Documents & Persist Outfits
@@ -579,6 +930,10 @@ export const runStylistPipeline = async ({
     searchQuotaBlocked = !quotaCheck.allowed;
 
     if (quotaCheck.allowed) {
+      // Checkpoint 4: Cooperative cancellation check before external product search
+      if (await stylistRequestService.isCancelled(traceId)) {
+        return buildCancelledResponse();
+      }
       try {
         await entitlementService.consume(userId, 'ai.productSearch.monthly', 1, 'client');
         const primaryFormality = resolvedDressCode.formality?.[0] || 'formal';
@@ -592,8 +947,33 @@ export const runStylistPipeline = async ({
         let gapQuery;
         let gapItems;
         if (intent.isShoppingRequest && compResult.sufficiency === 'good') {
-          gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
-          gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          if (anchor) {
+            const anchorDesc = [anchor.colorFamily, anchor.subcategory || anchor.category].filter(Boolean).join(' ');
+            gapQuery = intent.language === 'ar'
+              ? `تنسيق ملابس مع ${anchorDesc}`
+              : `Outfits coordinating with ${anchorDesc}`;
+
+            const isTopOrOuterwear = anchor.category === 'top' || anchor.category === 'outerwear';
+            if (isTopOrOuterwear) {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص داخلي كلاسيكي للارتداء تحت السترة' : 'layering collared shirt' },
+                { slot: 'bottom', description: intent.language === 'ar' ? 'بنطال تشينو أو قماش متناسق' : 'coordinating trousers or chinos' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء لوفر أو رسمي متناسق' : 'coordinating leather shoes or loafers' },
+              ];
+            } else if (anchor.category === 'bottom') {
+              gapItems = [
+                { slot: 'top', description: intent.language === 'ar' ? 'قميص أو تيشيرت متناسق' : 'coordinating shirt' },
+                { slot: 'outerwear', description: intent.language === 'ar' ? 'جاكيت أو سترة متناسقة' : 'coordinating jacket or layer' },
+                { slot: 'shoes', description: intent.language === 'ar' ? 'حذاء متناسق' : 'coordinating shoes' },
+              ];
+            } else {
+              const compSlots = deriveComplementarySlots(anchor.category);
+              gapItems = compSlots.map((s) => ({ slot: s }));
+            }
+          } else {
+            gapQuery = intent.retrievalQueryEn || intent.occasion || resolvedDressCode.eventType || 'outfit';
+            gapItems = [{ slot: 'top' }, { slot: 'bottom' }, { slot: 'shoes' }];
+          }
         } else {
           gapQuery =
             compResult.gapDescriptions?.length > 0
@@ -615,6 +995,8 @@ export const runStylistPipeline = async ({
           locale: intent.language,
           budget: intent.budget || undefined,
           isShoppingRequest: Boolean(intent.isShoppingRequest),
+          useShoppingProvider: true,
+          anchorGarment: anchor,
         });
 
         traceLogger.logTraceStep({
@@ -681,37 +1063,107 @@ export const runStylistPipeline = async ({
     searchQuotaBlocked,
   });
 
-  if (activeConversationId) {
-    try {
-      let assistantRationale;
-      if (intent.isShoppingRequest && searchQuotaBlocked) {
-        assistantRationale = intent.language === 'ar'
-          ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
-          : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.';
-      } else if (intent.isShoppingRequest) {
-        assistantRationale = intent.language === 'ar'
-          ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
-          : 'Here are clothing pieces suggested from online retailers for you.';
-      } else {
-        assistantRationale = compResult.outfits[0]?.rationale || 'Stylist recommendations generated';
-      }
-
-      await conversationService.addMessage(activeConversationId, userId, {
-        role: 'assistant',
-        content: assistantRationale,
-        structuredResult: rendered,
-        traceId,
-      });
-    } catch (msgErr) {
-      logger.warn('Failed to record assistant AiMessage:', msgErr.message);
+  let searchStatus = 'skipped';
+  if (searchQuotaBlocked) {
+    searchStatus = 'quota_blocked';
+  } else if (intent.isShoppingRequest || compResult.sufficiency !== 'good') {
+    if (externalSuggestions && externalSuggestions.length > 0) {
+      searchStatus = 'success';
+    } else {
+      searchStatus = 'no_results';
     }
   }
 
-  return {
-    ...rendered,
-    conversationId: activeConversationId,
-    traceId,
-  };
+  let responseType = 'success';
+  if ((!rendered.outfits || rendered.outfits.length === 0) && (compResult.clarificationQuestion || intent.clarificationQuestion)) {
+    responseType = 'clarification';
+  } else if (intent.isShoppingRequest) {
+    responseType = (searchQuotaBlocked || searchStatus === 'no_results') ? 'partial_results' : 'success';
+  } else if (
+    (rendered.outfits?.length > 0 && rendered.missingSlots?.length > 0) ||
+    rendered.sufficiency === 'partial' ||
+    rendered.sufficiency === 'none'
+  ) {
+    responseType = 'partial_results';
+  }
+
+  let assistantRationale;
+  if ((!rendered.outfits || rendered.outfits.length === 0) && (compResult.clarificationQuestion || intent.clarificationQuestion)) {
+    assistantRationale = compResult.clarificationQuestion || intent.clarificationQuestion;
+  } else if (intent.isShoppingRequest && searchQuotaBlocked) {
+    assistantRationale = intent.language === 'ar'
+      ? 'خطتك الحالية لا تتضمن ميزة البحث في المتاجر الإلكترونية. يمكنك ترقية باقتك للحصول على اقتراحات تسوق وروابط مباشرة من المتاجر.'
+      : 'Your current plan does not include online product search. Upgrade your subscription to search real items and purchase links from online stores.';
+  } else if (intent.isShoppingRequest) {
+    assistantRationale = searchStatus === 'no_results'
+      ? (intent.language === 'ar'
+          ? 'لم نتمكن من العثور على قطع متوفرة حالياً في المتاجر تطابق طلبك بدقة.'
+          : 'Could not find matching items in online stores currently.')
+      : (intent.language === 'ar'
+          ? 'إليك قطع وتنسيقات مقترحة للاقتناء من المتاجر الإلكترونية.'
+          : 'Here are clothing pieces suggested from online retailers for you.');
+  } else if (compResult.outfits.length > 0) {
+    assistantRationale = compResult.outfits[0]?.rationale || (intent.language === 'ar' ? 'إليك التنسيقات المقترحة لإطلالتك.' : 'Stylist recommendations generated');
+  } else {
+    assistantRationale = intent.language === 'ar'
+      ? 'خزانة ملابسك الحالية لا تحتوي على قطع كافية لهذه المناسبة، إليك قطع مقترحة للاقتناء من المتاجر لإكمال إطلالتك.'
+      : 'Your current wardrobe does not have enough pieces for this occasion. Here are pieces suggested to acquire from online retailers to complete your look.';
+  }
+
+    // Checkpoint 5: Cooperative cancellation check before final response persistence
+    if (await stylistRequestService.isCancelled(traceId)) {
+      return buildCancelledResponse();
+    }
+
+    if (activeConversationId) {
+      try {
+        await conversationService.addMessage(activeConversationId, userId, {
+          role: 'assistant',
+          content: assistantRationale,
+          structuredResult: {
+            ...rendered,
+            responseType,
+            searchStatus,
+          },
+          traceId,
+        });
+      } catch (msgErr) {
+        logger.warn('Failed to record assistant AiMessage:', msgErr.message);
+      }
+    }
+
+    await stylistRequestService.updateRequest(traceId, {
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantRationale,
+      result: rendered,
+      completedAt: new Date().toISOString(),
+    });
+
+    return {
+      ...rendered,
+      requestId: traceId,
+      status: 'completed',
+      responseType,
+      searchStatus,
+      assistantMessage: assistantRationale,
+      conversationId: activeConversationId,
+      traceId,
+    };
+  } catch (error) {
+    const current = await stylistRequestService.getRequestRecord(traceId);
+    if (current && !['completed', 'cancelled'].includes(current.status)) {
+      await stylistRequestService.updateRequest(traceId, {
+        status: 'failed',
+        responseType: 'error',
+        searchStatus: 'skipped',
+        assistantMessage: 'Stylist request failed to process',
+        completedAt: new Date().toISOString(),
+      });
+    }
+    throw error;
+  }
 };
 
 export default {

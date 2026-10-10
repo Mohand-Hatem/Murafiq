@@ -1,7 +1,6 @@
 import env from '../../../config/env.config.js';
 import { geminiImageProvider } from './gemini-image.provider.js';
 import { mockImageProvider } from './mock-image.provider.js';
-import { openrouterImageProvider } from './openrouter-image.provider.js';
 
 let providerOverride = null;
 
@@ -10,7 +9,7 @@ let providerOverride = null;
  *
  * Enforces production boot safety: refusing to allow 'mock' in production.
  *
- * @param {'gemini'|'mock'|'openrouter'} [providerName]
+ * @param {'gemini'|'mock'} [providerName]
  * @returns {import('./image-generation.interface.js').ImageGenerationProvider}
  */
 export const getImageProvider = (providerName = env.AI_IMAGE_PROVIDER) => {
@@ -31,11 +30,7 @@ export const getImageProvider = (providerName = env.AI_IMAGE_PROVIDER) => {
     return geminiImageProvider;
   }
 
-  if (selected === 'openrouter') {
-    return openrouterImageProvider;
-  }
-
-  throw new Error(`Unknown image provider: ${providerName}. Supported providers are 'gemini', 'mock', and 'openrouter'.`);
+  throw new Error(`Unknown image provider: ${providerName}. Supported providers are 'gemini' and 'mock'.`);
 };
 
 /**

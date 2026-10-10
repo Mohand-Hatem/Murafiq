@@ -15,8 +15,20 @@ const errorHandlerMiddleware = (err, req, res, next) => {
     statusCode = 409;
     const field = Object.keys(err.keyValue || {})[0] || 'field';
     message = `Duplicate value for ${field}`;
-  } else if (!(err instanceof ApiError) && process.env.NODE_ENV === 'production') {
-    message = 'Internal Server Error';
+  } else if (process.env.NODE_ENV === 'production') {
+    if (statusCode >= 500) {
+      if (statusCode === 504) {
+        message = 'AI service request timed out. Please try again.';
+      } else if (statusCode === 502 || statusCode === 503) {
+        message = 'AI service is temporarily unavailable. Please try again shortly.';
+      } else {
+        message = 'Internal Server Error';
+      }
+    } else if (typeof message === 'string') {
+      message = message
+        .replace(/[a-zA-Z]:\\[^\s:;,]+/g, '[path]')
+        .replace(/(\/(?:home|app|usr|var|node_modules|src)\/[^\s:;,]+)/g, '[path]');
+    }
   }
 
   const response = {
@@ -27,11 +39,16 @@ const errorHandlerMiddleware = (err, req, res, next) => {
   };
 
   if (process.env.NODE_ENV !== 'test' || statusCode >= 500) {
-    logger.error(`[${statusCode}] ${message} - Path: ${req.originalUrl}`, { stack: err.stack });
+    logger.error(`[${statusCode}] ${err.message || message} - Path: ${req.originalUrl}`, {
+      stack: err.stack,
+      requestId: req.id,
+    });
   }
 
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-    response.meta = { error: err.toString(), stack: err.stack };
+  if (process.env.NODE_ENV === 'development') {
+    response.meta = { error: err.toString(), stack: err.stack, requestId: req.id };
+  } else if (req.id) {
+    response.meta = { requestId: req.id };
   }
 
   res.status(statusCode).json(response);

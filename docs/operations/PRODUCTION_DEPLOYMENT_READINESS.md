@@ -177,7 +177,7 @@ Never store plaintext credentials or secrets in Git or documentation. The follow
 | `UPSTASH_KB_VECTOR_REST_TOKEN`| FEATURE-DEPENDENT | Upstash Vector REST token for fashion knowledge base corpus. |
 | `ALERT_EMAIL` | OPTIONAL / RECOM. | Email address for automated midnight ledger reconciliation alerts (OBS-04). |
 | `ALERT_WEBHOOK_URL` | OPTIONAL / RECOM. | HTTPS webhook destination for automated ledger discrepancy alerts (OBS-04). |
-| `AI_TRY_ON_ENABLED` | FEATURE-DEPENDENT | Boolean (`true`/`false`). If true, requires `AI_IMAGE_PROVIDER` & `OPENROUTER_API_KEY`. |
+| `AI_TRY_ON_ENABLED` | FEATURE-DEPENDENT | Boolean (`true`/`false`). If true, requires `AI_IMAGE_PROVIDER` (`gemini`) & `GEMINI_API_KEY`. |
 | `MODERATION_MODE` | OPTIONAL | Set to `'ENFORCE'` in production (defaults to `'DRY_RUN'`). |
 
 ---

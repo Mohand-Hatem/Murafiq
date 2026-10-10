@@ -13,7 +13,7 @@ export const CANONICAL_PLANS = [
       'ai.messages.lifetime': 10,
       'ai.productSearch.monthly': 0,
       'ai.tryOn.monthly': 0,
-      'ai.tryOn.trial.lifetime': 1,
+      'ai.tryOn.trial.lifetime': 0,
       'wardrobe.photos.max': 7,
     },
     isActive: true,
@@ -198,7 +198,7 @@ export const FALLBACK_FREE_ENTITLEMENTS = {
     'ai.messages.lifetime': 10,
     'ai.productSearch.monthly': 0,
     'ai.tryOn.monthly': 0,
-    'ai.tryOn.trial.lifetime': 1,
+    'ai.tryOn.trial.lifetime': 0,
     'wardrobe.photos.max': 7,
   },
   stylist: {

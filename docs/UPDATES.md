@@ -19,6 +19,11 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 12. [Update 11: Clean Response Schema & Honest Quota Feedback](#12-update-11-clean-response-schema--honest-quota-feedback)
 13. [OpenAPI / Swagger & `docs.json` Synchronization](#13-openapi--swagger--docsjson-synchronization)
 14. [Verification & Test Results](#14-verification--test-results)
+15. [Latest Updates: Free Tier Try-On Quota, OpenRouter Retirement & Google Grounding Removal](#15-latest-updates-free-tier-try-on-quota-openrouter-retirement--google-grounding-removal)
+16. [Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination](#16-update-12-multi-turn-conversation-context-10-messages--duplicate-outfit-elimination)
+17. [Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)](#17-update-13-synchronous-execution-with-resilient-polling-architecture-rule-5)
+18. [Update 14: Phase 15 AI Stylist, API Validation & Reliability Hardening](#18-update-14-phase-15-ai-stylist-api-validation--reliability-hardening)
+19. [Update 15: Layered Tops Disambiguation in Virtual Try-On (`outerwear` Auto-Promotion)](#19-update-15-layered-tops-disambiguation-in-virtual-try-on-outerwear-auto-promotion)
 
 ---
 
@@ -38,6 +43,9 @@ This document details all recent backend, AI pipeline, and Virtual Try-On update
 | **Formality Adjacency** | Wardrobe / AI | Two-pass query for small closets | ✅ Verified |
 | **Clean Response & Multi-Look** | AI Render / Compose | Single `outfits` array & 2 distinct looks | ✅ Verified |
 | **OpenAPI / `docs.json` Sync** | Docs & Tooling | Complete API contract export | ✅ Verified |
+| **10-Message Multi-Turn & Anti-Duplicate** | AI Stylist / Compose | Context window extended to 10; zero duplicate outfits | ✅ Verified |
+| **Synchronous vs Polling (Rule #5)** | AI Stylist / Requests | Synchronous 200 return + Redis polling & cancel resilience | ✅ Verified |
+| **Layered Tops in Try-On** | Virtual Try-On | Resolves dress shirt + blazer/jacket outfits to `top` + `outerwear` without slot collisions | ✅ Verified |
 
 ---
 
@@ -302,3 +310,150 @@ npm run validate:openapi
 npm run lint
 # Result: Exit 0 — 0 errors, 0 warnings
 ```
+
+---
+
+## 15. Latest Updates: Free Tier Try-On Quota, OpenRouter Retirement & Google Grounding Removal
+
+For complete details on the October 2026 Virtual Try-On updates, OpenRouter retirement (standardizing on Google Gemini "Nano Banana" / `gemini-3.1-flash-lite-image`), the free tier 0 try-on quota adjustment, 100% transition from Google Grounding to Serper Shopping search, and 12 dedicated mobile endpoints, see the dedicated reference:
+👉 **[`docs/AI_TRY_ON_AND_FREE_TIER_UPDATES.md`](AI_TRY_ON_AND_FREE_TIER_UPDATES.md)**
+
+---
+
+## 16. Update 12: Multi-Turn Conversation Context (10 Messages) & Duplicate Outfit Elimination
+
+### Problems Addressed
+1. **Repetitive Outfit Loops in Chat:** When a user with limited wardrobe items asked for an alternative look (e.g. *"شوفلي طقم تاني"*), the AI stylist repeated the exact same outfit combinations previously proposed. The model had no visibility of what had already been recommended in earlier turns.
+2. **Context Window Starvation:** The recent message limit was restricted to 3 messages, which caused follow-up turns to lose earlier event/occasion parameters and user preferences.
+3. **Conversational Follow-ups Triggering False Clarifications:** When the user asked *"شوفلي طقم تاني"*, the intent classifier evaluated the phrase in isolation, saw no explicit occasion, and returned a greeting clarification question instead of styling the alternative outfit.
+
+### Solutions Implemented
+- **10-Message Chronological Context:**
+  - In `ai-conversation.repository.js` and `ai-conversation.service.js`, increased default `limit` to 10 messages with `.sort({ createdAt: -1 }).limit(10)` and `.reverse()` to return strict chronological order.
+  - In `intent.step.js`, expanded `<conversation_context>` slice from `.slice(-3)` to `.slice(-10)`.
+- **Duplicate Outfit Elimination:**
+  - In `stylist.orchestrator.js`, extracted `previouslySuggestedOutfits` (item ID arrays and rationales) from prior assistant messages in the conversation.
+  - In `compose.step.js`, injected `<previously_suggested_outfits_in_conversation>` into `userPrompt`.
+  - Added Rule 8 (*PREVENTING DUPLICATE SUGGESTIONS & CANDIDATE EXHAUSTION*) to `buildSystemPrompt`: Gemini must explore alternative combinations, and if wardrobe candidates are exhausted, it must set `sufficiency: 'partial'` or `'none'` with concrete `gapDescriptions` rather than repeating previously recommended looks.
+- **Conversational Follow-up Occasion Inheritance:**
+  - In `intent.step.js`, added `MULTI-TURN FOLLOW-UPS & ALTERNATIVE OUTFIT REQUESTS` rules so phrases like *"شوفلي طقم تاني"* inherit occasion, formality, and context from `<conversation_context>` with `confidence: 0.9` and `clarificationQuestion: null`.
+
+---
+
+## 17. Update 13: Synchronous Execution with Resilient Polling Architecture (Rule #5)
+
+### Architectural Rationale
+Murafiq Phase 15 follows the architectural principle: **Synchronous Execution with Redis-Backed Polling Resilience** (Scope Rule #5).
+
+```
+[Mobile App]                       [Murafiq Backend]                    [Redis Cache / Memory]
+     |                                      |                                      |
+     |---- 1. POST /api/v1/ai/stylist ----->|                                      |
+     |                                      |-- 2. createRequest(requestId) ------>|
+     |                                      |      status: 'processing'            |
+     |                                      |                                      |
+     |   [HTTP connection stays open]       |-- 3. Run Pipeline (Synchronous):     |
+     |   [~30-50s pipeline processing]      |      - 5 Cooperative Checkpoints     |
+     |                                      |      - Gemini Reasoning & Vision     |
+     |                                      |      - Serper Shopping Search        |
+     |                                      |                                      |
+     |                                      |-- 4. updateRequest(requestId) ------>|
+     |                                      |      status: 'completed'             |
+     |                                      |      result: { outfits: [...] }      |
+     |                                      |                                      |
+     |<--- 5. 200 OK with full data --------|                                      |
+```
+
+### Key Principles
+1. **No Unnecessary Queue Overhead for Chat:** Main conversational stylist requests do not push jobs to BullMQ queues. This avoids `202 Accepted` queue latency, state machine polling churn on mobile chat screens, and race conditions.
+2. **Synchronous 200 Return:** The primary client endpoint `POST /api/v1/ai/stylist` keeps the connection open and returns `200 OK` with full outfit data upon completion.
+3. **Mobile Network-Drop Resilience:** While running, `stylistRequestService` tracks the request state in Redis (`ai:stylist:request:<requestId>`). If a mobile client experiences a network disconnect or socket timeout mid-flight, it can query `GET /api/v1/ai/stylist/requests/:requestId` upon reconnecting to retrieve the completed result without re-running Gemini or consuming extra quotas.
+4. **Cooperative Cancellation (`POST .../cancel`):** At 5 critical pipeline checkpoints, the backend checks `isCancelled(traceId)`. If the user cancels the request via mobile, execution halts immediately and consumed quotas are refunded.
+5. **Future-Readiness:** Because the REST contract already exposes `requestId` and status polling endpoints, migrating heavy requests to async background workers in Phase 16 requires zero breaking changes to frontend client apps.
+
+---
+
+## 18. Update 14: Stylist Request Lifecycle Hardening, Atomic Refunds & Real Try-On Quality Benchmark
+
+### Issues Resolved
+
+1. **Try-On Enqueue Failure Quota Leak (P1):**
+   - **Root Cause:** In `try-on.service.js`, if BullMQ failed to enqueue the generation job, the service logged a warning and returned `202 Accepted` to the caller. However, the user's try-on quota had already been consumed prior to enqueueing, charging users for jobs that were never executed.
+   - **Fix:** Wrapped job enqueueing in a `try...catch` block. Upon enqueue failure, `entitlementService.refundQuota` is immediately called to restore the user's quota, the generation record is transitioned to `status: 'failed'` (`errorMessage: 'Failed to enqueue generation job'`, `quotaRefunded: true`), its partial unique index is unlocked by appending a random suffix to `jobId`, and `ApiError(500)` is thrown.
+
+2. **Stylist Request Cancellation Double-Refund & Poison-Pill Race (P1):**
+   - **Root Cause:** In `stylist-request.service.js`, if `refundQuota` threw an error during cancellation, the record was still marked `refunded: true`, permanently blocking future refund retries. Additionally, concurrent cancellation requests could both enter the refund logic before either updated status.
+   - **Fix:** Implemented atomic status transition to `'cancelling'` before initiating async refund logic, locking out concurrent requests (`409` or returning in-flight cancellation). If `refundQuota` fails, `refunded` remains `false`, `lastRefundError` is recorded, and subsequent cancellation retries safely retry the refund without throwing double-refund exceptions.
+
+3. **Stylist Pipeline Failure Transition Verification (P1):**
+   - **Root Cause:** In `ai-stylist-lifecycle.test.js` Test 3, the test artificially created a separate dummy request and marked it failed itself rather than asserting that an unhandled crash in `runStylistPipeline` caused the actual pipeline request to transition to `status: 'failed'`.
+   - **Fix:** Spied on `stylistRequestService.createRequest`, captured the real `requestId` allocated during pipeline initiation, and verified that the orchestrator's catch block directly transitioned the crashed request to `status: 'failed'` with `assistantMessage: 'Stylist request failed to process'`.
+
+4. **Empty Shopping Results responseType Semantics (P2):**
+   - **Root Cause:** When an explicit shopping request (`intent.isShoppingRequest: true`) returned 0 external retailer results (`searchStatus: 'no_results'`), the orchestrator set `responseType: 'success'`.
+   - **Fix:** Updated `responseType` resolution in `stylist.orchestrator.js` to return `responseType: 'partial_results'` when `searchStatus === 'no_results'`, with an accurate Arabic/English rationale informing the user that no matching store items were found.
+
+5. **Try-On Generation User Deletion Cleanup (P2):**
+   - **Root Cause:** Deleting a try-on generation via `DELETE /api/v1/ai/try-on/:id` updated its status to `status: 'failed'` with `errorMessage: 'Deleted by user'`. Consequently, deleted generations lingered in `GET /api/v1/ai/try-on` (`listUserGenerations`) as failed jobs.
+   - **Fix:** Added `deleteById(id, userId)` to `try-on-generation.repository.js` using `TryOnGeneration.findOneAndDelete({ _id: id, userId })`, cleanly deleting the MongoDB record and destroying the authenticated Cloudinary asset.
+
+6. **Real Gemini Try-On Quality Evaluation Harness (P1):**
+   - **Root Cause:** The 11 try-on evaluation scenarios only ran against `MockImageProvider` using solid-color blocks, leaving actual multimodal vision/generation quality with Google Gemini Nano Banana unverified.
+   - **Fix:**
+     - Enhanced `scripts/evaluate-tryon-quality.js` with `--provider=gemini|mock`, `--save-outputs`, `--scenario=<id>`, and anatomical fixture synthesis (`createSyntheticPerson`, `createSyntheticGarment`).
+     - Created `scripts/benchmark-real-gemini-tryon.js` standalone runner. Live execution against Google Gemini (`gemini-3.1-flash-lite-image`) verified high-fidelity composite generation (1024x1024, sRGB, 392 KB) in 6,892 ms.
+     - Added `npm run eval:tryon:gemini` and `npm run benchmark:tryon:gemini` scripts.
+
+7. **Production Knowledge Index Verification Diagnostic (P2):**
+   - **Created `scripts/verify-knowledge-index.js`:** Confirmed 27 fashion knowledge chunks across 5 canonical topics in MongoDB, verified Upstash Vector index retrieval (similarity scores: 0.854 and 0.798), and verified MongoDB text search fallback.
+
+---
+
+## 18. Update 14: Phase 15 AI Stylist, API Validation & Reliability Hardening
+
+Comprehensive fixes and production hardening were applied across the AI Stylist pipeline, provider resilience, mobile security, and route registration.
+
+**Detailed Architecture Document:** See [`docs/PHASE_15_RELIABILITY_AND_CLEANUP_UPDATES.md`](PHASE_15_RELIABILITY_AND_CLEANUP_UPDATES.md).
+
+### Summary of Improvements
+1. **Conversation Validation & Ownership (P1.1):** Strict MongoDB ObjectId validation on `conversationId` via Zod regex (`400 Bad Request` on malformed IDs) and ownership lookup via `conversationService.getConversation` (`404 Not Found` on non-owned or nonexistent IDs before quota consumption or AI processing).
+2. **Pre-Quota Attached Image Validation (P1.2):** Validates image namespace and downloads/validates image format (bounded 8s timeout, 10MB limit, allowed MIME types) before deducting user quota. Eliminates silent text-only continuations on broken image downloads.
+3. **Bounded Provider Timeouts & Cancellation (P1.3):** Integrates native `AbortController.signal` with Google AI SDK. Local timeouts abort and fail closed with `504 Gateway Timeout` without duplicate, parallel executions.
+4. **Mobile Error Sanitization (P1.4):** Completely strips stack traces (`meta.stack`), local filesystem paths, and internal provider diagnostics from production responses. Maps 504 and 502/503 to friendly mobile messages while logging server-side with `req.id`.
+5. **Explicit Constraints & Contradiction Detection (P1.5):** Detects mutually contradictory constraints (e.g. summer beach wedding with heavy winter clothing; all-black outfit without black pieces), sets confidence to `0.3`, and asks a targeted clarification question. Injects explicit constraints into composition prompt.
+6. **Safe Outfit Integrity Fallback (P1.6):** Enhances Anti-Hallucination Gate with `filterValidOutfits` to retain strictly valid candidate looks and gracefully degrade to `outfits = []` with `sufficiency = 'none'` instead of throwing a 500 internal error.
+7. **Meaningful Wardrobe Item Names in EN & AR (P1.7):** Dynamically formats title-cased English names (`"Navy Blazer"`, `"Black Jeans"`) and natural Arabic names (`"بليزر كحلي"`, `"بنطلون جينز أسود"`) from wardrobe classification attributes without altering the database schema.
+8. **Pruned Dead Route Files (P2):** Safely removed `try-on/try-on.routes.js` and `shape-model/shape-model.routes.js` after verifying zero references, while preserving all 7 inline route registrations in `ai.routes.js`.
+9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (23/23 passing). Full suite of 136 Phase 15 automated tests passing (100% green).
+
+---
+
+## 19. Update 15: Layered Tops Disambiguation in Virtual Try-On (`outerwear` Auto-Promotion)
+
+### Problem
+When clients or stylists attempted to initiate a Virtual Try-On using an outfit (`POST /api/v1/ai/try-on` with `outfitId`) that includes both a base shirt (e.g. Oxford shirt) and a layering piece (e.g. Blazer, Jacket, Cardigan), the API returned an HTTP `400 Bad Request`:
+```json
+{
+  "success": false,
+  "message": "Conflicting outfit slots: Multiple garments specified for slot 'top'"
+}
+```
+
+### Root Cause
+1. In the wardrobe normalizer (`wardrobe-attribute.normalizer.js`), blazers, suit jackets, and outerwear pieces are categorized under `category: 'top'`.
+2. When unpacking an `Outfit` for try-on in `try-on.service.js`, the service mapped `slot: item.category`, resulting in multiple garments assigned to `slot: 'top'`.
+3. In `garment-resolver.js`, `validateSlotCompatibility` treated `top` as non-repeatable, rejecting valid layered outfits composed by the AI Stylist.
+
+### Solution
+1. **Try-On Service Garment Mapper ([`src/modules/ai/try-on/try-on.service.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/try-on.service.js)):**
+   - Automatically detects outerwear-like attributes (`blazer`, `jacket`, `suit_jacket`, `coat`, `cardigan`, `sweater`, `hoodie`, `overshirt`) from item metadata (`subcategory`, `title`, `name`, `aiDescription`).
+   - If an item's category is `'top'` but it represents outerwear/layering, or if `slot: 'top'` is already claimed while `'outerwear'` is vacant, assigns `slot: 'outerwear'`.
+2. **Garment Resolver Slot Disambiguation ([`src/modules/ai/try-on/garment-resolver.js`](file:///d:/JOBS/Test/Murafiq/src/modules/ai/try-on/garment-resolver.js)):**
+   - In `validateSlotCompatibility`: If `slotCounts.top > 1` and `outerwear` is vacant, automatically promotes the outer/layering top (or the second top) to `'outerwear'`, allowing layered base + outerwear composition.
+   - Preserves strict defense for impossible clothing combinations: multiple bottoms (`bottom`), multiple shoes (`shoes`), or combining a dress with tops/bottoms still reject with `400 Bad Request`.
+3. **Automated Verification:**
+   - Added unit tests in `tests/unit/ai-tryon-service.test.js` verifying that layered outfits with shirts and blazers resolve to `top` + `outerwear` without conflicts (30/30 passing).
+   - Added section 9 regression tests in `tests/unit/phase15-regression-fixes.test.js` (23/23 passing).
+
+
+

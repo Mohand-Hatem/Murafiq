@@ -130,6 +130,195 @@ export const getLocalizedGapDescription = (
   return langKey === 'ar' ? `${formality} ${slot}` : `${formality} ${slot}`;
 };
 
+export const ARABIC_CATEGORY_NAMES = Object.freeze({
+  top: 'ملابس علوية',
+  bottom: 'ملابس سفلية',
+  shoes: 'حذاء',
+  outerwear: 'معطف / جاكيت',
+  accessory: 'إكسسوار',
+  dress: 'فستان',
+  others: 'قطعة ملابس',
+});
+
+export const ARABIC_SUBCATEGORY_NAMES = Object.freeze({
+  t_shirt: 'تيشيرت',
+  't-shirt': 'تيشيرت',
+  tshirt: 'تيشيرت',
+  shirt: 'قميص',
+  dress_shirt: 'قميص رسمي',
+  'dress shirt': 'قميص رسمي',
+  blouse: 'بلوزة',
+  polo: 'قميص بولو',
+  sweater: 'سويتر',
+  knitwear: 'سويتر تريكو',
+  hoodie: 'هودي',
+  sweatshirt: 'سويت شيرت',
+  cardigan: 'كارديجان',
+  tank_top: 'توب كت',
+  'tank top': 'توب كت',
+  top: 'توب',
+  jeans: 'بنطلون جينز',
+  trousers: 'بنطلون قماشي',
+  pants: 'بنطلون',
+  dress_pants: 'بنطلون بدلة',
+  'dress pants': 'بنطلون بدلة',
+  suit_trousers: 'بنطلون بدلة رسمية',
+  'suit trousers': 'بنطلون بدلة رسمية',
+  chinos: 'بنطلون شينو',
+  skirt: 'تنورة',
+  shorts: 'شورت',
+  leggings: 'ليجن',
+  sweatpants: 'بنطلون رياضي',
+  blazer: 'بليزر',
+  suit_jacket: 'جاكيت بدلة',
+  'suit jacket': 'جاكيت بدلة',
+  jacket: 'جاكيت',
+  leather_jacket: 'جاكيت جلد',
+  'leather jacket': 'جاكيت جلد',
+  coat: 'معطف',
+  trench_coat: 'معطف ترنش',
+  'trench coat': 'معطف ترنش',
+  overcoat: 'معطف شتوي',
+  parka: 'باركا',
+  vest: 'سديري',
+  dress: 'فستان',
+  evening_dress: 'فستان سهرة',
+  'evening dress': 'فستان سهرة',
+  evening_gown: 'فستان سهرة طويل',
+  'evening gown': 'فستان سهرة طويل',
+  cocktail_dress: 'فستان كوكتيل',
+  'cocktail dress': 'فستان كوكتيل',
+  jumpsuit: 'جمبسوت',
+  suit: 'بدلة كاملة',
+  sneakers: 'حذاء رياضي',
+  running_shoes: 'حذاء ركض رياضي',
+  'running shoes': 'حذاء ركض رياضي',
+  loafers: 'حذاء لوفر',
+  oxfords: 'حذاء أوكسفورد رسمي',
+  oxford_shoes: 'حذاء أوكسفورد رسمي',
+  'oxford shoes': 'حذاء أوكسفورد رسمي',
+  dress_shoes: 'حذاء رسمي',
+  'dress shoes': 'حذاء رسمي',
+  boots: 'بوت',
+  ankle_boots: 'هاف بوت',
+  'ankle boots': 'هاف بوت',
+  heels: 'حذاء كعب',
+  sandals: 'صندل',
+  slippers: 'سليبر',
+  belt: 'حزام',
+  watch: 'ساعة يد',
+  tie: 'ربطة عنق',
+  bowtie: 'بابيون',
+  pocket_square: 'منديل جيب',
+  'pocket square': 'منديل جيب',
+  cufflinks: 'أزرار أكمام',
+  bag: 'حقيبة',
+  handbag: 'حقيبة يد',
+  backpack: 'حقيبة ظهر',
+  scarf: 'وشاح',
+  hat: 'قبعة',
+  sunglasses: 'نظارة شمسية',
+  jewelry: 'مجوهرات',
+});
+
+export const ARABIC_COLOR_NAMES = Object.freeze({
+  black: 'أسود',
+  white: 'أبيض',
+  navy: 'كحلي',
+  blue: 'أزرق',
+  light_blue: 'سماوي',
+  'light blue': 'سماوي',
+  dark_blue: 'أزرق داكن',
+  'dark blue': 'أزرق داكن',
+  grey: 'رمادي',
+  gray: 'رمادي',
+  charcoal: 'فحمي',
+  beige: 'بيج',
+  brown: 'بني',
+  tan: 'بني فاتح',
+  camel: 'جملي',
+  cream: 'كريمي',
+  off_white: 'أوف وايت',
+  'off white': 'أوف وايت',
+  green: 'أخضر',
+  olive: 'زيتي',
+  dark_green: 'أخضر داكن',
+  'dark green': 'أخضر داكن',
+  sage: 'أخضر ميرمية',
+  red: 'أحمر',
+  burgundy: 'بورجوندي',
+  maroon: 'مارون',
+  wine: 'نبيذي',
+  pink: 'وردي',
+  rose: 'وردي',
+  yellow: 'أصفر',
+  mustard: 'خردلي',
+  orange: 'برتقالي',
+  purple: 'بنفسجي',
+  violet: 'بنفسجي',
+  lavender: 'لافندر',
+  gold: 'ذهبي',
+  silver: 'فضي',
+});
+
+/**
+ * Generates a readable, localized display name for a wardrobe item.
+ *
+ * Checks explicit item.name or item.title first.
+ * If absent, constructs a meaningful name from garment attributes
+ * (color, subcategory, category) in English or Arabic.
+ *
+ * @param {Object} item
+ * @param {'ar'|'en'} [language='en']
+ * @returns {string}
+ */
+export const formatWardrobeItemName = (item, language = 'en') => {
+  if (!item) return language === 'ar' ? 'قطعة ملابس' : 'Wardrobe Item';
+
+  const explicitName = (item.name || item.title || '').trim();
+  if (explicitName) return explicitName;
+
+  const isAr = language === 'ar';
+  const rawSubcategory = (item.subcategory || '').trim().toLowerCase();
+  const rawCategory = (item.category || '').trim().toLowerCase();
+  const rawColor = (item.primaryColor || item.colorFamily || '').trim().toLowerCase();
+
+  if (isAr) {
+    const arNoun = ARABIC_SUBCATEGORY_NAMES[rawSubcategory] ||
+      ARABIC_CATEGORY_NAMES[rawCategory] ||
+      (rawSubcategory ? rawSubcategory.replace(/_/g, ' ') : (rawCategory ? rawCategory : 'قطعة ملابس'));
+
+    const arColor = ARABIC_COLOR_NAMES[rawColor];
+
+    if (arColor && arNoun) {
+      return `${arNoun} ${arColor}`;
+    }
+    return arNoun || 'قطعة ملابس';
+  }
+
+  const cleanSubcategory = rawSubcategory.replace(/_/g, ' ');
+  const cleanCategory = rawCategory.replace(/_/g, ' ');
+  const noun = cleanSubcategory || cleanCategory || 'Wardrobe Item';
+
+  const formattedNoun = noun
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+  if (rawColor) {
+    const cleanColor = rawColor.replace(/_/g, ' ');
+    const formattedColor = cleanColor
+      .split(' ')
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    return `${formattedColor} ${formattedNoun}`;
+  }
+
+  return formattedNoun;
+};
+
 /**
  * Renders the final user-facing response payload strictly from validated, hydrated data.
  *
@@ -168,6 +357,7 @@ export const renderStylistResponse = ({
   const anchorGarment = anchor && !matchResult?.matched
     ? {
         id: anchor.id || 'anchor_item',
+        name: formatWardrobeItemName(anchor, language),
         category: anchor.category || 'top',
         subcategory: anchor.subcategory || null,
         imageUrl: anchor.imageUrl || '',
@@ -194,7 +384,7 @@ export const renderStylistResponse = ({
         if (!item) return null;
         return {
           itemId: item._id ? item._id.toString() : String(item.id || id),
-          name: item.name || 'Wardrobe Item',
+          name: formatWardrobeItemName(item, language),
           category: item.category || 'top',
           subcategory: item.subcategory || null,
           imageUrl: item.imageUrl || '',
@@ -318,4 +508,5 @@ export default {
   generateAcquisitionSuggestions,
   getLocalizedGapDescription,
   getStylistBookingCta,
+  formatWardrobeItemName,
 };

@@ -21,6 +21,8 @@
     "worker:wardrobe": "cross-env NODE_ENV=development node src/jobs/workers/wardrobe-worker.runner.js",
     "worker:tryon": "cross-env NODE_ENV=development node src/jobs/workers/tryon-worker.runner.js",
     "eval:tryon": "cross-env NODE_ENV=development AI_IMAGE_PROVIDER=mock node scripts/evaluate-tryon-quality.js",
+    "eval:tryon:gemini": "cross-env NODE_ENV=development AI_IMAGE_PROVIDER=gemini node scripts/evaluate-tryon-quality.js --save-outputs",
+    "benchmark:tryon:gemini": "cross-env NODE_ENV=development node scripts/benchmark-real-gemini-tryon.js",
     "verify": "npm run lint && npm run validate:openapi && npm test"
   },
   "keywords": [],

@@ -76,7 +76,10 @@ Your duty is to compose and rank complete, stylish, occasion-appropriate outfits
 
 STRICT INVARIANTS:
 1. CANDIDATE PROVENANCE: Every "itemIds" array MUST contain ONLY exact string IDs from the provided candidate list (or the anchor garment ID if provided). Never fabricate, guess, or modify an ID.
-2. A complete outfit must cover the required slots (either top + bottom + shoes, or dress + shoes, plus appropriate outerwear/accessories if needed).
+2. OUTFIT SLOTS & COMPLETION:
+   - For 'good' sufficiency: A complete outfit must cover the required slots (top + bottom + shoes, or dress + shoes, plus outerwear/accessories if appropriate).
+   - For 'partial' sufficiency: You MUST include the matching wardrobe candidate items in "outfits" (for example, the top and bottom from the wardrobe), even if a required slot like shoes or outerwear is missing. Never return an empty "outfits" array [] when sufficiency is 'partial'.
+   - For 'none' sufficiency: If the wardrobe candidates cannot provide an acceptable base look for this occasion (or are completely absent or unsuitable), return an empty "outfits" array [].
 3. ELEGANCE & COLOR HARMONY: Combine pieces that complement each other in silhouette, formality, color palette, and season. Respect the user's style preferences and color restrictions.
 4. TWO-SUGGESTION RULE & RANKING: Propose up to 2 distinct ranked outfits (MANDATORY 2 LOOKS WHEN CANDIDATES PERMIT):
    - Whenever candidate garments allow multiple valid combinations, you MUST propose EXACTLY 2 distinct ranked outfits in "outfits" representing different styling angles or silhouettes (e.g. Look 1: relaxed/smart-casual direction, Look 2: sharper/more classic direction, or contrasting color palettes).
@@ -85,11 +88,15 @@ STRICT INVARIANTS:
    - Never duplicate item combinations between Outfit 1 and Outfit 2.
 5. SUFFICIENCY EVALUATION:
    - 'good': The client's wardrobe provides complete, well-fitting, high-scoring outfits. Return 2 distinct outfits in "outfits" (or 1 if candidates strictly allow only a single combination).
-   - 'partial': Complete base looks are possible, but missing key complementary or elevating pieces (e.g. jacket, tie, accessories, proper dress shoes). Return the best available partial outfit(s).
-   - 'none': The wardrobe candidates cannot fulfill the occasion's dress code adequately. Return an empty "outfits" array [].
+   - 'partial': Relevant base pieces exist in the wardrobe (e.g. matching shirt and pants), but missing key slots (e.g. shoes, suit jacket). You MUST return the partial look in "outfits" and list the missing slots in "missingSlots".
+   - 'none': The wardrobe candidates cannot fulfill the occasion's dress code. Return an empty "outfits" array [] and list all required slots in "missingSlots".
 6. GAP ANALYSIS & CONCRETE DESCRIPTIONS:
-   - In "missingSlots", list generic garment categories missing (e.g. "shoes", "outerwear", "accessory", "bottom").
+   - In "missingSlots", list generic garment categories missing (e.g. "shoes", "outerwear", "accessory", "bottom"). When sufficiency is 'none', this MUST include all required slots to assemble a complete outfit (e.g. "top", "bottom", "shoes").
    - In "gapDescriptions", when sufficiency is 'partial' or 'none', formulate concrete, specific, purchasable garment gap descriptions tailored to the event dress code, formality, season, and Egyptian styling context (e.g. "navy formal tailored trousers", "crisp white poplin dress shirt", "black polished leather oxford shoes", "charcoal wool single-breasted blazer"). Never use generic one-word descriptions like "bottoms" or "shoes". If sufficiency is 'good', return an empty array [].${anchorInstruction}
+8. PREVENTING DUPLICATE SUGGESTIONS & CANDIDATE EXHAUSTION:
+   - If previous outfits from this conversation are listed in <previously_suggested_outfits_in_conversation>, you MUST NOT suggest the exact same combination of garments.
+   - If candidate wardrobe pieces permit alternative distinct combinations, propose those instead.
+   - If candidate wardrobe items have been completely exhausted (no new valid combinations are possible), do NOT repeat an already proposed outfit. Instead, set "sufficiency" to 'partial' or 'none', include whatever alternative pieces exist (or empty [] if none), and provide actionable "gapDescriptions" for missing pieces the client needs to complete a new look.
 ${knowledgeSection}
 
 ${langInstruction}`;
@@ -123,6 +130,8 @@ export const composeAndRankOutfits = async ({
   anchor = null,
   fashionKnowledgeChunks = [],
   language = 'en',
+  previouslySuggestedOutfits = [],
+  explicitConstraints = [],
   options = {},
 }) => {
   const { temperature = 0.2, timeoutMs = 15_000 } = options;
@@ -160,7 +169,29 @@ INSTRUCTION: This anchor garment MUST be included as one of the itemIds in EVERY
 </anchor_garment>\n\n`
     : '';
 
-  const userPrompt = `${anchorSection}<dress_code_rules>
+  const previousOutfitsSection =
+    Array.isArray(previouslySuggestedOutfits) && previouslySuggestedOutfits.length > 0
+      ? `<previously_suggested_outfits_in_conversation>
+${previouslySuggestedOutfits
+  .map(
+    (o, idx) =>
+      `Look ${idx + 1}: Item IDs [${o.itemIds.join(', ')}]${o.rationale ? ` - Rationale: "${o.rationale}"` : ''}`
+  )
+  .join('\n')}
+CRITICAL: Do NOT recommend any of the exact same item combinations listed above. The client is asking for a different or new outfit.
+</previously_suggested_outfits_in_conversation>\n\n`
+      : '';
+
+  const effectiveConstraints = (Array.isArray(explicitConstraints) && explicitConstraints.length > 0)
+    ? explicitConstraints
+    : (Array.isArray(eventContext.explicitConstraints) ? eventContext.explicitConstraints : []);
+
+  const explicitConstraintsSection =
+    effectiveConstraints.length > 0
+      ? `<explicit_user_constraints>\n${effectiveConstraints.map((c) => `- ${c}`).join('\n')}\nCRITICAL: These explicit user constraints are strictly MANDATORY. You MUST respect them in candidate selection and outfit composition.\n</explicit_user_constraints>\n\n`
+      : '';
+
+  const userPrompt = `${anchorSection}${previousOutfitsSection}${explicitConstraintsSection}<dress_code_rules>
 ${dressCodeRules}
 </dress_code_rules>
 

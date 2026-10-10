@@ -10,6 +10,7 @@ import stylePreferenceService from '../../src/modules/ai/preferences/style-prefe
 import outfitService from '../../src/modules/ai/outfits/outfit.service.js';
 import knowledgeService from '../../src/modules/ai/knowledge/knowledge.service.js';
 import userService from '../../src/modules/users/user.service.js';
+import conversationService from '../../src/modules/ai/conversation/ai-conversation.service.js';
 import { REFUSAL_CATEGORIES } from '../../src/modules/ai/prompts/refusal.templates.js';
 
 describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', () => {
@@ -227,7 +228,7 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
     expect(result.traceId).toBeDefined();
   });
 
-  it('Gate 6: anti-hallucination gate triggers single retry and fails closed if forgery persists', async () => {
+  it('Gate 6: anti-hallucination gate triggers single retry and recovers safely if forgery persists', async () => {
     jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({ success: true });
     jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
       inDomain: true,
@@ -259,12 +260,14 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
         missingSlots: [],
       });
 
-    await expect(
-      runStylistPipeline({
-        userId,
-        message: 'wedding outfit',
-      })
-    ).rejects.toThrow(ApiError);
+    const result = await runStylistPipeline({
+      userId,
+      message: 'wedding outfit',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.outfits).toEqual([]);
+    expect(result.sufficiency).toBe('none');
   });
 
   it('resolves genderPresentation from user profile when message intent is neutral', async () => {
@@ -347,6 +350,214 @@ describe('Unit — AI Stylist Pipeline Orchestrator (stylist.orchestrator.js)', 
     expect(getCandidatesSpy).toHaveBeenCalledWith(
       userId,
       expect.objectContaining({ genderPresentation: 'feminine' })
+    );
+  });
+
+  it('Clarification Branch: returns friendly greeting and clarification without querying candidates or composing outfits', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({
+      success: true,
+      quotaMetric: 'ai.messages.lifetime',
+      count: 1,
+    });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce(null);
+
+    const greetingQuestion = 'أهلاً بك! أنا مٌرافق، منسق أزياؤك الشخصي. كيف يمكنني مساعدتك اليوم؟';
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'ar',
+      eventType: null,
+      formality: null,
+      confidence: 0.2,
+      clarificationQuestion: greetingQuestion,
+      retrievalQueryEn: 'casual everyday outfit',
+      usage: { inputTokens: 10, outputTokens: 25 },
+      latencyMs: 50,
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates');
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits');
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'مرحبا',
+    });
+
+    expect(result.responseType).toBe('clarification');
+    expect(result.status).toBe('completed');
+    expect(result.outfits).toEqual([]);
+    expect(result.assistantMessage).toBe(greetingQuestion);
+    expect(result.searchStatus).toBe('skipped');
+    expect(getCandidatesSpy).not.toHaveBeenCalled();
+    expect(composeSpy).not.toHaveBeenCalled();
+  });
+
+  it('Clarification Branch: handles English greeting without generating outfits', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({
+      success: true,
+      quotaMetric: 'ai.messages.daily',
+      count: 1,
+    });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce(null);
+
+    const enQuestion = "Hello! I'm your Murafiq personal stylist. How can I help you today?";
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'en',
+      eventType: null,
+      formality: null,
+      confidence: 0.2,
+      clarificationQuestion: enQuestion,
+      retrievalQueryEn: 'casual everyday outfit',
+      usage: { inputTokens: 10, outputTokens: 20 },
+      latencyMs: 40,
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates');
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits');
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'hi',
+    });
+
+    expect(result.responseType).toBe('clarification');
+    expect(result.outfits).toHaveLength(0);
+    expect(result.assistantMessage).toBe(enQuestion);
+    expect(getCandidatesSpy).not.toHaveBeenCalled();
+    expect(composeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger clarification branch when request has resolved eventType and confidence >= 0.4', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({
+      success: true,
+      quotaMetric: 'ai.messages.lifetime',
+      count: 1,
+    });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce(null);
+
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'ar',
+      eventType: 'meeting_ex',
+      formality: 'smart_casual',
+      confidence: 0.95,
+      clarificationQuestion: 'هل تفضلين طابعاً معيناً لهذا اللقاء؟',
+      retrievalQueryEn: 'outfit ideas for meeting an ex',
+      usage: { inputTokens: 20, outputTokens: 30 },
+      latencyMs: 60,
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates').mockResolvedValueOnce({
+      top: [{ _id: 'top_1' }],
+      bottom: [{ _id: 'bot_1' }],
+      shoes: [{ _id: 'shoe_1' }],
+    });
+    jest.spyOn(stylePreferenceService, 'getPreferences').mockResolvedValueOnce({});
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [{ itemIds: ['top_1', 'bot_1', 'shoe_1'], score: 90, rationale: 'إطلالة جذابة وأنيقة' }],
+      sufficiency: 'good',
+      missingSlots: [],
+    });
+    jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValueOnce([
+      { _id: 'top_1', category: 'top' },
+      { _id: 'bot_1', category: 'bottom' },
+      { _id: 'shoe_1', category: 'shoes' },
+    ]);
+    jest.spyOn(outfitService, 'recordOutfit').mockResolvedValueOnce({ _id: 'persisted_ex_1' });
+
+    const result = await runStylistPipeline({
+      userId,
+      message: 'شوفلى طقم اقابل بيه الاكس',
+    });
+
+    expect(result.responseType).toBe('success');
+    expect(result.outfits).toHaveLength(1);
+    expect(getCandidatesSpy).toHaveBeenCalled();
+    expect(composeSpy).toHaveBeenCalled();
+  });
+
+  it('fetches up to 10 recent messages and passes previouslySuggestedOutfits to composeStep', async () => {
+    jest.spyOn(entitlementService, 'consume').mockResolvedValueOnce({
+      success: true,
+      quotaMetric: 'ai.messages.lifetime',
+      count: 1,
+    });
+    jest.spyOn(userService, 'getProfile').mockResolvedValueOnce(null);
+
+    const prevOutfits = [
+      {
+        itemIds: ['top_old', 'bot_old', 'shoe_old'],
+        rationale: 'previous look',
+      },
+    ];
+
+    jest.spyOn(conversationService, 'getConversation').mockResolvedValueOnce({
+      _id: 'conv_123',
+      userId,
+    });
+    jest.spyOn(conversationService, 'getRecentMessages').mockResolvedValueOnce([
+      {
+        role: 'user',
+        content: 'شوفلي طقم',
+      },
+      {
+        role: 'assistant',
+        content: 'إليك هذا التنسيق',
+        structuredResult: {
+          outfits: prevOutfits,
+        },
+      },
+    ]);
+
+    jest.spyOn(intentStep, 'classifyAndExtract').mockResolvedValueOnce({
+      inDomain: true,
+      language: 'ar',
+      eventType: 'casual_outing',
+      formality: 'casual',
+      confidence: 0.9,
+      retrievalQueryEn: 'alternative casual outfit',
+      usage: { inputTokens: 20, outputTokens: 30 },
+      latencyMs: 50,
+    });
+
+    const getCandidatesSpy = jest.spyOn(wardrobeService, 'getWardrobeCandidates').mockResolvedValueOnce({
+      top: [{ _id: 'top_new' }],
+      bottom: [{ _id: 'bot_new' }],
+      shoes: [{ _id: 'shoe_new' }],
+    });
+    jest.spyOn(stylePreferenceService, 'getPreferences').mockResolvedValueOnce({});
+
+    const composeSpy = jest.spyOn(composeStep, 'composeAndRankOutfits').mockResolvedValueOnce({
+      outfits: [{ itemIds: ['top_new', 'bot_new', 'shoe_new'], score: 90, rationale: 'تنسيق بديل مميز' }],
+      sufficiency: 'good',
+      missingSlots: [],
+    });
+
+    jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValueOnce([
+      { _id: 'top_new', category: 'top' },
+      { _id: 'bot_new', category: 'bottom' },
+      { _id: 'shoe_new', category: 'shoes' },
+    ]);
+    jest.spyOn(outfitService, 'recordOutfit').mockResolvedValueOnce({ _id: 'persisted_new_1' });
+    jest.spyOn(conversationService, 'addMessage').mockResolvedValueOnce({});
+
+    await runStylistPipeline({
+      userId,
+      message: 'شوفلي طقم تاني',
+      conversationId: 'conv_123',
+    });
+
+    expect(conversationService.getRecentMessages).toHaveBeenCalledWith('conv_123', userId, 10);
+    expect(getCandidatesSpy).toHaveBeenCalled();
+    expect(composeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previouslySuggestedOutfits: [
+          {
+            itemIds: ['top_old', 'bot_old', 'shoe_old'],
+            rationale: 'previous look',
+          },
+        ],
+      })
     );
   });
 });
