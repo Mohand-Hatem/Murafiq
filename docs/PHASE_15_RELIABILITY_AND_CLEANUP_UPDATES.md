@@ -19,7 +19,7 @@ This document details the production hardening, mobile client protection, API va
 6. **Safe Outfit Integrity Fallback (P1.6):** Enhances the Anti-Hallucination Gate with `filterValidOutfits`. When corrective retry fails verification, retains only 100% verified candidate looks and safely degrades to `outfits = []` with `sufficiency = 'none'` instead of throwing an unhandled `500 Internal Server Error`.
 7. **Meaningful Wardrobe Item Names in EN & AR (P1.7):** Dynamically generates title-cased English names (e.g., `"Navy Blazer"`, `"Black Jeans"`, `"Brown Loafers"`) and natural Arabic names (e.g., `"بليزر كحلي"`, `"بنطلون جينز أسود"`, `"حذاء لوفر بني"`) from garment metadata, replacing the generic `"Wardrobe Item"` fallback without database schema modifications.
 8. **Pruning Dead Duplicate Route Files (P2):** Deleted orphaned route files (`try-on.routes.js` and `shape-model.routes.js`) while preserving all 7 active inline route definitions in `ai.routes.js`.
-9. **Dedicated Regression Test Suite:** Added `tests/unit/phase15-regression-fixes.test.js` covering all 8 requirements end-to-end (19/19 passing).
+9. **Dedicated Regression Test Suite:** Added `tests/unit/phase15-regression-fixes.test.js` covering all 9 requirements end-to-end (23/23 passing).
 
 ---
 

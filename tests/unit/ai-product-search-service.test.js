@@ -236,10 +236,8 @@ describe('Phase 15E Step 3 — product-search.service.js', () => {
     });
 
     it('falls back gracefully to fallback query planning when Planner LLM throws', async () => {
-      // Planner throws on both attempt 1 and attempt 2 (retry)
-      mockGenerateContent
-        .mockRejectedValueOnce(new Error('LLM timeout on planner attempt 1'))
-        .mockRejectedValueOnce(new Error('LLM timeout on planner attempt 2'));
+      // Planner throws (non-transient timeout fails closed on attempt 1 without retry)
+      mockGenerateContent.mockRejectedValueOnce(new Error('LLM timeout on planner'));
 
       // Ranker succeeds
       mockGenerateContent.mockResolvedValueOnce({

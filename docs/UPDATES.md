@@ -424,7 +424,7 @@ Comprehensive fixes and production hardening were applied across the AI Stylist 
 6. **Safe Outfit Integrity Fallback (P1.6):** Enhances Anti-Hallucination Gate with `filterValidOutfits` to retain strictly valid candidate looks and gracefully degrade to `outfits = []` with `sufficiency = 'none'` instead of throwing a 500 internal error.
 7. **Meaningful Wardrobe Item Names in EN & AR (P1.7):** Dynamically formats title-cased English names (`"Navy Blazer"`, `"Black Jeans"`) and natural Arabic names (`"بليزر كحلي"`, `"بنطلون جينز أسود"`) from wardrobe classification attributes without altering the database schema.
 8. **Pruned Dead Route Files (P2):** Safely removed `try-on/try-on.routes.js` and `shape-model/shape-model.routes.js` after verifying zero references, while preserving all 7 inline route registrations in `ai.routes.js`.
-9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (23/23 passing). Full suite of 136 Phase 15 automated tests passing (100% green).
+9. **Automated Verification:** Added `tests/unit/phase15-regression-fixes.test.js` (23/23 passing). Full suite of 139 Phase 15 automated tests passing (123 unit, 16 integration; 100% green).
 
 ---
 
