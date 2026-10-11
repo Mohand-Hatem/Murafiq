@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 import '../../src/common/globals.js';
@@ -6,7 +6,6 @@ import { stylistRequestSchema } from '../../src/modules/ai/ai.validator.js';
 import * as aiController from '../../src/modules/ai/ai.controller.js';
 import orchestrator from '../../src/modules/ai/stylist/stylist.orchestrator.js';
 import conversationService from '../../src/modules/ai/conversation/ai-conversation.service.js';
-import entitlementService from '../../src/modules/subscriptions/entitlement.service.js';
 import * as llmProvider from '../../src/modules/ai/providers/llm.provider.js';
 import errorHandler from '../../src/common/middlewares/error-handler.middleware.js';
 import intentStep from '../../src/modules/ai/stylist/intent.step.js';
@@ -14,7 +13,7 @@ import composeStep from '../../src/modules/ai/stylist/compose.step.js';
 import outfitValidator from '../../src/modules/ai/stylist/outfit.validator.js';
 import renderStep from '../../src/modules/ai/stylist/render.step.js';
 import aiRouter from '../../src/modules/ai/ai.routes.js';
-import garmentResolver, { validateSlotCompatibility } from '../../src/modules/ai/try-on/garment-resolver.js';
+import { validateSlotCompatibility } from '../../src/modules/ai/try-on/garment-resolver.js';
 
 describe('Phase 15 — Regression Test Suite (P1 & P2 Fixes)', () => {
   beforeEach(() => {

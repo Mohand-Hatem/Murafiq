@@ -350,8 +350,8 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
       expect(verifyRes.body.success).toBe(true);
 
       // Both confirm completion
-      const comp1 = await bookingService.confirmCompletion(clientUser, bookingId);
-      const comp2 = await bookingService.confirmCompletion(stylistUser, bookingId);
+      await bookingService.confirmCompletion(clientUser, bookingId);
+      await bookingService.confirmCompletion(stylistUser, bookingId);
 
       // Wait for event bus handlers
       await new Promise((resolve) => setTimeout(resolve, 500));
