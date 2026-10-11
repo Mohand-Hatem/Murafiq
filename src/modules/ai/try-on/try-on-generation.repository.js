@@ -155,6 +155,16 @@ export const listUserGenerations = async (userId, { page = 1, limit = 20 } = {})
   };
 };
 
+/**
+ * Deletes a generation by its ID and user (enforcing ownership).
+ * @param {string|import('mongoose').Types.ObjectId} id
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @returns {Promise<import('./try-on-generation.model.js').TryOnGeneration|null>}
+ */
+export const deleteById = async (id, userId) => {
+  return TryOnGeneration.findOneAndDelete({ _id: id, userId });
+};
+
 export default {
   create,
   findById,
@@ -167,4 +177,5 @@ export default {
   markFailed,
   markQuotaRefunded,
   listUserGenerations,
+  deleteById,
 };

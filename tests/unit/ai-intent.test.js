@@ -211,4 +211,87 @@ describe('Unit — AI Stylist Intent Step & Layer 2 Scope Gate (intent.step.js)'
       })
     );
   });
+
+  it('does NOT trigger vision schema or non_garment_image when recentMessages is present without an image', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        inDomain: true,
+        language: 'ar',
+        eventType: 'meeting_ex',
+        formality: 'smart_casual',
+        confidence: 0.95,
+        retrievalQueryEn: 'stylish outfit for meeting an ex',
+      }),
+      usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 30 },
+    });
+
+    const result = await classifyAndExtract('شوفلى طقم اقابل بيه الاكس', {
+      recentMessages: [
+        { role: 'user', content: 'مرحبا' },
+        { role: 'assistant', content: 'أهلاً بك! أنا مٌرافق' },
+      ],
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+
+    // Schema must NOT require garmentAnalysis when no image is provided
+    expect(callArgs.config.responseSchema.required).not.toContain('garmentAnalysis');
+    expect(result.inDomain).toBe(true);
+    expect(result.refusalCategory).toBeNull();
+    expect(result.imageIsGarment).toBeNull();
+    expect(result.eventType).toBe('meeting_ex');
+  });
+
+  it('safely guards against non_garment_image refusal if model hallucinated it on text-only request', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        inDomain: false,
+        refusalCategory: 'non_garment_image',
+        language: 'ar',
+        confidence: 0.5,
+      }),
+      usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 15 },
+    });
+
+    const result = await classifyAndExtract('شوفلى طقم');
+
+    expect(result.inDomain).toBe(false);
+    expect(result.refusalCategory).toBe(REFUSAL_CATEGORIES.OTHER_DOMAIN);
+  });
+
+  it('includes up to 10 recent messages in conversation_context when provided', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        inDomain: true,
+        language: 'ar',
+        eventType: 'dinner_date',
+        formality: 'smart_casual',
+        confidence: 0.9,
+        retrievalQueryEn: 'alternative smart casual dinner outfit',
+      }),
+      usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 30 },
+    });
+
+    const recentMessages = Array.from({ length: 12 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `Message ${i + 1}`,
+    }));
+
+    await classifyAndExtract('شوفلي طقم تاني', {
+      recentMessages,
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const textParts = callArgs.contents[0].parts.map((p) => p.text).join('\n');
+
+    expect(textParts).toContain('<conversation_context>');
+    // Should contain message 3 through 12 (latest 10), and not message 1 or 2
+    expect(textParts).toContain('Message 12');
+    expect(textParts).toContain('Message 3');
+    expect(textParts).not.toContain('Message 1\n');
+    expect(textParts).not.toContain('Message 2\n');
+  });
 });
+

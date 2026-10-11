@@ -24,6 +24,7 @@ try {
     app = existingApps[0];
     isFirebaseInitialized = true;
   } else if (
+    env.NODE_ENV !== 'test' &&
     env.FIREBASE_PRIVATE_KEY &&
     !env.FIREBASE_PRIVATE_KEY.includes('change_me') &&
     !env.FIREBASE_PRIVATE_KEY.includes('placeholder')

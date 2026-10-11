@@ -419,36 +419,48 @@ describe('Phase 15E Step 6 — Orchestrator Product Search & Sequential Quota', 
       usage: { inputTokens: 100, outputTokens: 40 },
     });
 
-    const result = await runStylistPipeline({
-      userId,
-      message: 'عايز حاجه تليق مع البلوفر ده',
-      imageRef: `murafiq/ai-chat/${userId}/sample-uuid-123`,
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/jpeg' }),
+      arrayBuffer: async () => new ArrayBuffer(100),
     });
 
-    expect(result.sufficiency).toBe('good');
-    expect(composeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        anchor: expect.objectContaining({
+    try {
+      const result = await runStylistPipeline({
+        userId,
+        message: 'عايز حاجه تليق مع البلوفر ده',
+        imageRef: `murafiq/ai-chat/${userId}/sample-uuid-123`,
+      });
+
+      expect(result.sufficiency).toBe('good');
+      expect(composeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: expect.objectContaining({
+            category: 'top',
+            subcategory: 'quarter-zip sweater',
+            colorFamily: 'beige',
+          }),
+        })
+      );
+      expect(result.anchor).toEqual(
+        expect.objectContaining({
           category: 'top',
           subcategory: 'quarter-zip sweater',
           colorFamily: 'beige',
-        }),
-      })
-    );
-    expect(result.anchor).toEqual(
-      expect.objectContaining({
-        category: 'top',
-        subcategory: 'quarter-zip sweater',
-        colorFamily: 'beige',
-        isAnchor: true,
-      })
-    );
-    expect(result.outfits).toHaveLength(1);
-    expect(result.outfits[0].anchor).toEqual(
-      expect.objectContaining({
-        category: 'top',
-        colorFamily: 'beige',
-      })
-    );
+          isAnchor: true,
+        })
+      );
+      expect(result.outfits).toHaveLength(1);
+      expect(result.outfits[0].anchor).toEqual(
+        expect.objectContaining({
+          category: 'top',
+          colorFamily: 'beige',
+        })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

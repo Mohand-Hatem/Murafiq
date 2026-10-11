@@ -147,7 +147,7 @@
     }
     .grid-notes {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       margin-top: 10px;
     }
@@ -188,11 +188,11 @@
     </div>
     <div class="meta">
       <div><strong>Document:</strong> AI Unit Economics & Plan Budget Matrix</div>
-      <div><strong>Date:</strong> September 2026 | <strong>FX Rate:</strong> 1 USD ≈ 49.00 EGP</div>
+      <div><strong>Date:</strong> October 2026 | <strong>FX Standard:</strong> 1 USD = 50.00 EGP</div>
     </div>
   </div>
 
-  <div class="section-title">1. Operational Model Rates & Unit Costs</div>
+  <div class="section-title">1. Operational Model Rates & Unit Costs (at 50.00 EGP / USD)</div>
   <table class="unit-table">
     <thead>
       <tr>
@@ -210,7 +210,7 @@
         <td>Google Gemini 3.1 Flash Lite</td>
         <td>Intent extraction + Outfit composition + Render</td>
         <td>$0.0020 USD</td>
-        <td><strong>~0.10 EGP</strong></td>
+        <td><strong>0.100 EGP</strong> (10 Piastres)</td>
         <td>Per completed styling turn</td>
       </tr>
       <tr>
@@ -218,24 +218,32 @@
         <td>Google Gemini 3.1 Flash Lite (Vision)</td>
         <td>Extract 14 garment attributes + category + colors + fit</td>
         <td>$0.0007 USD</td>
-        <td><strong>~0.034 EGP</strong> (3.4 Piasters)</td>
+        <td><strong>0.035 EGP</strong> (3.5 Piastres)</td>
         <td><strong>Once at upload</strong> (persisted forever in DB)</td>
       </tr>
       <tr>
-        <td><strong>External Outfit Search</strong></td>
-        <td>Google Search Grounding (Paid Rate)</td>
-        <td>Live search across Egyptian retailers with citations</td>
-        <td>$0.0153 USD</td>
-        <td><strong>~0.75 EGP</strong> (75 Piasters)</td>
-        <td>Per live web search (Free under 5k pool / Redis)</td>
+        <td><strong>External Outfit Search (Serper.dev)</strong></td>
+        <td>Serper Google Shopping Egypt (Active)</td>
+        <td>Live Egyptian retailer search ($50 / 50k queries pool)</td>
+        <td>$0.0010 USD</td>
+        <td><strong>0.050 EGP</strong> (5.0 Piastres)</td>
+        <td>Per live search query (3 queries per gap call)</td>
       </tr>
       <tr>
-        <td><strong>Nano Banana Try-On</strong></td>
-        <td>Gemini Flash Image Lite (Nano Banana 2 Lite)</td>
+        <td><strong>External Outfit Search (SerpApi)</strong></td>
+        <td>SerpApi Google Shopping (Benchmark)</td>
+        <td>Live Egyptian retailer search ($50 / 5k queries pool)</td>
+        <td>$0.0100 USD</td>
+        <td><strong>0.500 EGP</strong> (50.0 Piastres)</td>
+        <td>Per live web query (Monthly SaaS)</td>
+      </tr>
+      <tr>
+        <td><strong>Virtual Try-On (TryOn 15F)</strong></td>
+        <td>Nano Banana Models (Gemini Flash Image Lite)</td>
         <td>Shape Model + garments composite image generation</td>
         <td>$0.0336 USD</td>
-        <td><strong>~1.65 EGP</strong></td>
-        <td>Per generated try-on image</td>
+        <td><strong>1.680 EGP</strong> (168 Piastres)</td>
+        <td>Per generated try-on image (Paid tiers only)</td>
       </tr>
     </tbody>
   </table>
@@ -244,13 +252,13 @@
   <table class="master-table">
     <thead>
       <tr>
-        <th style="width: 13%;">Plan & Price</th>
+        <th style="width: 14%;">Plan & Price</th>
         <th style="width: 15%;">AI Chat Messages</th>
         <th style="width: 14%;">Wardrobe Classification</th>
-        <th style="width: 13%;">Google Searches</th>
+        <th style="width: 14%;">Product Searches (Serper)</th>
         <th style="width: 13%;">Nano Banana (Try-On)</th>
         <th style="width: 14%;">Total AI Cost (USD / EGP)</th>
-        <th style="width: 10%;">Net Profit (EGP)</th>
+        <th style="width: 12%;">Net Profit (EGP)</th>
         <th style="width: 8%;">Margin</th>
       </tr>
     </thead>
@@ -262,26 +270,26 @@
         </td>
         <td>
           <div class="cost-cell">10 total / account</div>
-          <div class="cost-sub">0.98 EGP ($0.020)</div>
+          <div class="cost-sub">1.00 EGP ($0.020)</div>
         </td>
         <td>
           <div class="cost-cell">7 items max</div>
-          <div class="cost-sub">0.24 EGP ($0.005)</div>
+          <div class="cost-sub">0.25 EGP ($0.005)</div>
         </td>
         <td>
           <div class="cost-cell">0 searches</div>
           <div class="cost-sub">0.00 EGP</div>
         </td>
         <td>
-          <div class="cost-cell">0 try-ons</div>
+          <div class="cost-cell" style="color: #64748b;">0 try-ons (Disabled)</div>
           <div class="cost-sub">0.00 EGP</div>
         </td>
         <td class="total-cost">
-          <div><strong>1.22 EGP</strong></div>
+          <div><strong>1.25 EGP</strong></div>
           <div class="cost-sub">$0.025 USD</div>
         </td>
         <td>
-          <span class="badge badge-cac">-1.22 EGP</span>
+          <span class="badge badge-cac">-1.25 EGP</span>
         </td>
         <td>
           <span class="badge badge-cac">CAC (Trial)</span>
@@ -290,129 +298,129 @@
       <tr>
         <td>
           <div class="plan-name">Client Basic</div>
-          <div class="plan-price">50 EGP / $1.02</div>
+          <div class="plan-price">50 EGP / $1.00</div>
         </td>
         <td>
           <div class="cost-cell">5 / day (~150/mo)</div>
-          <div class="cost-sub">14.70 EGP ($0.300)</div>
+          <div class="cost-sub">15.00 EGP ($0.300)</div>
         </td>
         <td>
-          <div class="cost-cell">50 items max</div>
-          <div class="cost-sub">1.72 EGP ($0.035)</div>
+          <div class="cost-cell">25 items max</div>
+          <div class="cost-sub">0.88 EGP ($0.0175)</div>
         </td>
         <td>
           <div class="cost-cell">15 searches / mo</div>
-          <div class="cost-sub">11.27 EGP ($0.230)</div>
+          <div class="cost-sub">2.25 EGP ($0.045)</div>
         </td>
         <td>
           <div class="cost-cell">4 try-ons / mo</div>
-          <div class="cost-sub">6.58 EGP ($0.134)</div>
+          <div class="cost-sub">6.72 EGP ($0.134)</div>
         </td>
         <td class="total-cost">
-          <div><strong>34.27 EGP</strong></div>
-          <div class="cost-sub">$0.699 USD</div>
+          <div><strong>24.85 EGP</strong></div>
+          <div class="cost-sub">$0.497 USD</div>
         </td>
         <td>
-          <strong style="color: #15803d;">+15.73 EGP</strong>
+          <strong style="color: #15803d;">+25.15 EGP</strong>
         </td>
         <td>
-          <span class="badge badge-success">+31.5%</span>
+          <span class="badge badge-success">+50.3%</span>
         </td>
       </tr>
       <tr>
         <td>
           <div class="plan-name">Client Mid</div>
-          <div class="plan-price">150 EGP / $3.06</div>
+          <div class="plan-price">150 EGP / $3.00</div>
         </td>
         <td>
           <div class="cost-cell">35 / day (~700 real)</div>
-          <div class="cost-sub">68.60 EGP ($1.400)</div>
+          <div class="cost-sub">70.00 EGP ($1.400)</div>
         </td>
         <td>
-          <div class="cost-cell">90 items max</div>
-          <div class="cost-sub">3.09 EGP ($0.063)</div>
+          <div class="cost-cell">45 items max</div>
+          <div class="cost-sub">1.58 EGP ($0.0315)</div>
         </td>
         <td>
           <div class="cost-cell">30 searches / mo</div>
-          <div class="cost-sub">22.49 EGP ($0.459)</div>
+          <div class="cost-sub">4.50 EGP ($0.090)</div>
         </td>
         <td>
           <div class="cost-cell">6 try-ons / mo</div>
-          <div class="cost-sub">9.88 EGP ($0.202)</div>
+          <div class="cost-sub">10.08 EGP ($0.202)</div>
         </td>
         <td class="total-cost">
-          <div><strong>104.06 EGP</strong></div>
-          <div class="cost-sub">$2.124 USD</div>
+          <div><strong>86.16 EGP</strong></div>
+          <div class="cost-sub">$1.723 USD</div>
         </td>
         <td>
-          <strong style="color: #15803d;">+45.94 EGP</strong>
+          <strong style="color: #15803d;">+63.84 EGP</strong>
         </td>
         <td>
-          <span class="badge badge-success">+30.6%</span>
+          <span class="badge badge-success">+42.6%</span>
         </td>
       </tr>
       <tr>
         <td>
           <div class="plan-name">Client Pro</div>
-          <div class="plan-price">250 EGP / $5.10</div>
+          <div class="plan-price">250 EGP / $5.00</div>
         </td>
         <td>
           <div class="cost-cell">80 / day (~1,400 real)</div>
-          <div class="cost-sub">137.20 EGP ($2.800)</div>
+          <div class="cost-sub">140.00 EGP ($2.800)</div>
         </td>
         <td>
-          <div class="cost-cell">200 items max</div>
-          <div class="cost-sub">6.86 EGP ($0.140)</div>
+          <div class="cost-cell">100 items max</div>
+          <div class="cost-sub">3.50 EGP ($0.070)</div>
         </td>
         <td>
           <div class="cost-cell">45 searches / mo</div>
-          <div class="cost-sub">33.74 EGP ($0.689)</div>
+          <div class="cost-sub">6.75 EGP ($0.135)</div>
         </td>
         <td>
           <div class="cost-cell">8 try-ons / mo</div>
-          <div class="cost-sub">13.17 EGP ($0.269)</div>
+          <div class="cost-sub">13.44 EGP ($0.269)</div>
         </td>
         <td class="total-cost">
-          <div><strong>190.97 EGP</strong></div>
-          <div class="cost-sub">$3.898 USD</div>
+          <div><strong>163.69 EGP</strong></div>
+          <div class="cost-sub">$3.274 USD</div>
         </td>
         <td>
-          <strong style="color: #15803d;">+59.03 EGP</strong>
+          <strong style="color: #15803d;">+86.31 EGP</strong>
         </td>
         <td>
-          <span class="badge badge-success">+23.6%</span>
+          <span class="badge badge-success">+34.5%</span>
         </td>
       </tr>
       <tr>
         <td>
           <div class="plan-name">Client Enterprise</div>
-          <div class="plan-price">500 EGP / $10.20</div>
+          <div class="plan-price">500 EGP / $10.00</div>
         </td>
         <td>
           <div class="cost-cell">150 / day (~2,500 real)</div>
-          <div class="cost-sub">245.00 EGP ($5.000)</div>
+          <div class="cost-sub">250.00 EGP ($5.000)</div>
         </td>
         <td>
-          <div class="cost-cell">400 items max</div>
-          <div class="cost-sub">13.72 EGP ($0.280)</div>
+          <div class="cost-cell">200 items max</div>
+          <div class="cost-sub">7.00 EGP ($0.140)</div>
         </td>
         <td>
           <div class="cost-cell">60 searches / mo</div>
-          <div class="cost-sub">44.98 EGP ($0.918)</div>
+          <div class="cost-sub">9.00 EGP ($0.180)</div>
         </td>
         <td>
           <div class="cost-cell">10 try-ons / mo</div>
-          <div class="cost-sub">16.46 EGP ($0.336)</div>
+          <div class="cost-sub">16.80 EGP ($0.336)</div>
         </td>
         <td class="total-cost">
-          <div><strong>320.16 EGP</strong></div>
-          <div class="cost-sub">$6.534 USD</div>
+          <div><strong>282.80 EGP</strong></div>
+          <div class="cost-sub">$5.656 USD</div>
         </td>
         <td>
-          <strong style="color: #15803d;">+179.84 EGP</strong>
+          <strong style="color: #15803d;">+217.20 EGP</strong>
         </td>
         <td>
-          <span class="badge badge-success">+36.0%</span>
+          <span class="badge badge-success">+43.4%</span>
         </td>
       </tr>
     </tbody>
@@ -420,22 +428,26 @@
 
   <div class="grid-notes">
     <div class="note-card">
-      <h4>1. Wardrobe Classification Invariant</h4>
-      <p>Classifying uploaded garments runs asynchronously in BullMQ. Because it runs <strong>strictly once per garment</strong> and caches normalized attributes in MongoDB, classifying 50 items costs only <strong>1.72 EGP</strong>, leaving chat reasoning free forever.</p>
+      <h4>1. Wardrobe Classification</h4>
+      <p>Garments are classified asynchronously via BullMQ. Because it runs <strong>strictly once per garment</strong> and caches normalized attributes in MongoDB, classifying 25 items costs only <strong>0.88 EGP</strong>, leaving chat reasoning free forever.</p>
     </div>
     <div class="note-card">
-      <h4>2. Safe Unit Economics on Basic</h4>
-      <p>By capping the Basic tier (50 EGP) at 5 messages/day, 15 searches, and 4 try-ons, the plan achieves a guaranteed <strong>+31.5% profit margin (+15.73 EGP)</strong> even when paying full out-of-trial rates from query #1.</p>
+      <h4>2. Unit Economics on Basic</h4>
+      <p>Capping the Basic tier (50 EGP) at 5 msgs/day, 15 searches, and 4 try-ons with Serper delivers a solid <strong>+50.3% profit margin (+25.15 EGP)</strong>, protecting company cash flow.</p>
     </div>
     <div class="note-card">
-      <h4>3. Free Trial Guard & Search Buffer</h4>
-      <p>Capping Free tier at <strong>10 lifetime messages per account</strong> cuts CAC to <strong>1.22 EGP ($0.025 USD)</strong> and eliminates bot abuse. Additionally, Google AI Studio's <strong>5,000 free monthly search queries</strong> further elevate Basic gross margins up to <strong>+45% to +55%</strong>.</p>
+      <h4>3. Zero Try-On Leak on Free</h4>
+      <p>Disabling Virtual Try-On on the Free tier sets customer acquisition cost (CAC) strictly to <strong>1.25 EGP ($0.025 USD)</strong> for 10 lifetime chat messages and 7 wardrobe slots, eliminating trial GPU waste.</p>
+    </div>
+    <div class="note-card" style="background-color: #f0fdf4; border-color: #bbf7d0;">
+      <h4 style="color: #15803d;">4. Serper 10x Advantage</h4>
+      <p>Using Serper.dev ($0.001/query) instead of SerpApi ($0.010) or Google Grounding ($0.0153) keeps search costs under <strong>2.25 EGP / month</strong> on Basic, saving thousands of pounds monthly at scale.</p>
     </div>
   </div>
 
   <div class="footer">
     <div>Murafiq (مرافق) — Confidential Internal Financial Specification</div>
-    <div>Generated from codebase: <code>plan.constants.js</code>, <code>PHASE_15E</code>, <code>PHASE_15F</code></div>
+    <div>Live Formula: <code>1 USD = 50.00 EGP</code> | Try-On on Free = 0 | Models: <code>gemini-3.1-flash-lite</code>, <code>Nano Banana</code>, <code>serper.dev</code></div>
   </div>
 
 </body>

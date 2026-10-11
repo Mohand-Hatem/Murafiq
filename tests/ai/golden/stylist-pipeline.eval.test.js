@@ -268,12 +268,14 @@ describe('Golden-Set Evaluation Harness — AI Stylist Pipeline (Flow A & Scope 
           missingSlots: [],
         });
 
-      await expect(
-        runStylistPipeline({
-          userId: evalUserId,
-          message: HALLUCINATED_ID.message,
-        })
-      ).rejects.toThrow(ApiError);
+      const result = await runStylistPipeline({
+        userId: evalUserId,
+        message: HALLUCINATED_ID.message,
+      });
+
+      expect(result.status).toBe('completed');
+      expect(result.sufficiency).toBe('none');
+      expect(result.outfits).toEqual([]);
     });
 
     it('Refusal abuse limiter: 6th refusal within 1 hour blocks before model call', async () => {

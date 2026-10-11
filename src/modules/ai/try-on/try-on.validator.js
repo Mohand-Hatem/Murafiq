@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import env from '../../../config/env.config.js';
 
 const objectIdRegex = /^[a-f0-9]{24}$/;
 
@@ -29,8 +30,8 @@ export const createTryOnSchema = {
         .optional(),
       outfitId: z.string().regex(objectIdRegex, 'Invalid outfitId ObjectId').optional(),
       itemId: z.string().regex(objectIdRegex, 'Invalid itemId ObjectId').optional(),
-      promptVersion: z.string().trim().default('v1').optional(),
-      resolution: z.enum(['512x512', '1024x1024']).default('1024x1024').optional(),
+      promptVersion: z.string().trim().default(env.AI_TRY_ON_PROMPT_VERSION || 'v1').optional(),
+      resolution: z.enum(['512x512', '1024x1024']).default(env.AI_IMAGE_RESOLUTION || '1024x1024').optional(),
     })
     .strict()
     .refine(

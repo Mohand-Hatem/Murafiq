@@ -30,41 +30,18 @@ export const setGenAiClient = (client) => {
  */
 const isTransientError = (err) => {
   if (!err) return false;
+  if (err.code === 'ETIMEDOUT' || err.isLocalTimeout) return false;
   const status = err.status || err.statusCode || err.response?.status;
-  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  if ([429, 500, 502, 503].includes(status)) return true;
 
   const message = String(err.message || '').toLowerCase();
   return (
     message.includes('resource_exhausted') ||
     message.includes('unavailable') ||
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('etimedout') ||
+    message.includes('rate limit') ||
     message.includes('econnreset') ||
-    message.includes('fetch failed') ||
-    message.includes('rate limit')
+    message.includes('fetch failed')
   );
-};
-
-/**
- * Executes a promise with an enforced timeout cutoff.
- * @param {Promise} promise
- * @param {number} ms
- * @returns {Promise}
- */
-const executeWithTimeout = (promise, ms) => {
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const err = new Error(`LLM provider call timed out after ${ms}ms`);
-      err.code = 'ETIMEDOUT';
-      reject(err);
-    }, ms);
-  });
-
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    clearTimeout(timer);
-  });
 };
 
 /**
@@ -137,19 +114,50 @@ export const complete = async ({
   }
 
   const startTime = Date.now();
+  const overallDeadline = startTime + timeoutMs;
   let lastError = null;
 
   // Single retry on transient failure
   for (let attempt = 1; attempt <= 2; attempt++) {
+    const remainingBudgetMs = overallDeadline - Date.now();
+    if (remainingBudgetMs <= 500) {
+      const timeoutErr = new Error(`LLM provider call timed out after ${timeoutMs}ms`);
+      timeoutErr.code = 'ETIMEDOUT';
+      timeoutErr.isLocalTimeout = true;
+      lastError = timeoutErr;
+      break;
+    }
+
+    const abortController = new AbortController();
+    let timeoutTimer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        try {
+          abortController.abort();
+        } catch {
+          // ignore
+        }
+        const err = new Error(`LLM provider call timed out after ${remainingBudgetMs}ms`);
+        err.code = 'ETIMEDOUT';
+        err.isLocalTimeout = true;
+        reject(err);
+      }, remainingBudgetMs);
+    });
+
     try {
-      const response = await executeWithTimeout(
-        ai.models.generateContent({
-          model,
-          contents,
-          config,
-        }),
-        timeoutMs
-      );
+      const callConfig = {
+        ...config,
+        abortSignal: abortController.signal,
+      };
+
+      const generatePromise = ai.models.generateContent({
+        model,
+        contents,
+        config: callConfig,
+      });
+
+      const response = await Promise.race([generatePromise, timeoutPromise]);
+      clearTimeout(timeoutTimer);
 
       const latencyMs = Date.now() - startTime;
       const rawText = response?.text?.trim() || '';
@@ -168,7 +176,6 @@ export const complete = async ({
 
       const inputTokens = response?.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
-      const groundingMetadata = response?.candidates?.[0]?.groundingMetadata || null;
 
       return {
         data: parsedData,
@@ -176,16 +183,21 @@ export const complete = async ({
           inputTokens,
           outputTokens,
         },
-        groundingMetadata,
         latencyMs,
       };
     } catch (err) {
+      clearTimeout(timeoutTimer);
+      try {
+        abortController.abort();
+      } catch {
+        // ignore
+      }
       lastError = err;
       const transient = isTransientError(err);
+      const remainingTime = overallDeadline - Date.now();
 
-      if (attempt === 1 && transient) {
+      if (attempt === 1 && transient && remainingTime > 2500) {
         logger.warn(`LLM provider call transient error (attempt 1/2), retrying: ${err.message}`);
-        // Backoff before retry to allow rate-limit window to clear
         await new Promise((resolve) => setTimeout(resolve, 1500));
         continue;
       }
@@ -208,11 +220,11 @@ export const complete = async ({
     throw lastError;
   }
 
-  if (lastError?.code === 'ETIMEDOUT') {
+  if (lastError?.code === 'ETIMEDOUT' || lastError?.isLocalTimeout || lastError?.name === 'AbortError') {
     throw new ApiError(504, `AI provider request timed out after ${timeoutMs}ms`);
   }
 
-  throw new ApiError(502, `AI provider unavailable or failed: ${lastError?.message || 'Unknown error'}`);
+  throw new ApiError(502, 'AI provider is temporarily unavailable. Please try again shortly.');
 };
 
 export default {

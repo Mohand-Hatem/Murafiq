@@ -239,7 +239,7 @@ describe('Phase 15F Step 3 — Image Generation Provider Seam', () => {
 
     it('throws error for unknown provider name', () => {
       expect(() => getImageProvider('unsupported_vendor')).toThrow(
-        "Unknown image provider: unsupported_vendor. Supported providers are 'gemini', 'mock', and 'openrouter'."
+        "Unknown image provider: unsupported_vendor. Supported providers are 'gemini' and 'mock'."
       );
     });
 

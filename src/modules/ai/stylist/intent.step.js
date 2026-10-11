@@ -164,9 +164,63 @@ ${EVENT_TYPES.map((t) => `   - ${t}`).join('\n')}
 7. "explicitConstraints": List specific user constraints (e.g., "no polyester", "prefer navy or charcoal", "modest long sleeves").
 8. "retrievalQueryEn": A concise, descriptive English search phrase representing the key clothing items and style attributes needed for wardrobe retrieval (e.g., "navy blue formal evening gown", "charcoal two piece business suit oxford shoes"). This is mandatory for both Arabic and English requests.
 9. "confidence": Confidence score between 0.0 and 1.0.
-10. "clarificationQuestion": If confidence is below 0.4 on an ambiguous request, formulate one polite clarifying question in the user's language. Otherwise null.
+10. "clarificationQuestion": If confidence is below 0.4 on an ambiguous request or greeting, formulate one polite clarifying question in the user's language. Otherwise null.
 11. "isShoppingRequest": Set to true ONLY if the user explicitly mentions purchasing, buying, or searching external/online stores or the internet (e.g., "من النت", "من الانترنت", "اونلاين", "مواقع", "عايز اشتري", "تسوق لي", "shop online", "from the web", "buy an outfit", "search the internet for an outfit").
-    CRITICAL ARABIC COLLOQUIAL RULE: Everyday styling requests like "شوفلي طقم", "نسق لي طقم", "اقترح لي", "رشح لي", "عايز البس", "عندي مناسبة", "شوفلي حاجة كلاسيك" mean "style an outfit for me from my wardrobe" — you MUST set "isShoppingRequest": false unless external purchase or online shopping terms ("من النت", "من الانترنت", "شراء", "اشتري", "اونلاين") are explicitly present.`;
+    CRITICAL ARABIC COLLOQUIAL RULE: Everyday styling requests like "شوفلي طقم", "نسق لي طقم", "اقترح لي", "رشح لي", "عايز البس", "عندي مناسبة", "شوفلي حاجة كلاسيك" mean "style an outfit for me from my wardrobe" — you MUST set "isShoppingRequest": false unless external purchase or online shopping terms ("من النت", "من الانترنت", "شراء", "اشتري", "اونلاين") are explicitly present.
+
+GREETINGS & GENERAL CONVERSATIONAL INQUIRIES:
+- If the user sends a greeting, hello, or conversational opener (e.g. "مرحبا", "أهلاً", "صباح الخير", "مساء الخير", "hello", "hi", "hey", "good morning") without describing an outfit, occasion, or clothing piece:
+  1. You MUST set "inDomain": true. Greetings to the stylist are strictly in-domain.
+  2. Set "eventType": null, "formality": null, "timeOfDay": null, "setting": null.
+  3. Set "confidence": 0.2 (low confidence because no styling parameters or occasion exist).
+  4. Set "retrievalQueryEn": "casual everyday outfit".
+  5. Set "clarificationQuestion" to a warm, helpful, welcoming response in the user's language as their Murafiq personal fashion stylist, asking how you can help style them today and what occasion or look they are looking for:
+     - Arabic example: "أهلاً بك! أنا مٌرافق، منسق أزياؤك الشخصي. كيف يمكنني مساعدتك اليوم؟ هل تبحث عن إطلالة لمناسبة معينة، أو ملابس عمل، أو خروجة كاجوال؟"
+     - English example: "Hello! I'm your Murafiq personal stylist. How can I help you today? Are you looking for an outfit for a specific occasion, work, or casual outing?"
+
+MULTI-TURN FOLLOW-UPS & ALTERNATIVE OUTFIT REQUESTS:
+- If the conversation context (<conversation_context>) contains an ongoing styling dialogue and the user requests another outfit or alternative styling (e.g. "شوفلي طقم تاني", "عايز اختيار تاني", "وريني تنسيق مختلف", "غيره", "give me another outfit", "show me a different look", "another option"):
+  1. You MUST set "inDomain": true.
+  2. Inherit the occasion ("eventType"), "formality", "genderPresentation", and context from the previous user/assistant turns in <conversation_context>.
+  3. Set "confidence": 0.9.
+  4. Set "clarificationQuestion": null (do NOT block with clarification; immediately proceed to compose an alternative outfit).
+  5. Formulate "retrievalQueryEn" reflecting an alternative look for that same occasion.
+
+CONTRADICTORY REQUIREMENTS & CLARIFICATION:
+- If the user provides directly contradictory, mutually exclusive constraints (e.g. requesting a summer beach look but specifying heavy winter clothing, or requesting an all-black look while prohibiting black pieces):
+  1. You MUST set "confidence": 0.3.
+  2. You MUST NOT invent an arbitrary interpretation or ignore one of the conflicting requirements.
+  3. Formulate one concise, polite clarification question in the user's language asking them to clarify which direction they prefer.
+     - Arabic example: "لاحظت وجود تعارض بين طلب ملابس صيفية وملابس شتوية ثقيلة، هل تفضل إطلالة صيفية خفيفة أم شتوية دافئة؟"
+     - English example: "I noticed conflicting requirements regarding the season and clothing weight. Would you prefer a lightweight summer look or heavier winter attire?"`;
+
+export const detectContradictions = (message = '', constraints = []) => {
+  const text = (message + ' ' + constraints.join(' ')).toLowerCase();
+
+  // Season / temperature contradiction
+  const hasSummer = /(summer|beach|صيف|صيفي|شاطئ|بحر)/i.test(text);
+  const hasWinter = /(heavy winter|winter clothing|winter coat|wool coat|شتوي|شتاء|ثقيل|صوف)/i.test(text);
+  if (hasSummer && hasWinter) {
+    return {
+      hasContradiction: true,
+      questionEn: 'I noticed conflicting requirements regarding summer and winter clothing. Would you prefer a lightweight summer look or heavier winter attire?',
+      questionAr: 'لاحظت وجود تعارض بين طلب ملابس صيفية وملابس شتوية ثقيلة. هل تفضل إطلالة صيفية خفيفة أم شتوية دافئة؟',
+    };
+  }
+
+  // Color contradiction: all black vs no black
+  const wantsBlack = /(all[- ]black|entirely black|كامل باللون الأسود|طقم أسود|طقم اسود|ملابس سوداء)/i.test(text);
+  const forbidsBlack = /(no black|without black|بدون أسود|بدون اسود|لا أريد أسود|لا اريد اسود|ممنوع الأسود|ممنوع الاسود)/i.test(text);
+  if (wantsBlack && forbidsBlack) {
+    return {
+      hasContradiction: true,
+      questionEn: 'You requested an all-black outfit while also asking for no black pieces. Could you clarify your color preference?',
+      questionAr: 'طلبت إطلالة سوداء بالكامل مع استبعاد اللون الأسود في نفس الوقت. هل تفضل اعتماد اللون الأسود أم لوناً آخر؟',
+    };
+  }
+
+  return { hasContradiction: false };
+};
 
 /**
  * Classifies the incoming message for domain compliance and extracts structured styling intent.
@@ -220,11 +274,25 @@ export const classifyAndExtract = async (message, options = {}) => {
     userParts.push(options.imagePart);
   }
 
+  if (Array.isArray(options.recentMessages) && options.recentMessages.length > 0) {
+    const contextLines = options.recentMessages
+      .slice(-10)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n');
+    userParts.push({
+      text: `<conversation_context>\n${contextLines}\n</conversation_context>`,
+    });
+  }
+
   userParts.push({
     text: `<user_styling_request>\n${String(message || '').trim()}\n</user_styling_request>`,
   });
 
-  const hasImage = userParts.length > 1;
+  const hasImage = Boolean(
+    (options.imageData?.data && options.imageData?.mimeType) ||
+    (options.inlineData?.data && options.inlineData?.mimeType) ||
+    options.imagePart
+  );
   const task = hasImage ? 'vision' : 'reasoning';
 
   // When an image is present, force Gemini to populate garmentAnalysis by marking it
@@ -253,18 +321,42 @@ export const classifyAndExtract = async (message, options = {}) => {
 
   const parsed = result.data || {};
 
-  const imageIsGarment = parsed.imageIsGarment !== undefined && parsed.imageIsGarment !== null
+  const imageIsGarment = hasImage && parsed.imageIsGarment !== undefined && parsed.imageIsGarment !== null
     ? Boolean(parsed.imageIsGarment)
     : null;
   const isRefusal = !parsed.inDomain
     || (hasImage && imageIsGarment === false)
-    || parsed.refusalCategory === REFUSAL_CATEGORIES.NON_GARMENT_IMAGE;
+    || (hasImage && parsed.refusalCategory === REFUSAL_CATEGORIES.NON_GARMENT_IMAGE);
 
-  const refusalCategory = isRefusal
-    ? (hasImage && imageIsGarment === false
-        ? REFUSAL_CATEGORIES.NON_GARMENT_IMAGE
-        : parsed.refusalCategory || REFUSAL_CATEGORIES.OTHER_DOMAIN)
-    : null;
+  let refusalCategory = null;
+  if (isRefusal) {
+    if (hasImage && imageIsGarment === false) {
+      refusalCategory = REFUSAL_CATEGORIES.NON_GARMENT_IMAGE;
+    } else if (parsed.refusalCategory === REFUSAL_CATEGORIES.NON_GARMENT_IMAGE && !hasImage) {
+      refusalCategory = REFUSAL_CATEGORIES.OTHER_DOMAIN;
+    } else {
+      refusalCategory = parsed.refusalCategory || REFUSAL_CATEGORIES.OTHER_DOMAIN;
+    }
+  }
+
+  const langKey = parsed.language === 'ar' ? 'ar' : 'en';
+  let clarificationQuestion = parsed.clarificationQuestion ? String(parsed.clarificationQuestion).trim() : null;
+  let confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 1.0;
+  const explicitConstraints = Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints : [];
+
+  const contradiction = detectContradictions(message, explicitConstraints);
+  if (contradiction.hasContradiction) {
+    confidence = 0.3;
+    clarificationQuestion = langKey === 'ar' ? contradiction.questionAr : contradiction.questionEn;
+  } else if (confidence >= 0.4 && parsed.eventType) {
+    // If the request has high confidence and a resolved occasion/event, do not block outfit generation with clarification
+    clarificationQuestion = null;
+  } else if (!isRefusal && !hasImage && !parsed.eventType && !clarificationQuestion && confidence < 0.4) {
+    // Fallback for greetings or ambiguous queries if model omitted clarificationQuestion
+    clarificationQuestion = langKey === 'ar'
+      ? 'أهلاً بك! أنا مٌرافق، منسق أزياؤك الشخصي. كيف يمكنني مساعدتك اليوم؟ هل تبحث عن إطلالة لمناسبة معينة، أو ملابس عمل، أو خروجة كاجوال؟'
+      : "Hello! I'm your Murafiq personal stylist. How can I assist you today? Are you looking for an outfit for a specific occasion, work, or casual outing?";
+  }
 
   return {
     inDomain: !isRefusal,
@@ -273,16 +365,16 @@ export const classifyAndExtract = async (message, options = {}) => {
     garmentAnalysis: parsed.garmentAnalysis && typeof parsed.garmentAnalysis === 'object'
       ? parsed.garmentAnalysis
       : null,
-    language: parsed.language === 'ar' ? 'ar' : 'en',
+    language: langKey,
     eventType: parsed.eventType ? String(parsed.eventType).trim().toLowerCase() : null,
     formality: parsed.formality || null,
     timeOfDay: parsed.timeOfDay || null,
     setting: parsed.setting || null,
     genderPresentation: parsed.genderPresentation || null,
-    explicitConstraints: Array.isArray(parsed.explicitConstraints) ? parsed.explicitConstraints : [],
+    explicitConstraints,
     retrievalQueryEn: parsed.retrievalQueryEn ? String(parsed.retrievalQueryEn).trim() : '',
-    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 1.0,
-    clarificationQuestion: parsed.clarificationQuestion || null,
+    confidence,
+    clarificationQuestion,
     isShoppingRequest: Boolean(parsed.isShoppingRequest),
     usage: result.usage,
     latencyMs: result.latencyMs,

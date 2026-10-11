@@ -186,4 +186,45 @@ describe('Unit — AI Stylist Composition Step (compose.step.js)', () => {
     expect(result.outfits[0].score).toBe(100);
     expect(result.outfits[1].score).toBe(0);
   });
+
+  it('injects previouslySuggestedOutfits into user prompt and instructs against duplicate suggestions', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        outfits: [
+          {
+            itemIds: ['top_1', 'bottom_1', 'shoes_1'],
+            rationale: 'Alternative styling with black oxfords.',
+            score: 90,
+          },
+        ],
+        sufficiency: 'good',
+        missingSlots: [],
+      }),
+      usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 40 },
+    });
+
+    const previouslySuggestedOutfits = [
+      {
+        itemIds: ['top_1', 'bottom_1', 'shoes_2'],
+        rationale: 'Initial casual styling',
+      },
+    ];
+
+    await composeAndRankOutfits({
+      candidatesBySlot: mockCandidates,
+      resolvedDressCode: mockDressCode,
+      preferences: mockPreferences,
+      previouslySuggestedOutfits,
+      language: 'en',
+    });
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+
+    expect(callArgs.contents[0].parts[0].text).toContain('<previously_suggested_outfits_in_conversation>');
+    expect(callArgs.contents[0].parts[0].text).toContain('top_1, bottom_1, shoes_2');
+    expect(callArgs.contents[0].parts[0].text).toContain('Initial casual styling');
+    expect(callArgs.config.systemInstruction).toContain('8. PREVENTING DUPLICATE SUGGESTIONS & CANDIDATE EXHAUSTION:');
+  });
 });
+

@@ -2,6 +2,7 @@ import shapeModelRepository from './shape-model.repository.js';
 import { toShapeModelDto } from './shape-model.dto.js';
 import uploadService from '../../uploads/upload.service.js';
 import { logger } from '../../../config/logger.config.js';
+import env from '../../../config/env.config.js';
 
 /**
  * Creates a new active ShapeModel, replacing any existing active model
@@ -19,7 +20,14 @@ import { logger } from '../../../config/logger.config.js';
  */
 export const createOrReplace = async (
   userId,
-  { imageRef, consent, format = 'jpg', bytes = 0, width = 0, height = 0 }
+  {
+    imageRef,
+    consent,
+    format = env.AI_SHAPE_MODEL_DEFAULT_FORMAT || 'jpg',
+    bytes = 0,
+    width = 0,
+    height = 0,
+  }
 ) => {
   const userStr = userId.toString();
   const expectedPrefix = `murafiq/shape-models/${userStr}/`;
@@ -38,8 +46,12 @@ export const createOrReplace = async (
     );
   }
 
-  if (bytes && bytes > 10 * 1024 * 1024) {
-    throw new ApiError(400, 'Shape model file size exceeds maximum limit of 10MB');
+  const maxBytes = env.AI_SHAPE_MODEL_MAX_BYTES || 10 * 1024 * 1024;
+  if (bytes && bytes > maxBytes) {
+    throw new ApiError(
+      400,
+      `Shape model file size exceeds maximum limit of ${Math.round(maxBytes / (1024 * 1024))}MB`
+    );
   }
 
   // 1. Check for existing active model

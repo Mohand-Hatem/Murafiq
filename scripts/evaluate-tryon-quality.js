@@ -3,15 +3,20 @@
  *
  * Runs the 11-scenario evaluation dataset against the active image generation provider,
  * measuring latency, image resolution compliance, buffer integrity, and memory consumption.
+ * Supports live Gemini evaluation, output image disk export, and single-scenario filtering.
  *
  * Usage:
  *   node scripts/evaluate-tryon-quality.js
+ *   node scripts/evaluate-tryon-quality.js --provider=gemini --save-outputs
+ *   node scripts/evaluate-tryon-quality.js --provider=mock --scenario=tryon_eval_001_single_top
  */
 
 if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'development';
 }
 
+import fs from 'node:fs';
+import path from 'node:path';
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 import { TRYON_EVAL_SCENARIOS } from '../tests/ai/tryon-eval/tryon-eval-dataset.js';
@@ -40,16 +45,114 @@ export async function createSyntheticImage(width = 1024, height = 1024, backgrou
 }
 
 /**
+ * Creates a realistic synthetic person image with head, neck, and torso outlines.
+ *
+ * @param {number} [width=1024]
+ * @param {number} [height=1024]
+ * @returns {Promise<Buffer>}
+ */
+export async function createSyntheticPerson(width = 1024, height = 1024) {
+  const svgPerson = `
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#E8ECEF"/>
+          <stop offset="100%" stop-color="#CFD6DC"/>
+        </radialGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#bg)"/>
+      <ellipse cx="${width * 0.5}" cy="${height * 0.22}" rx="${width * 0.1}" ry="${height * 0.13}" fill="#D8A882"/>
+      <rect x="${width * 0.46}" y="${height * 0.33}" width="${width * 0.08}" height="${height * 0.08}" fill="#C99772"/>
+      <path d="M ${width * 0.25} ${height * 0.45} Q ${width * 0.5} ${height * 0.38} ${width * 0.75} ${height * 0.45} L ${width * 0.68} ${height * 0.85} L ${width * 0.32} ${height * 0.85} Z" fill="#88929A"/>
+      <path d="M ${width * 0.25} ${height * 0.45} L ${width * 0.18} ${height * 0.82}" stroke="#D8A882" stroke-width="${width * 0.06}" stroke-linecap="round"/>
+      <path d="M ${width * 0.75} ${height * 0.45} L ${width * 0.82} ${height * 0.82}" stroke="#D8A882" stroke-width="${width * 0.06}" stroke-linecap="round"/>
+    </svg>
+  `;
+  return sharp(Buffer.from(svgPerson))
+    .jpeg({ quality: 85 })
+    .toBuffer();
+}
+
+/**
+ * Creates a realistic synthetic garment image for a specific slot.
+ *
+ * @param {number} [width=512]
+ * @param {number} [height=512]
+ * @param {string} [slot='top']
+ * @param {string} [color='#2C3E50']
+ * @returns {Promise<Buffer>}
+ */
+export async function createSyntheticGarment(width = 512, height = 512, slot = 'top', color = '#2C3E50') {
+  let pathD = '';
+  if (slot === 'top' || slot === 'outerwear') {
+    pathD = `M ${width * 0.2} ${height * 0.25} L ${width * 0.35} ${height * 0.15} L ${width * 0.65} ${height * 0.15} L ${width * 0.8} ${height * 0.25} L ${width * 0.72} ${height * 0.85} L ${width * 0.28} ${height * 0.85} Z`;
+  } else if (slot === 'bottom') {
+    pathD = `M ${width * 0.3} ${height * 0.15} L ${width * 0.7} ${height * 0.15} L ${width * 0.75} ${height * 0.85} L ${width * 0.53} ${height * 0.85} L ${width * 0.5} ${height * 0.45} L ${width * 0.47} ${height * 0.85} L ${width * 0.25} ${height * 0.85} Z`;
+  } else if (slot === 'dress') {
+    pathD = `M ${width * 0.32} ${height * 0.15} L ${width * 0.68} ${height * 0.15} L ${width * 0.82} ${height * 0.9} L ${width * 0.18} ${height * 0.9} Z`;
+  } else {
+    pathD = `M ${width * 0.2} ${height * 0.4} L ${width * 0.8} ${height * 0.4} L ${width * 0.7} ${height * 0.75} L ${width * 0.3} ${height * 0.75} Z`;
+  }
+
+  const svgGarment = `
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#F5F7FA"/>
+      <path d="${pathD}" fill="${color}" stroke="#1A252F" stroke-width="2"/>
+    </svg>
+  `;
+  return sharp(Buffer.from(svgGarment))
+    .jpeg({ quality: 85 })
+    .toBuffer();
+}
+
+/**
+ * Parses command-line arguments.
+ *
+ * @returns {Object}
+ */
+export const parseCliOptions = () => {
+  const args = process.argv.slice(2);
+  const options = {};
+  for (const arg of args) {
+    if (arg.startsWith('--provider=')) {
+      options.providerName = arg.split('=')[1];
+    } else if (arg.startsWith('--save-outputs')) {
+      const parts = arg.split('=');
+      options.saveOutputs = true;
+      if (parts[1]) options.outputDir = parts[1];
+    } else if (arg.startsWith('--scenario=')) {
+      options.scenarioFilter = arg.split('=')[1];
+    } else if (arg === '--silent') {
+      options.silent = true;
+    }
+  }
+  return options;
+};
+
+/**
  * Executes the full evaluation suite across the 11 scenarios.
  *
  * @param {Object} [options]
  * @param {Object} [options.provider] - Optional image provider override
+ * @param {string} [options.providerName] - Optional provider name ('gemini' | 'mock')
+ * @param {boolean} [options.saveOutputs=false] - Whether to write output images to disk
+ * @param {string} [options.outputDir] - Directory where output images will be stored
+ * @param {string} [options.scenarioFilter] - Optional filter by scenario ID
  * @param {boolean} [options.silent=false] - Whether to suppress console output
  * @returns {Promise<Object>} Evaluation summary and per-scenario results
  */
 export async function runTryOnEvaluation(options = {}) {
-  const { provider: customProvider, silent = false } = options;
-  const provider = customProvider || imageProviderFactory.getImageProvider();
+  const {
+    provider: customProvider,
+    providerName,
+    saveOutputs = false,
+    outputDir = 'artifacts/tryon-eval-results',
+    scenarioFilter = null,
+    silent = false,
+  } = options;
+
+  const targetProviderName = providerName || process.env.AI_IMAGE_PROVIDER || 'mock';
+  const provider = customProvider || imageProviderFactory.getImageProvider(targetProviderName);
 
   const log = (...args) => {
     if (!silent) {
@@ -57,18 +160,28 @@ export async function runTryOnEvaluation(options = {}) {
     }
   };
 
+  const scenariosToRun = scenarioFilter
+    ? TRYON_EVAL_SCENARIOS.filter((s) => s.id.includes(scenarioFilter))
+    : TRYON_EVAL_SCENARIOS;
+
   log('\n===============================================================');
   log('   Murafiq Phase 15F — Virtual Try-On Evaluation Runner');
   log('===============================================================');
   log(`Active Provider : ${provider.name || provider.constructor.name}`);
-  log(`Total Scenarios : ${TRYON_EVAL_SCENARIOS.length}`);
+  log(`Total Scenarios : ${scenariosToRun.length} (out of ${TRYON_EVAL_SCENARIOS.length})`);
+  log(`Save Outputs    : ${saveOutputs ? `Yes (${outputDir})` : 'No'}`);
   log(`Environment     : ${envConfig.NODE_ENV || 'development'}\n`);
+
+  if (saveOutputs) {
+    const resolvedDir = path.resolve(process.cwd(), outputDir);
+    await fs.promises.mkdir(resolvedDir, { recursive: true });
+  }
 
   const results = [];
   const latencies = [];
   const initialMemory = process.memoryUsage().heapUsed;
 
-  for (const scenario of TRYON_EVAL_SCENARIOS) {
+  for (const scenario of scenariosToRun) {
     const startTime = Date.now();
     let passed = false;
     let errorDetail = null;
@@ -76,27 +189,28 @@ export async function runTryOnEvaluation(options = {}) {
     let bufferSizeKb = 0;
 
     try {
-      // 1. Synthesize person image
-      const personImageBuffer = await createSyntheticImage(1024, 1024, { r: 210, g: 215, b: 220 });
+      // 1. Synthesize person image with anatomical structure
+      const personImageBuffer = await createSyntheticPerson(1024, 1024);
 
-      // 2. Synthesize garment images with distinct tints per slot
+      // 2. Synthesize garment images with realistic shapes and colors per slot
       const garmentColors = {
-        top: { r: 240, g: 240, b: 240 },
-        bottom: { r: 40, g: 60, b: 100 },
-        outerwear: { r: 160, g: 120, b: 80 },
-        dress: { r: 20, g: 120, b: 80 },
-        shoes: { r: 60, g: 40, b: 30 },
+        top: '#3498DB',
+        bottom: '#2C3E50',
+        outerwear: '#795548',
+        dress: '#16A085',
+        shoes: '#3E2723',
       };
 
       const garmentImages = [];
       for (const garment of scenario.garments) {
-        const bg = garmentColors[garment.slot] || { r: 150, g: 150, b: 150 };
-        const buffer = await createSyntheticImage(512, 512, bg);
+        const hex = garmentColors[garment.slot] || '#607D8B';
+        const buffer = await createSyntheticGarment(512, 512, garment.slot, hex);
         garmentImages.push({
           slot: garment.slot,
           buffer,
           source: garment.source,
           category: garment.category,
+          label: garment.name,
         });
       }
 
@@ -137,6 +251,12 @@ export async function runTryOnEvaluation(options = {}) {
 
       if (!formatValid) {
         throw new Error(`Invalid format: expected jpeg, received ${outputMetadata.format}`);
+      }
+
+      // 5. Optionally save output image to disk
+      if (saveOutputs) {
+        const resolvedPath = path.resolve(process.cwd(), outputDir, `${scenario.id}.jpg`);
+        await fs.promises.writeFile(resolvedPath, genResult.imageBuffer);
       }
 
       passed = true;
@@ -180,7 +300,7 @@ export async function runTryOnEvaluation(options = {}) {
   const sortedLatencies = [...latencies].sort((a, b) => a - b);
   const minLatency = sortedLatencies[0] || 0;
   const maxLatency = sortedLatencies[sortedLatencies.length - 1] || 0;
-  const meanLatency = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) || 0;
+  const meanLatency = Math.round(latencies.reduce((a, b) => a + b, 0) / (latencies.length || 1)) || 0;
   const p95Latency = sortedLatencies[Math.floor(sortedLatencies.length * 0.95)] || 0;
   const totalSizeKb = results.filter((r) => r.passed).reduce((sum, r) => sum + r.sizeKb, 0);
   const avgSizeKb = passedCount > 0 ? Math.round(totalSizeKb / passedCount) : 0;
@@ -189,7 +309,7 @@ export async function runTryOnEvaluation(options = {}) {
   log('                     EVALUATION SUMMARY');
   log('---------------------------------------------------------------');
   log(`Total Scenarios Tested : ${results.length}`);
-  log(`Passed                 : ${passedCount} (${Math.round(passedCount / results.length * 100)}%)`);
+  log(`Passed                 : ${passedCount} (${results.length ? Math.round(passedCount / results.length * 100) : 0}%)`);
   log(`Failed                 : ${failedCount}`);
   log(`Mean Latency           : ${meanLatency} ms`);
   log(`P95 Latency            : ${p95Latency} ms`);
@@ -204,7 +324,7 @@ export async function runTryOnEvaluation(options = {}) {
     totalScenarios: results.length,
     passedCount,
     failedCount,
-    successRatePct: Math.round(passedCount / results.length * 100),
+    successRatePct: results.length ? Math.round(passedCount / results.length * 100) : 0,
     latency: {
       meanMs: meanLatency,
       p95Ms: p95Latency,
@@ -220,7 +340,8 @@ export async function runTryOnEvaluation(options = {}) {
 // Execute directly if run as a CLI script
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-  runTryOnEvaluation()
+  const cliOptions = parseCliOptions();
+  runTryOnEvaluation(cliOptions)
     .then((summary) => {
       if (summary.failedCount > 0) {
         process.exit(1);

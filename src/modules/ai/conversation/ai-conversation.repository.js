@@ -43,6 +43,13 @@ export const findMessagesByConversationId = async (conversationId, { limit = 50,
     .limit(limit);
 };
 
+export const findRecentMessagesByConversationId = async (conversationId, limit = 10) => {
+  const messages = await AiMessage.find({ conversationId })
+    .sort({ createdAt: -1 })
+    .limit(limit);
+  return messages.reverse();
+};
+
 export const countMessagesByConversationId = async (conversationId) => {
   return AiMessage.countDocuments({ conversationId });
 };

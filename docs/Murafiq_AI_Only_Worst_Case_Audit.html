@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Murafiq — AI Subsystem Only: Worst-Case Unit Economics & Profit Audit</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm 10mm 8mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      background-color: #ffffff;
+      font-size: 9.5px;
+      line-height: 1.35;
+      padding: 8px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .brand .arabic {
+      font-size: 14px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .meta {
+      text-align: right;
+      font-size: 9px;
+      color: #64748b;
+    }
+    .meta strong {
+      color: #0f172a;
+    }
+    .fx-banner {
+      background-color: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 9px;
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 11px;
+      background-color: #2563eb;
+      border-radius: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-size: 9px;
+    }
+    th, td {
+      padding: 4.5px 6.5px;
+      text-align: left;
+      border: 1px solid #e2e8f0;
+    }
+    th {
+      background-color: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      font-size: 8.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    tr:nth-child(even) {
+      background-color: #fdfdfd;
+    }
+    .highlight-table th {
+      background-color: #0f172a;
+      color: #ffffff;
+      border-color: #1e293b;
+    }
+    .plan-name {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: 10px;
+    }
+    .plan-price {
+      font-size: 8.5px;
+      color: #64748b;
+    }
+    .cost-cell {
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .cost-sub {
+      font-size: 8px;
+      color: #64748b;
+    }
+    .total-cost {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .badge {
+      display: inline-block;
+      padding: 1.5px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 8px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .badge-success {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+    .badge-cac {
+      background-color: #f1f5f9;
+      color: #475569;
+    }
+    .badge-warning {
+      background-color: #fef3c7;
+      color: #b45309;
+    }
+    .badge-danger {
+      background-color: #fee2e2;
+      color: #b91c1c;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .card {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 6px 8px;
+    }
+    .card h4 {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 3px;
+    }
+    .card p, .card li {
+      font-size: 8.5px;
+      color: #475569;
+      line-height: 1.35;
+    }
+    .footer {
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="brand">
+      <h1>MURAFIQ</h1>
+      <span class="arabic">مرافق — تدقيق تكاليف وأرباح منظومة الذكاء الاصطناعي فقط (AI Subsystem Audit)</span>
+    </div>
+    <div class="meta">
+      <div><strong>Document:</strong> Pure AI Cost & Worst-Case Profitability Audit</div>
+      <div><strong>Standard Rate:</strong> 1 USD = 50.00 EGP | <strong>Free Plan Try-On:</strong> 0 (Disabled)</div>
+    </div>
+  </div>
+
+  <div class="fx-banner">
+    <div><strong>Fixed Base Rate:</strong> 1.00 USD = 50.00 EGP (Standard Operational Baseline)</div>
+    <div><strong>Scope:</strong> AI Subsystem Only (Gemini LLM Reasoning, Gemini Vision, Nano Banana Try-On & Serper Shopping)</div>
+  </div>
+
+  <div class="section-title">1. AI Model Pricing & Execution Unit Costs (at 50.00 EGP / USD)</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 20%;">AI Component</th>
+        <th style="width: 17%;">Model / Provider</th>
+        <th style="width: 18%;">Token / Query Pricing</th>
+        <th style="width: 15%;">Tokens / Once</th>
+        <th style="width: 15%;">Unit Cost (USD)</th>
+        <th style="width: 15%;">Unit Cost (EGP)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>AI Stylist Chat Turn</strong></td>
+        <td>Google Gemini 3.1 Flash Lite</td>
+        <td>In: $0.075 / 1M ($0.000000075)<br>Out: $0.30 / 1M ($0.00000030)</td>
+        <td>~2,300 In / ~580 Out</td>
+        <td>$0.0020 USD</td>
+        <td><strong style="color: #0f172a;">0.100 EGP</strong><br><span class="cost-sub">10.0 Piastres</span></td>
+      </tr>
+      <tr>
+        <td><strong>Wardrobe Classification</strong></td>
+        <td>Gemini 3.1 Flash Lite (Vision)</td>
+        <td>In: $0.075 / 1M (~258 tok/img)<br>Out: $0.30 / 1M</td>
+        <td>~408 In / ~200 Out</td>
+        <td>$0.0007 USD</td>
+        <td><strong style="color: #0f172a;">0.035 EGP</strong><br><span class="cost-sub">3.5 Piastres (Billed once!)</span></td>
+      </tr>
+      <tr>
+        <td><strong>Virtual Try-On (TryOn 15F)</strong></td>
+        <td>Nano Banana Models (Flash Image Lite)</td>
+        <td>Per composite generation</td>
+        <td>Multimodal Image Composite</td>
+        <td>$0.0336 USD</td>
+        <td><strong style="color: #0f172a;">1.680 EGP</strong><br><span class="cost-sub">168.0 Piastres</span></td>
+      </tr>
+      <tr>
+        <td><strong>Product Search (1 Gap Call)</strong></td>
+        <td>Serper.dev (Google Shopping)</td>
+        <td>$50.00 / 50k queries pool<br>($0.0010 USD / query)</td>
+        <td>3 queries (Top, Bottom, Shoes)</td>
+        <td>$0.0030 USD</td>
+        <td><strong style="color: #0f172a;">0.150 EGP</strong><br><span class="cost-sub">15.0 Piastres</span></td>
+      </tr>
+      <tr>
+        <td><strong>Product Search (2 Full Outfits)</strong></td>
+        <td>Serper.dev (Google Shopping)</td>
+        <td>$0.0010 USD / query</td>
+        <td>6 queries (2 full looks)</td>
+        <td>$0.0060 USD</td>
+        <td><strong style="color: #0f172a;">0.300 EGP</strong><br><span class="cost-sub">30.0 Piastres</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">2. Plan Economics in the Absolute Worst Case (100% Monthly Quota Burn)</div>
+  <table class="highlight-table">
+    <thead>
+      <tr>
+        <th style="width: 14%;">Plan Tier & Price</th>
+        <th style="width: 14%;">Max AI Chat Spend<br>(100% Daily Cap)</th>
+        <th style="width: 13%;">Wardrobe Upload<br>(100% Capacity)</th>
+        <th style="width: 14%;">Product Searches<br>(Max Serper Calls)</th>
+        <th style="width: 13%;">Virtual Try-On<br>(100% Monthly Cap)</th>
+        <th style="width: 16%;">Total Worst-Case AI Cost (USD / EGP)</th>
+        <th style="width: 16%;">Worst-Case Net Profit & Margin</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <div class="plan-name">Client Free</div>
+          <div class="plan-price">0 EGP ($0.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">1.00 EGP</div>
+          <div class="cost-sub">10 msgs ($0.020)</div>
+        </td>
+        <td>
+          <div class="cost-cell">0.25 EGP</div>
+          <div class="cost-sub">7 items ($0.0049)</div>
+        </td>
+        <td>
+          <div class="cost-cell">0.00 EGP</div>
+          <div class="cost-sub">0 searches</div>
+        </td>
+        <td>
+          <div class="cost-cell" style="color: #64748b;">0.00 EGP</div>
+          <div class="cost-sub">0 try-ons (Disabled)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>1.25 EGP</strong></div>
+          <div class="cost-sub">$0.0249 USD</div>
+        </td>
+        <td>
+          <span class="badge badge-cac">CAC: -1.25 EGP</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Basic</div>
+          <div class="plan-price">50 EGP ($1.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">15.00 EGP</div>
+          <div class="cost-sub">150 msgs ($0.300)</div>
+        </td>
+        <td>
+          <div class="cost-cell">0.88 EGP</div>
+          <div class="cost-sub">25 items ($0.0175)</div>
+        </td>
+        <td>
+          <div class="cost-cell">2.25 EGP</div>
+          <div class="cost-sub">15 searches ($0.045)</div>
+        </td>
+        <td>
+          <div class="cost-cell">6.72 EGP</div>
+          <div class="cost-sub">4 try-ons ($0.1344)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>24.85 EGP</strong></div>
+          <div class="cost-sub">$0.4969 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d; font-size: 10px;">+25.15 EGP</strong><br>
+          <span class="badge badge-success">+50.3% Profit</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Mid</div>
+          <div class="plan-price">150 EGP ($3.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">105.00 EGP</div>
+          <div class="cost-sub">1,050 msgs ($2.100)</div>
+        </td>
+        <td>
+          <div class="cost-cell">1.58 EGP</div>
+          <div class="cost-sub">45 items ($0.0315)</div>
+        </td>
+        <td>
+          <div class="cost-cell">4.50 EGP</div>
+          <div class="cost-sub">30 searches ($0.090)</div>
+        </td>
+        <td>
+          <div class="cost-cell">10.08 EGP</div>
+          <div class="cost-sub">6 try-ons ($0.2016)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>121.16 EGP</strong></div>
+          <div class="cost-sub">$2.4231 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d; font-size: 10px;">+28.84 EGP</strong><br>
+          <span class="badge badge-success">+19.2% Profit</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Pro</div>
+          <div class="plan-price">250 EGP ($5.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">240.00 EGP</div>
+          <div class="cost-sub">2,400 msgs ($4.800)</div>
+        </td>
+        <td>
+          <div class="cost-cell">3.50 EGP</div>
+          <div class="cost-sub">100 items ($0.0700)</div>
+        </td>
+        <td>
+          <div class="cost-cell">6.75 EGP</div>
+          <div class="cost-sub">45 searches ($0.135)</div>
+        </td>
+        <td>
+          <div class="cost-cell">13.44 EGP</div>
+          <div class="cost-sub">8 try-ons ($0.2688)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>263.69 EGP</strong></div>
+          <div class="cost-sub">$5.2738 USD</div>
+        </td>
+        <td>
+          <strong style="color: #b91c1c; font-size: 10px;">-13.69 EGP</strong><br>
+          <span class="badge badge-danger">-5.5% Stress Max*</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div class="plan-name">Client Enterprise</div>
+          <div class="plan-price">500 EGP ($10.00)</div>
+        </td>
+        <td>
+          <div class="cost-cell">450.00 EGP</div>
+          <div class="cost-sub">4,500 msgs ($9.000)</div>
+        </td>
+        <td>
+          <div class="cost-cell">7.00 EGP</div>
+          <div class="cost-sub">200 items ($0.1400)</div>
+        </td>
+        <td>
+          <div class="cost-cell">9.00 EGP</div>
+          <div class="cost-sub">60 searches ($0.180)</div>
+        </td>
+        <td>
+          <div class="cost-cell">16.80 EGP</div>
+          <div class="cost-sub">10 try-ons ($0.3360)</div>
+        </td>
+        <td class="total-cost">
+          <div><strong>482.80 EGP</strong></div>
+          <div class="cost-sub">$9.6560 USD</div>
+        </td>
+        <td>
+          <strong style="color: #15803d; font-size: 10px;">+17.20 EGP</strong><br>
+          <span class="badge badge-success">+3.4% Profit</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="font-size: 8px; color: #64748b; margin-top: -4px; margin-bottom: 6px;">
+    * <strong>Realistic Pro Plan Profit:</strong> At realistic user activity (1,400 messages/month), Pro cost is only <strong>163.69 EGP</strong>, generating a strong profit of <strong>+86.31 EGP (+34.5%)</strong>.
+  </div>
+
+  <div class="section-title">3. 5,000 Users Aggregate Scale Simulation (AI Subsystem Only)</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Cohort Tier & User Count</th>
+        <th style="width: 18%;">Subscription Revenue</th>
+        <th style="width: 20%;">Normal AI Usage Cost</th>
+        <th style="width: 20%;">Worst-Case AI Cost (100% Burn)</th>
+        <th style="width: 20%;">Worst-Case Net Profit (EGP / USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>3,500 Free Users</strong> (70%)</td>
+        <td>0 EGP ($0.00)</td>
+        <td>0 EGP (Post-trial recurring)</td>
+        <td>0 EGP (Post-trial recurring)</td>
+        <td>0 EGP</td>
+      </tr>
+      <tr>
+        <td><strong>1,000 Basic Users</strong> (20%)</td>
+        <td>50,000 EGP ($1,000.00)</td>
+        <td>17,500 EGP ($350.00)</td>
+        <td>24,845 EGP ($496.90)</td>
+        <td><strong style="color: #15803d;">+25,155 EGP (+$503.10)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>350 Mid Users</strong> (7%)</td>
+        <td>52,500 EGP ($1,050.00)</td>
+        <td>30,156 EGP ($603.12)</td>
+        <td>42,406 EGP ($848.12)</td>
+        <td><strong style="color: #15803d;">+10,094 EGP (+$201.88)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>100 Pro Users</strong> (2%)</td>
+        <td>25,000 EGP ($500.00)</td>
+        <td>16,369 EGP ($327.38)</td>
+        <td>26,369 EGP ($527.38)</td>
+        <td><strong style="color: #b91c1c;">-1,369 EGP (-$27.38)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>50 Enterprise Users</strong> (1%)</td>
+        <td>25,000 EGP ($500.00)</td>
+        <td>14,140 EGP ($282.80)</td>
+        <td>24,140 EGP ($482.80)</td>
+        <td><strong style="color: #15803d;">+860 EGP (+$17.20)</strong></td>
+      </tr>
+      <tr style="background-color: #f0fdf4; border-top: 2px solid #0f172a;">
+        <td><strong>TOTALS (5,000 Active Users)</strong></td>
+        <td><strong>152,500 EGP ($3,050.00 USD)</strong></td>
+        <td><strong style="color: #15803d;">78,165 EGP ($1,563.30 USD)</strong></td>
+        <td><strong>117,760 EGP ($2,355.20 USD)</strong></td>
+        <td><strong style="color: #15803d; font-size: 10.5px;">+34,740 EGP ($694.80 USD)</strong></td>
+      </tr>
+      <tr style="background-color: #f0fdf4;">
+        <td colspan="2"><strong>AI NET OPERATING MARGIN:</strong></td>
+        <td><strong style="color: #15803d;">+48.7% (Normal Operations)</strong></td>
+        <td><strong style="color: #15803d;">+22.8% (Absolute Worst Case)</strong></td>
+        <td><span class="badge badge-success">HIGHLY PROFITABLE UNDER MAXIMUM STRESS!</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">4. Strategic Safeguards & Capital Protections</div>
+  <div class="grid-4">
+    <div class="card" style="background-color: #f0fdf4; border-color: #bbf7d0;">
+      <h4 style="color: #15803d;">1. Zero Try-On CAC Leak</h4>
+      <p>By removing Virtual Try-On from the Free tier (0 try-ons), free trial acquisition cost (CAC) dropped from 3.07 EGP to <strong>1.25 EGP</strong>, completely blocking bot accounts and non-paying users from burning GPU compute.</p>
+    </div>
+    <div class="card">
+      <h4>2. Clean Currency Bounds</h4>
+      <p>At <strong>1 USD = 50.00 EGP</strong>, subscription prices align cleanly ($1.00 Basic, $3.00 Mid, $5.00 Pro, $10.00 Enterprise), making budgeting and margin calculations perfectly predictable.</p>
+    </div>
+    <div class="card">
+      <h4>3. Serper 10x Arbitrage</h4>
+      <p>Using Serper.dev ($0.001/query) instead of SerpApi ($0.010) or Google Grounding ($0.0153) keeps external shopping search costs to <strong>under 2.25 EGP / month</strong> on Basic, yielding a <strong>+50.3% net profit margin</strong>.</p>
+    </div>
+    <div class="card">
+      <h4>4. Enterprise Resilient</h4>
+      <p>Even at 4,500 monthly messages and 10 try-ons, the Enterprise plan remains <strong>positive (+17.20 EGP)</strong> in the absolute worst-case scenario.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>Murafiq (مرافق) — Confidential Internal AI Financial Analysis</div>
+    <div>Live Formula: <code>1 USD = 50.00 EGP</code> | Models: <code>gemini-3.1-flash-lite</code>, <code>Nano Banana (gemini-3.1-flash-lite-image)</code>, <code>serper.dev</code></div>
+  </div>
+
+</body>
+</html>

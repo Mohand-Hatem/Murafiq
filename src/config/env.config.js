@@ -84,12 +84,18 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
-  AI_IMAGE_PROVIDER: z.enum(['gemini', 'mock', 'openrouter']).default('gemini'),
+  AI_IMAGE_PROVIDER: z.enum(['gemini', 'mock']).default('gemini'),
   AI_MODEL_IMAGE: z.string().default('gemini-3.1-flash-lite-image'),
   AI_IMAGE_RESOLUTION: z.enum(['512x512', '1024x1024']).default('1024x1024'),
-  OPENROUTER_API_KEY: z.string().optional(),
-  AI_TRY_ON_MODEL: z.string().default('google/gemini-3.1-flash-lite-image'),
+  AI_TRY_ON_PROMPT_VERSION: z.string().default('v1'),
+  AI_SHAPE_MODEL_DEFAULT_FORMAT: z.string().default('jpg'),
+  AI_SHAPE_MODEL_MAX_BYTES: z.coerce.number().default(10485760), // 10MB
+  AI_TRY_ON_MODEL: z.string().default('gemini-3.1-flash-lite-image'),
   AI_TRY_ON_TIMEOUT_MS: z.coerce.number().default(60000),
+  // Phase 15E Shopping Search Provider
+  SHOPPING_PROVIDER: z.enum(['mock', 'serper', 'serpapi']).default('mock'),
+  SERPER_API_KEY: z.string().optional(),
+  SERPAPI_API_KEY: z.string().optional(),
   // Moderation enforcement switch (see moderation.service.js scanAndEnforce). This field
   // was previously read from `env.MODERATION_MODE` with no schema entry -- Zod's default
   // object parsing strips any key not declared here, so the read was permanently

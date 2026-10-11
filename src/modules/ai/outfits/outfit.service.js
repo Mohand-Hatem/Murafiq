@@ -32,9 +32,14 @@ export const setUserFeedback = async (id, userId, feedback) => {
   return outfitRepository.updateFeedback(id, userId, feedback);
 };
 
+export const deleteOutfit = async (id, userId) => {
+  return outfitRepository.deleteById(id, userId);
+};
+
 export default {
   recordOutfit,
   getOutfitById,
   getUserOutfits,
   setUserFeedback,
+  deleteOutfit,
 };

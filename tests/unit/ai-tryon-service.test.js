@@ -149,6 +149,52 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       ).rejects.toThrow('Multiple garments specified for slot');
     });
 
+    it('automatically disambiguates layered tops into outerwear when outerwear is vacant', async () => {
+      jest.spyOn(wardrobeService, 'getWardrobeItemById').mockImplementation(async (uid, id) => {
+        if (id.toString() === wardrobeItemId1) {
+          return {
+            _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+            category: 'top',
+            subcategory: 'shirt',
+            title: 'Oxford Shirt',
+            sourceUploadRef: 'ref-shirt',
+          };
+        }
+        return {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId2),
+          category: 'top',
+          subcategory: 'blazer',
+          title: 'Navy Blazer',
+          sourceUploadRef: 'ref-blazer',
+        };
+      });
+
+      const result = await garmentResolver.resolveGarments(userId, [
+        { source: 'wardrobe', itemId: wardrobeItemId1, slot: 'top' },
+        { source: 'wardrobe', itemId: wardrobeItemId2, slot: 'top' },
+      ]);
+
+      expect(result).toHaveLength(2);
+      const slots = result.map((g) => g.slot).sort();
+      expect(slots).toEqual(['outerwear', 'top']);
+    });
+
+    it('rejects three tops when outerwear is already filled', async () => {
+      jest.spyOn(wardrobeService, 'getWardrobeItemById').mockResolvedValue({
+        _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+        category: 'top',
+        sourceUploadRef: 'ref-top',
+      });
+
+      await expect(
+        garmentResolver.resolveGarments(userId, [
+          { source: 'wardrobe', itemId: wardrobeItemId1, slot: 'top' },
+          { source: 'wardrobe', itemId: wardrobeItemId1, slot: 'top' },
+          { source: 'wardrobe', itemId: wardrobeItemId1, slot: 'top' },
+        ])
+      ).rejects.toThrow('Multiple garments specified for slot');
+    });
+
     it('resolves valid wardrobe item and uploaded item combination', async () => {
       jest.spyOn(wardrobeService, 'getWardrobeItemById').mockResolvedValue({
         _id: wardrobeItemId1,
@@ -308,6 +354,51 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       );
     });
 
+    it('refunds quota, marks generation as failed, and throws 500 when queueHelper.addTryOnJob throws', async () => {
+      jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
+      jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
+      const consumeQuotaSpy = jest
+        .spyOn(entitlementService, 'consumeTryOnQuota')
+        .mockResolvedValue({ success: true, quotaSource: 'monthly' });
+      const refundQuotaSpy = jest.spyOn(entitlementService, 'refundQuota').mockResolvedValue();
+      const updateByIdSpy = jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue();
+
+      const newGenDoc = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        shapeModelId,
+        status: 'pending',
+        garments: resolvedGarments,
+        resolution: '1024x1024',
+        promptVersion: 'v1',
+        quotaSource: 'monthly',
+      };
+      jest.spyOn(tryOnRepository, 'create').mockResolvedValue(newGenDoc);
+
+      const mockQueue = {
+        addTryOnJob: jest.fn().mockRejectedValue(new Error('Redis connection lost')),
+      };
+      setQueueHelper(mockQueue);
+
+      await expect(
+        createTryOnRequest(userId, {
+          shapeModelId,
+          garments: [{ source: 'wardrobe', itemId: wardrobeItemId1 }],
+        })
+      ).rejects.toThrow(ApiError);
+
+      expect(consumeQuotaSpy).toHaveBeenCalled();
+      expect(refundQuotaSpy).toHaveBeenCalledWith(userId, 'ai.tryOn.monthly', 1);
+      expect(updateByIdSpy).toHaveBeenCalledWith(
+        newGenDoc._id,
+        expect.objectContaining({
+          status: 'failed',
+          errorMessage: 'Failed to enqueue generation job',
+          quotaRefunded: true,
+        })
+      );
+    });
+
     it('resolves garments and links outfitId when outfitId is provided', async () => {
       const mockOutfitId = new mongoose.Types.ObjectId().toString();
       const mockOutfit = {
@@ -364,6 +455,77 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
           outfitId: mockOutfit._id,
         })
       );
+    });
+
+    it('successfully handles layered outfit containing dress shirt and blazer without 400 conflict', async () => {
+      const mockOutfitId = new mongoose.Types.ObjectId().toString();
+      const mockOutfit = {
+        _id: new mongoose.Types.ObjectId(mockOutfitId),
+        userId,
+        items: [
+          new mongoose.Types.ObjectId(wardrobeItemId1),
+          new mongoose.Types.ObjectId(wardrobeItemId2),
+        ],
+      };
+
+      jest.spyOn(outfitService, 'getOutfitById').mockResolvedValue(mockOutfit);
+      jest.spyOn(wardrobeService, 'getWardrobeItemsByIds').mockResolvedValue([
+        {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+          category: 'top',
+          subcategory: 'dress_shirt',
+          title: 'White Dress Shirt',
+          sourceUploadRef: 'murafiq/wardrobe/user/shirt',
+        },
+        {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId2),
+          category: 'top',
+          subcategory: 'blazer',
+          title: 'Classic Wool Blazer',
+          sourceUploadRef: 'murafiq/wardrobe/user/blazer',
+        },
+      ]);
+      jest.spyOn(wardrobeService, 'getWardrobeItemById').mockImplementation(async (uid, id) => {
+        if (id.toString() === wardrobeItemId1) {
+          return {
+            _id: new mongoose.Types.ObjectId(wardrobeItemId1),
+            category: 'top',
+            subcategory: 'dress_shirt',
+            title: 'White Dress Shirt',
+            sourceUploadRef: 'murafiq/wardrobe/user/shirt',
+          };
+        }
+        return {
+          _id: new mongoose.Types.ObjectId(wardrobeItemId2),
+          category: 'top',
+          subcategory: 'blazer',
+          title: 'Classic Wool Blazer',
+          sourceUploadRef: 'murafiq/wardrobe/user/blazer',
+        };
+      });
+      jest.spyOn(tryOnRepository, 'findActiveByJobId').mockResolvedValue(null);
+      jest.spyOn(tryOnRepository, 'findRecentCompletedByJobId').mockResolvedValue(null);
+      jest.spyOn(entitlementService, 'consumeTryOnQuota').mockResolvedValue({ success: true, quotaSource: 'monthly' });
+
+      let capturedGarments = null;
+      jest.spyOn(tryOnRepository, 'create').mockImplementation(async (data) => {
+        capturedGarments = data.garments;
+        return {
+          _id: new mongoose.Types.ObjectId(),
+          ...data,
+          status: 'pending',
+        };
+      });
+
+      const res = await createTryOnRequest(userId, {
+        shapeModelId,
+        outfitId: mockOutfitId,
+      });
+
+      expect(res.statusCode).toBe(202);
+      expect(capturedGarments).toHaveLength(2);
+      const slots = capturedGarments.map((g) => g.slot).sort();
+      expect(slots).toEqual(['outerwear', 'top']);
     });
 
     it('throws ApiError 404 when outfitId does not exist or user does not own it', async () => {
@@ -521,24 +683,21 @@ describe('Phase 15F Step 5 — Try-On Subsystem Core', () => {
       await expect(deleteGeneration(userId, doc._id.toString())).rejects.toThrow(ApiError);
     });
 
-    it('cleans up Cloudinary output asset and marks status', async () => {
+    it('cleans up Cloudinary output asset and deletes generation record', async () => {
       const doc = {
         _id: new mongoose.Types.ObjectId(),
         userId,
         resultPublicId: 'murafiq/try-on-results/user/output123',
       };
       jest.spyOn(tryOnRepository, 'findById').mockResolvedValue(doc);
-      const deleteSpy = jest.spyOn(uploadService, 'deleteFile').mockResolvedValue({ result: 'ok' });
-      const updateSpy = jest.spyOn(tryOnRepository, 'updateById').mockResolvedValue({});
+      const deleteCloudinarySpy = jest.spyOn(uploadService, 'deleteFile').mockResolvedValue({ result: 'ok' });
+      const deleteRepoSpy = jest.spyOn(tryOnRepository, 'deleteById').mockResolvedValue(doc);
 
       const res = await deleteGeneration(userId, doc._id.toString());
 
       expect(res.success).toBe(true);
-      expect(deleteSpy).toHaveBeenCalledWith(doc.resultPublicId, { type: 'authenticated' });
-      expect(updateSpy).toHaveBeenCalledWith(
-        doc._id.toString(),
-        expect.objectContaining({ status: 'failed' })
-      );
+      expect(deleteCloudinarySpy).toHaveBeenCalledWith(doc.resultPublicId, { type: 'authenticated' });
+      expect(deleteRepoSpy).toHaveBeenCalledWith(doc._id.toString(), userId);
     });
   });
 });

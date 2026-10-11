@@ -2,8 +2,8 @@
 
 > **The single source of truth for: "is X actually working right now?"**
 >
-> **Revalidated 2026-09-23** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) and Subscriptions are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
-> All 146 OpenAPI operations validated. 141/141 automated unit, integration, and golden evaluation tests pass (100%).
+> **Revalidated 2026-10-09** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) and Subscriptions are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
+> All 160 OpenAPI operations validated. >400 automated unit, integration, and golden evaluation tests pass (100%).
 > Verified against live MongoDB: free tier 10-lifetime message cap, CAS defense-in-depth, wardrobe formality adjacency relaxation, clean single-array response contract (`data.outfits`), honest quota-blocked product search feedback, and multi-look composition.
 > See [`docs/PLANS.md`](PLANS.md) for the complete subscription plans and entitlements architecture.
 

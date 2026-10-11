@@ -136,8 +136,34 @@ Permitted Candidate IDs: [${permittedIds.join(', ')}]
 Re-compose the outfits using ONLY valid candidate IDs from the permitted list above.`;
 };
 
+export const filterValidOutfits = (outfits = [], candidatePool, anchor = null) => {
+  const validIdSet = extractCandidateIdSet(candidatePool);
+  const anchorId = anchor ? String(anchor.id || 'anchor_item') : null;
+  const isAnchorExempt = Boolean(anchor && !anchor.matched);
+
+  if (anchor && anchor.matched && (anchor.itemId || anchor.id)) {
+    validIdSet.add(String(anchor.itemId || anchor.id));
+  }
+
+  if (!Array.isArray(outfits) || outfits.length === 0) {
+    return [];
+  }
+
+  return outfits.filter((outfit) => {
+    const itemIds = Array.isArray(outfit?.itemIds) ? outfit.itemIds : [];
+    if (itemIds.length === 0) return false;
+    return itemIds.every((rawId) => {
+      const idStr = String(rawId || '').trim();
+      if (!idStr) return false;
+      if (isAnchorExempt && idStr === anchorId) return true;
+      return validIdSet.has(idStr);
+    });
+  });
+};
+
 export default {
   extractCandidateIdSet,
   validateOutfitItemIds,
+  filterValidOutfits,
   buildCorrectivePrompt,
 };

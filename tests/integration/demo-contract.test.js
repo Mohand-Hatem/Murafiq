@@ -54,7 +54,7 @@ describe('Demo OpenAPI Documentation & Contract Integration Tests (Phase 4)', ()
           }
         }
       }
-      expect(demoOpCount).toBe(91);
+      expect(demoOpCount).toBe(103);
 
       // 4. Assert bookingMode is documented in PublicBooking schema
       const publicBookingSchema = spec.components?.schemas?.PublicBooking;
@@ -109,7 +109,7 @@ describe('Demo OpenAPI Documentation & Contract Integration Tests (Phase 4)', ()
           }
         }
       }
-      expect(v1OpCount).toBe(148);
+      expect(v1OpCount).toBe(160);
     });
   });
 });

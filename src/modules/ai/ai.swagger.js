@@ -1,8 +1,12 @@
 /**
  * @swagger
  * tags:
- *   name: AI Stylist
- *   description: AI-powered occasion styling, wardrobe retrieval, and outfit composition
+ *   - name: AI Stylist
+ *     description: AI-powered occasion styling, wardrobe retrieval, and outfit composition
+ *   - name: AI Conversations
+ *     description: AI conversation and chat history management
+ *   - name: AI Outfits
+ *     description: Saved outfit recommendations and styling history
  */
 
 /**
@@ -55,6 +59,24 @@
  *                 data:
  *                   type: object
  *                   properties:
+ *                     requestId:
+ *                       type: string
+ *                       example: 550e8400-e29b-41d4-a716-446655440000
+ *                     status:
+ *                       type: string
+ *                       enum: [processing, completed, failed, cancelled]
+ *                       example: completed
+ *                     responseType:
+ *                       type: string
+ *                       enum: [success, clarification, partial_results, error]
+ *                       example: success
+ *                     searchStatus:
+ *                       type: string
+ *                       enum: [success, no_results, skipped, quota_blocked]
+ *                       example: skipped
+ *                     assistantMessage:
+ *                       type: string
+ *                       example: Classic formal navy suit paired with crisp white shirt.
  *                     outfits:
  *                       type: array
  *                       description: Outfits composed strictly from client-owned wardrobe pieces (strictly isolated from external recommendations)
@@ -152,12 +174,10 @@
  *                             type: integer
  *                             nullable: true
  *                             example: 1
- *                             description: Coordinated outfit grouping index (1 or 2) when returning complete looks
  *                           outfitTitle:
  *                             type: string
  *                             nullable: true
  *                             example: "الإطلالة الأولى (كاجوال يومي)"
- *                             description: Localized style direction or title for this coordinated outfit
  *                     suggestBookStylist:
  *                       type: boolean
  *                     stylistBookingCta:
@@ -166,22 +186,17 @@
  *                     anchor:
  *                       type: object
  *                       nullable: true
- *                       description: Anchor garment details when an image was uploaded
  *                     matchHint:
  *                       type: string
  *                       nullable: true
- *                       description: Soft suggestion question if the uploaded image matches an owned item
  *                     canSaveToWardrobe:
  *                       type: boolean
- *                       description: True when the uploaded image is not in the client wardrobe and can be saved
  *                     saveToWardrobeCta:
  *                       type: string
  *                       nullable: true
- *                       description: Localized call-to-action text prompting to save piece to wardrobe
  *                     saveMessageId:
  *                       type: string
  *                       nullable: true
- *                       description: ID of the chat message containing the image for saving
  *                     language:
  *                       type: string
  *                       enum: [ar, en]
@@ -196,3 +211,527 @@
  *       429:
  *         description: Quota exceeded for ai.messages.daily/lifetime, ai.imageMessages.daily, or ai.productSearch.monthly
  */
+
+/**
+ * @swagger
+ * /ai/stylist/requests/{requestId}:
+ *   get:
+ *     summary: Poll status of an AI stylist request
+ *     tags: [AI Stylist]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Request ID / trace identifier
+ *     responses:
+ *       200:
+ *         description: Stylist request status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Stylist request status retrieved successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     requestId:
+ *                       type: string
+ *                       example: 550e8400-e29b-41d4-a716-446655440000
+ *                     status:
+ *                       type: string
+ *                       enum: [processing, completed, failed, cancelled]
+ *                       example: completed
+ *                     responseType:
+ *                       type: string
+ *                       enum: [success, clarification, partial_results, error]
+ *                       example: success
+ *                     searchStatus:
+ *                       type: string
+ *                       enum: [success, no_results, skipped, quota_blocked]
+ *                       example: skipped
+ *                     assistantMessage:
+ *                       type: string
+ *                       nullable: true
+ *                       example: Classic formal navy suit paired with crisp white shirt.
+ *                     result:
+ *                       type: object
+ *                       nullable: true
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Stylist request not found
+ */
+
+/**
+ * @swagger
+ * /ai/stylist/requests/{requestId}/cancel:
+ *   post:
+ *     summary: Cancel an active stylist request with quota refund
+ *     tags: [AI Stylist]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Request ID / trace identifier
+ *     responses:
+ *       200:
+ *         description: Request cancelled successfully or already finalized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Stylist request cancelled successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     requestId:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: cancelled
+ *                     responseType:
+ *                       type: string
+ *                       example: error
+ *                     searchStatus:
+ *                       type: string
+ *                       example: skipped
+ *                     assistantMessage:
+ *                       type: string
+ *                       example: Request cancelled by user
+ *                     result:
+ *                       type: object
+ *                       nullable: true
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Stylist request not found
+ */
+
+/**
+ * @swagger
+ * /ai/stylist/feedback:
+ *   post:
+ *     summary: Submit feedback on a generated outfit
+ *     tags: [AI Stylist]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - outfitId
+ *               - feedback
+ *             properties:
+ *               outfitId:
+ *                 type: string
+ *                 example: 507f1f77bcf86cd799439011
+ *                 description: 24-character hexadecimal ObjectId of the Outfit
+ *               feedback:
+ *                 type: string
+ *                 enum: [liked, disliked]
+ *                 description: User rating for this outfit recommendation
+ *     responses:
+ *       200:
+ *         description: Feedback submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Feedback submitted successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     userFeedback:
+ *                       type: string
+ *                       enum: [liked, disliked]
+ *       400:
+ *         description: Invalid input or invalid feedback value
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Outfit not found
+ */
+
+/**
+ * @swagger
+ * /ai/wardrobe/from-chat:
+ *   post:
+ *     summary: Save analyzed garment from chat into client wardrobe
+ *     tags: [AI Stylist]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - messageId
+ *             properties:
+ *               messageId:
+ *                 type: string
+ *                 example: 507f1f77bcf86cd799439011
+ *                 description: 24-character hexadecimal ObjectId of the AiMessage containing analyzed garment
+ *     responses:
+ *       201:
+ *         description: Wardrobe item saved from chat successfully
+ *       400:
+ *         description: Message does not contain an analyzed garment image
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Message not found or access denied
+ *       429:
+ *         description: Wardrobe photo capacity exceeded
+ */
+
+/**
+ * @swagger
+ * /ai/conversations:
+ *   post:
+ *     summary: Create a new AI conversation
+ *     tags: [AI Conversations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 maxLength: 120
+ *                 example: Wedding Guest Styling
+ *                 description: Optional conversation title
+ *     responses:
+ *       201:
+ *         description: AI conversation created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: AI conversation created successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     title:
+ *                       type: string
+ *                     lastMessageAt:
+ *                       type: string
+ *                       format: date-time
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *   get:
+ *     summary: List user AI conversations
+ *     tags: [AI Conversations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: AI conversations retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conversations:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     pagination:
+ *                       type: object
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ */
+
+/**
+ * @swagger
+ * /ai/conversations/{conversationId}:
+ *   get:
+ *     summary: Get a single AI conversation
+ *     tags: [AI Conversations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal ObjectId of the conversation
+ *     responses:
+ *       200:
+ *         description: AI conversation retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: AI conversation not found
+ *   delete:
+ *     summary: Delete an AI conversation and its messages
+ *     tags: [AI Conversations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal ObjectId of the conversation
+ *     responses:
+ *       200:
+ *         description: AI conversation deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: AI conversation not found
+ */
+
+/**
+ * @swagger
+ * /ai/conversations/{conversationId}/messages:
+ *   get:
+ *     summary: Get message history for an AI conversation
+ *     tags: [AI Conversations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal ObjectId of the conversation
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Conversation messages retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     messages:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     pagination:
+ *                       type: object
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: AI conversation not found
+ */
+
+/**
+ * @swagger
+ * /ai/outfits:
+ *   get:
+ *     summary: List user outfit history
+ *     tags: [AI Outfits]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Outfits retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     outfits:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     pagination:
+ *                       type: object
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ */
+
+/**
+ * @swagger
+ * /ai/outfits/{outfitId}:
+ *   get:
+ *     summary: Get a single outfit by ID
+ *     tags: [AI Outfits]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: outfitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal ObjectId of the outfit
+ *     responses:
+ *       200:
+ *         description: Outfit retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Outfit not found
+ *   delete:
+ *     summary: Delete an outfit by ID
+ *     tags: [AI Outfits]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: outfitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 24-character hexadecimal ObjectId of the outfit
+ *     responses:
+ *       200:
+ *         description: Outfit deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - clients only
+ *       404:
+ *         description: Outfit not found
+ */
+
+// ── Inactive Preferences Swagger Documentation (FUTURE FEATURE — INACTIVE IN PHASE 15) ──
+// /**
+//  * @swagger
+//  * /ai/preferences:
+//  *   get:
+//  *     summary: (Future/Inactive) Get style preferences
+//  *   patch:
+//  *     summary: (Future/Inactive) Update style preferences
+//  */

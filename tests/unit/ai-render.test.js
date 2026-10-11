@@ -3,6 +3,7 @@ import {
   renderStylistResponse,
   generateAcquisitionSuggestions,
   getStylistBookingCta,
+  formatWardrobeItemName,
 } from '../../src/modules/ai/stylist/render.step.js';
 
 describe('Unit — AI Stylist Response Renderer (render.step.js)', () => {
@@ -129,5 +130,110 @@ describe('Unit — AI Stylist Response Renderer (render.step.js)', () => {
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0].slot).toBe('custom_accessory');
     expect(suggestions[0].description).toContain('custom_accessory');
+  });
+
+  describe('formatWardrobeItemName (P1.7)', () => {
+    it('returns explicit name or title when present', () => {
+      expect(formatWardrobeItemName({ name: 'My Favorite Blazer' }, 'en')).toBe('My Favorite Blazer');
+      expect(formatWardrobeItemName({ title: 'Classic Trench' }, 'en')).toBe('Classic Trench');
+      expect(formatWardrobeItemName({ name: 'فستان حرير أسود' }, 'ar')).toBe('فستان حرير أسود');
+    });
+
+    it('generates meaningful English names from attributes when name is absent', () => {
+      expect(formatWardrobeItemName({
+        category: 'outerwear',
+        subcategory: 'blazer',
+        primaryColor: 'navy',
+      }, 'en')).toBe('Navy Blazer');
+
+      expect(formatWardrobeItemName({
+        category: 'bottom',
+        subcategory: 'jeans',
+        primaryColor: 'black',
+      }, 'en')).toBe('Black Jeans');
+
+      expect(formatWardrobeItemName({
+        category: 'shoes',
+        subcategory: 'loafers',
+        primaryColor: 'brown',
+      }, 'en')).toBe('Brown Loafers');
+
+      expect(formatWardrobeItemName({
+        category: 'top',
+        subcategory: 't_shirt',
+        primaryColor: 'white',
+      }, 'en')).toBe('White T Shirt');
+
+      expect(formatWardrobeItemName({
+        category: 'top',
+        subcategory: 'dress_shirt',
+      }, 'en')).toBe('Dress Shirt');
+
+      expect(formatWardrobeItemName({
+        category: 'dress',
+        primaryColor: 'red',
+      }, 'en')).toBe('Red Dress');
+    });
+
+    it('generates meaningful Arabic names from attributes when name is absent', () => {
+      expect(formatWardrobeItemName({
+        category: 'outerwear',
+        subcategory: 'blazer',
+        primaryColor: 'navy',
+      }, 'ar')).toBe('بليزر كحلي');
+
+      expect(formatWardrobeItemName({
+        category: 'bottom',
+        subcategory: 'jeans',
+        primaryColor: 'black',
+      }, 'ar')).toBe('بنطلون جينز أسود');
+
+      expect(formatWardrobeItemName({
+        category: 'shoes',
+        subcategory: 'loafers',
+        primaryColor: 'brown',
+      }, 'ar')).toBe('حذاء لوفر بني');
+
+      expect(formatWardrobeItemName({
+        category: 'top',
+        subcategory: 'dress_shirt',
+        primaryColor: 'white',
+      }, 'ar')).toBe('قميص رسمي أبيض');
+
+      expect(formatWardrobeItemName({
+        category: 'dress',
+        primaryColor: 'red',
+      }, 'ar')).toBe('فستان أحمر');
+    });
+
+    it('handles items with missing attributes or null item gracefully', () => {
+      expect(formatWardrobeItemName(null, 'en')).toBe('Wardrobe Item');
+      expect(formatWardrobeItemName(null, 'ar')).toBe('قطعة ملابس');
+      expect(formatWardrobeItemName({}, 'en')).toBe('Wardrobe Item');
+      expect(formatWardrobeItemName({}, 'ar')).toBe('قطعة ملابس');
+    });
+
+    it('renderStylistResponse populates meaningful names for hydrated items without explicit name', () => {
+      const itemsMap = new Map([
+        [
+          'item_no_name',
+          {
+            _id: 'item_no_name',
+            category: 'outerwear',
+            subcategory: 'blazer',
+            primaryColor: 'navy',
+            imageUrl: 'https://example.com/blazer.jpg',
+          },
+        ],
+      ]);
+
+      const result = renderStylistResponse({
+        outfits: [{ itemIds: ['item_no_name'], score: 90 }],
+        hydratedItemsMap: itemsMap,
+        language: 'en',
+      });
+
+      expect(result.outfits[0].fromYourWardrobe[0].name).toBe('Navy Blazer');
+    });
   });
 });
