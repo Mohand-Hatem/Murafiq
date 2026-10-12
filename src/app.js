@@ -88,35 +88,35 @@ const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis });
 const demoSwaggerSpec = buildDemoSwaggerSpec(swaggerSpec);
 
 if (env.NODE_ENV === 'production') {
-  app.use('/api/docs/demo', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.use('/api/docs/demo', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serveFiles(demoSwaggerSpec), swaggerUi.setup(demoSwaggerSpec));
   app.get('/api/docs/demo.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(demoSwaggerSpec);
   });
-  app.use('/api/demo/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.use('/api/demo/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serveFiles(demoSwaggerSpec), swaggerUi.setup(demoSwaggerSpec));
   app.get('/api/demo/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(demoSwaggerSpec);
   });
 
-  app.use('/api/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use('/api/docs', authMiddleware, restrictTo(ROLES.ADMIN), swaggerUi.serveFiles(swaggerSpec), swaggerUi.setup(swaggerSpec));
   app.get('/api/docs.json', authMiddleware, restrictTo(ROLES.ADMIN), (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
   });
 } else {
-  app.use('/api/docs/demo', swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.use('/api/docs/demo', swaggerUi.serveFiles(demoSwaggerSpec), swaggerUi.setup(demoSwaggerSpec));
   app.get('/api/docs/demo.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(demoSwaggerSpec);
   });
-  app.use('/api/demo/docs', swaggerUi.serve, swaggerUi.setup(demoSwaggerSpec));
+  app.use('/api/demo/docs', swaggerUi.serveFiles(demoSwaggerSpec), swaggerUi.setup(demoSwaggerSpec));
   app.get('/api/demo/docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(demoSwaggerSpec);
   });
 
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use('/api/docs', swaggerUi.serveFiles(swaggerSpec), swaggerUi.setup(swaggerSpec));
   app.get('/api/docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
