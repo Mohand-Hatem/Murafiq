@@ -111,7 +111,16 @@ export const demoSwaggerDefinition = {
   security: swaggerDefinition.security,
 };
 
-const OMITTED_DEMO_PATH_PREFIXES = ['/payments', '/payouts', '/coupons', '/admin'];
+const OMITTED_DEMO_PATH_PREFIXES = [
+  '/payments',
+  '/payouts',
+  '/coupons',
+  '/admin',
+  '/ai/try-on',
+  '/ai/shape-model',
+  '/ai/outfits',
+  '/stylists/me/payouts',
+];
 const ALLOWED_DEMO_SUBSCRIPTION_PATHS = new Set([
   '/subscriptions/plans',
   '/subscriptions/me',
