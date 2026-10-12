@@ -28,8 +28,17 @@ describe('Demo OpenAPI Documentation & Contract Integration Tests (Phase 4)', ()
       const paths = Object.keys(spec.paths);
       expect(paths.length).toBeGreaterThan(0);
 
-      // 1. Assert complete absence of /payments, /payouts, /coupons, /admin
-      const forbiddenModules = ['/payments', '/payouts', '/coupons', '/admin'];
+      // 1. Assert complete absence of /payments, /payouts, /coupons, /admin, /ai/try-on, /ai/shape-model, /ai/outfits, /stylists/me/payouts
+      const forbiddenModules = [
+        '/payments',
+        '/payouts',
+        '/coupons',
+        '/admin',
+        '/ai/try-on',
+        '/ai/shape-model',
+        '/ai/outfits',
+        '/stylists/me/payouts',
+      ];
       for (const path of paths) {
         for (const mod of forbiddenModules) {
           expect(path.startsWith(mod)).toBe(false);
@@ -54,7 +63,7 @@ describe('Demo OpenAPI Documentation & Contract Integration Tests (Phase 4)', ()
           }
         }
       }
-      expect(demoOpCount).toBe(103);
+      expect(demoOpCount).toBe(92);
 
       // 4. Assert bookingMode is documented in PublicBooking schema
       const publicBookingSchema = spec.components?.schemas?.PublicBooking;
