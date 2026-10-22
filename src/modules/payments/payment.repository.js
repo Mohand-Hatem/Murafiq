@@ -1,5 +1,6 @@
 import Payment from './payment.model.js';
 import QueryBuilder from '../../common/query-builder/QueryBuilder.js';
+import { PAYMENT_STATUS } from '../../common/constants/statuses.constant.js';
 
 export const create = async (data, session = null) => {
   const options = session ? { session } : {};
@@ -15,10 +16,39 @@ export const findById = async (id) => {
 };
 
 export const findByBookingId = async (bookingId) => {
-  return Payment.findOne({ bookingId }).populate([
-    { path: 'bookingId' },
-    { path: 'clientId', select: 'name email profileImage' },
-  ]);
+  return Payment.findOne({ bookingId })
+    .select('+providerPaymentUrl +providerClientSecret')
+    .populate([
+      { path: 'bookingId' },
+      { path: 'clientId', select: 'name email profileImage' },
+    ]);
+};
+
+/**
+ * Atomically claims ONE pending payment worth asking Paymob about: its latest link is between
+ * minAge and maxAge old and it was not checked within retryMs. Stamping lastReconciledAt in the
+ * same write is the throttle (and keeps two app instances from checking the same payment).
+ */
+export const claimStalePending = async ({ now, minAgeMs, maxAgeMs, retryMs }) => {
+  return Payment.findOneAndUpdate(
+    {
+      status: PAYMENT_STATUS.PENDING,
+      providerIntentionId: { $nin: [null, ''] },
+      paymentUrlCreatedAt: { $lte: new Date(now - minAgeMs), $gte: new Date(now - maxAgeMs) },
+      $or: [{ lastReconciledAt: null }, { lastReconciledAt: { $lte: new Date(now - retryMs) } }],
+    },
+    { $set: { lastReconciledAt: new Date(now) } },
+    { returnDocument: 'after' }
+  );
+};
+
+// A released (never-paid) booking's payment can no longer be completed: PENDING -> FAILED.
+export const failPending = async (bookingId, session = null) => {
+  return Payment.findOneAndUpdate(
+    { bookingId, status: PAYMENT_STATUS.PENDING },
+    { $set: { status: PAYMENT_STATUS.FAILED } },
+    { returnDocument: 'after', ...(session ? { session } : {}) }
+  );
 };
 
 export const findByTransactionId = async (providerTransactionId) => {
@@ -136,6 +166,8 @@ export default {
   findByBookingIds,
   findByTransactionId,
   findByIntentionId,
+  claimStalePending,
+  failPending,
   updateById,
   transitionStatus,
   findClientHistory,

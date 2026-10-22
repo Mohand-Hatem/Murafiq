@@ -5,7 +5,11 @@ import { getProvider } from './providers/provider.factory.js';
 import env from '../../config/env.config.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
-import { PAYMENT_STATUS } from '../../common/constants/statuses.constant.js';
+import {
+  PAYMENT_STATUS,
+  PAYMENT_LINK_POLICY,
+  BOOKING_STATUS,
+} from '../../common/constants/statuses.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
 import { ROLES } from '../../common/constants/roles.constant.js';
 import couponService from '../coupons/coupon.service.js';
@@ -54,6 +58,17 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
 
   if (userIdStr !== clientIdStr && user.role !== ROLES.ADMIN) {
     throw new ApiError(403, 'Forbidden: You do not own this booking');
+  }
+
+  if (![BOOKING_STATUS.PENDING_PAYMENT, BOOKING_STATUS.CONFIRMED].includes(booking.status)) {
+    throw new ApiError(400, `This booking is no longer awaiting payment (status '${booking.status}')`);
+  }
+  if (
+    booking.status === BOOKING_STATUS.PENDING_PAYMENT &&
+    booking.paymentExpiresAt &&
+    booking.paymentExpiresAt.getTime() < Date.now()
+  ) {
+    throw new ApiError(400, 'The payment window for this booking has expired');
   }
 
   const customerUser = await userRepository.findById(clientIdStr);
@@ -165,10 +180,31 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
     });
   }
 
+  // A client who closed the payment page gets the same live link back. Paymob rejects a second
+  // intention that reuses special_reference, so re-calling it here would just fail. A link issued
+  // for a different amount (a coupon was applied since) is never reused.
+  const linkAgeMs = Date.now() - new Date(payment.paymentUrlCreatedAt || 0).getTime();
+  if (
+    payment.providerPaymentUrl &&
+    payment.paymentUrlAmount === payment.amount &&
+    linkAgeMs < PAYMENT_LINK_POLICY.REUSE_MINUTES * 60 * 1000
+  ) {
+    return {
+      paymentUrl: payment.providerPaymentUrl,
+      clientSecret: payment.providerClientSecret,
+      payment,
+    };
+  }
+
+  // Every intention after the first needs its own unique reference; the webhook maps
+  // "<bookingId>-<attempt>" back to the booking (see PaymobProvider.handleCallback).
+  const attempt = payment.providerIntentionId ? (payment.paymentAttempt || 0) + 1 : 0;
+
   const provider = getProvider();
   const initResult = await provider.initialize({
     amount: payment.amount,
     bookingId: booking._id.toString(),
+    reference: attempt ? `${booking._id}-${attempt}` : undefined,
     customer: {
       name: customerUser.name || user.name || 'Valued Customer',
       email: customerUser.email || user.email || 'customer@murafiq.dev',
@@ -181,6 +217,11 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
     providerIntentionId: initResult.providerIntentionId || undefined,
     providerTransactionId: initResult.providerTransactionId || undefined,
     provider: env.PAYMENT_PROVIDER || 'mock',
+    providerPaymentUrl: initResult.paymentUrl,
+    providerClientSecret: initResult.clientSecret,
+    paymentUrlCreatedAt: new Date(),
+    paymentUrlAmount: payment.amount,
+    paymentAttempt: attempt,
   });
 
   return {
@@ -219,7 +260,26 @@ export const handleWebhook = async (payload, query = {}) => {
     throw new ApiError(404, 'Payment record not found for webhook transaction');
   }
 
+  return settlePayment(payment, result);
+};
+
+/**
+ * Applies a provider's verdict on a payment. Shared by the webhook and by reconciliation so a
+ * recovered payment gets exactly the same transaction, ledger pair and events.
+ */
+export const settlePayment = async (payment, result) => {
   if (payment.status === PAYMENT_STATUS.PAID) {
+    // A second, different successful transaction means the client paid twice (old link plus a
+    // newer attempt). Nothing refunds it automatically yet, so make it impossible to miss.
+    if (
+      result.success &&
+      result.transactionId &&
+      String(result.transactionId) !== String(payment.providerTransactionId)
+    ) {
+      logger.error(
+        `[Payment Webhook] DUPLICATE CAPTURE on paid payment ${payment._id}: transaction ${result.transactionId} (paid with ${payment.providerTransactionId}). Refund manually.`
+      );
+    }
     return payment; // Idempotent return
   }
 
@@ -260,6 +320,7 @@ export const handleWebhook = async (payload, query = {}) => {
     // re-read and return that result rather than redoing the work. See
     // docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md finding X18.
     let updated;
+    let paidAfterRelease = false;
     await withTransaction(async (session) => {
       updated = await paymentRepository.transitionStatus(
         payment._id,
@@ -305,10 +366,37 @@ export const handleWebhook = async (payload, query = {}) => {
         },
         session
       );
+
+      // Same transaction: the booking leaves pending_payment exactly when the money is held.
+      // No match means it was never pending (demo/legacy -> already confirmed) or it was
+      // released before this payment landed.
+      const confirmed = await bookingRepository.transitionStatus(
+        bookingIdStr,
+        [BOOKING_STATUS.PENDING_PAYMENT],
+        { status: BOOKING_STATUS.CONFIRMED, paymentExpiresAt: null },
+        session
+      );
+      if (!confirmed) {
+        const booking = await bookingRepository.findById(bookingIdStr);
+        paidAfterRelease = booking?.status === BOOKING_STATUS.CANCELLED;
+      }
     });
 
     if (!updated) {
       return paymentRepository.findById(payment._id);
+    }
+
+    // The client paid after the slot was released. Never revive the booking: give the money back.
+    if (paidAfterRelease) {
+      logger.error(
+        `[Payment Webhook] Payment ${payment._id} captured after booking ${payment.bookingId} was released; refunding in full.`
+      );
+      return processRefund({
+        bookingId: (updated.bookingId?._id || updated.bookingId).toString(),
+        refundPercentage: 100,
+        reason: 'paid_after_booking_released',
+        idempotencyKey: `late_payment_refund:${updated._id}`,
+      });
     }
 
     const bookingIdStr = (updated.bookingId?._id || updated.bookingId || '').toString();
@@ -340,6 +428,27 @@ export const handleWebhook = async (payload, query = {}) => {
 
     return updated;
   }
+};
+
+/**
+ * Recovers a lost webhook: asks Paymob about every reference this payment ever used (newest
+ * first) and settles it if any was paid. Only a PAID verdict is acted on -- an unpaid attempt
+ * proves nothing, since the client may have paid a different one. Callers must throttle
+ * (see paymentRepository.claimStalePending).
+ */
+export const reconcilePayment = async (payment) => {
+  const bookingId = (payment.bookingId?._id || payment.bookingId).toString();
+  const provider = getProvider();
+
+  for (let attempt = payment.paymentAttempt || 0; attempt >= 0; attempt -= 1) {
+    const reference = attempt ? `${bookingId}-${attempt}` : bookingId;
+    const found = await provider.inquire(reference);
+    if (found?.success && !found.pending) {
+      const settled = await settlePayment(payment, { ...found, status: 'paid' });
+      return { settled: settled.status === PAYMENT_STATUS.PAID && payment.status !== PAYMENT_STATUS.PAID };
+    }
+  }
+  return { settled: false };
 };
 
 export const getPaymentStatus = async (user, bookingId) => {
@@ -566,6 +675,8 @@ export default {
   createPendingPayment,
   initializePayment,
   handleWebhook,
+  settlePayment,
+  reconcilePayment,
   getPaymentStatus,
   getClientHistory,
   processRefund,

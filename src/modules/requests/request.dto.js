@@ -22,6 +22,8 @@ export const toPublicRequestDto = (requestDoc) => {
     preferredStylistGender: doc.preferredStylistGender || 'any',
     images: doc.images || [],
     status: doc.status,
+    // A count only -- stylists see how contested a request is, never the offers' prices.
+    offerCount: doc.offerCount ?? 0,
     expiresAt: doc.expiresAt,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,

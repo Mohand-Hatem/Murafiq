@@ -30,6 +30,7 @@ const bookingSchema = new Schema(
       // Booking statuses stay lowercase-hyphen to match the pre-existing values
       // ('confirmed', 'in-progress'); the uppercase duplicates were never written.
       enum: [
+        'pending_payment',
         'confirmed',
         'in-progress',
         'completed',
@@ -40,6 +41,11 @@ const bookingSchema = new Schema(
       ],
       default: 'confirmed',
     },
+    // Set while status is 'pending_payment'; the deadline sweep releases the booking after it.
+    paymentExpiresAt: Date,
+    // False once an unpaid booking is released. The unique indexes on requestId/offerId only
+    // cover live bookings, so the reopened request can be booked again.
+    isLive: { type: Boolean, default: true },
     bookingMode: {
       type: String,
       enum: ['standard', 'demo'],
@@ -132,8 +138,9 @@ const bookingSchema = new Schema(
   { timestamps: true }
 );
 
-bookingSchema.index({ offerId: 1 }, { unique: true });
-bookingSchema.index({ requestId: 1 }, { unique: true });
+bookingSchema.index({ offerId: 1 }, { unique: true, partialFilterExpression: { isLive: true } });
+bookingSchema.index({ requestId: 1 }, { unique: true, partialFilterExpression: { isLive: true } });
+bookingSchema.index({ status: 1, paymentExpiresAt: 1 }, { sparse: true });
 bookingSchema.index({ stylistId: 1, scheduledDate: 1, scheduledStartMinute: 1, scheduledEndMinute: 1 });
 bookingSchema.index({ clientId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });

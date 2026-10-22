@@ -35,6 +35,18 @@ export const redeemAtomically = async (couponId, bookingId, session = null) => {
   );
 };
 
+// Gives a coupon back when the booking it was redeemed on will never be paid. The filter pins it
+// to that booking, so it can only undo its own redemption (and only once).
+export const releaseRedeemed = async (bookingId, session = null) => {
+  const options = { returnDocument: 'after' };
+  if (session) options.session = session;
+  return Coupon.findOneAndUpdate(
+    { redeemedOnBookingId: bookingId, status: 'REDEEMED' },
+    { $set: { status: 'ISSUED' }, $unset: { redeemedOnBookingId: '', redeemedAt: '' } },
+    options
+  );
+};
+
 export const expireOverdue = async (now = new Date()) => {
   return Coupon.updateMany(
     { status: 'ISSUED', expiresAt: { $lt: now } },
@@ -48,5 +60,6 @@ export default {
   findBySourceBooking,
   findMine,
   redeemAtomically,
+  releaseRedeemed,
   expireOverdue,
 };

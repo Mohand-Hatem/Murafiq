@@ -90,7 +90,19 @@ export const getOwnProfile = async (userId) => {
   return toPublicStylistDto(profile);
 };
 
+// userId -> { rating, totalReviews } for a batch of stylists, in one query.
+export const getRatingSummaries = async (userIds) => {
+  const profiles = await stylistRepository.findByUserIds(userIds);
+  return new Map(
+    profiles.map((p) => [
+      (p.userId._id || p.userId).toString(),
+      { rating: p.rating, totalReviews: p.totalReviews },
+    ])
+  );
+};
+
 export default {
+  getRatingSummaries,
   createProfile,
   updateProfile,
   getPublicProfileById,

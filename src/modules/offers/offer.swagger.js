@@ -153,6 +153,12 @@
  * /offers/{id}/accept:
  *   patch:
  *     summary: Accept an offer (Client owner only)
+ *     description: >
+ *       Reserves the stylist's slot as a booking in `pending_payment` and returns the Paymob
+ *       checkout link in `data.paymentUrl` (null if the provider was unreachable — retry with
+ *       POST /payments/{bookingId}/initialize). The booking becomes `confirmed` when payment
+ *       succeeds; if it is unpaid at `data.paymentExpiresAt` (30 minutes, never later than the
+ *       session start) the slot is released and the request and rival offers reopen.
  *     tags: [Offers]
  *     security:
  *       - bearerAuth: []
@@ -227,3 +233,164 @@
  *         description: Only the authoring stylist can withdraw their offer
  */
 
+
+/**
+ * @swagger
+ * /offers/requests/{id}/competing:
+ *   get:
+ *     summary: See the other stylists' offers on a broadcast request (Stylist only, no prices)
+ *     description: >
+ *       Returns every PENDING offer on an OPEN broadcast request: the message, the stylist's name,
+ *       photo and rating, and an `isMine` flag. Price and duration are never returned, and digits
+ *       in messages are masked (`•••`) so a price typed into the text cannot leak. The request
+ *       feed exposes the total as `offerCount`.
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Request ID
+ *     responses:
+ *       200:
+ *         description: Competing offers retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       message:
+ *                         type: string
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       isMine:
+ *                         type: boolean
+ *                       stylist:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           profileImage:
+ *                             type: string
+ *                           rating:
+ *                             type: number
+ *                           totalReviews:
+ *                             type: integer
+ *       400:
+ *         description: Request is direct (nothing to compare) or no longer open
+ *       403:
+ *         description: Caller is not a verified stylist
+ *       404:
+ *         description: Request not found
+ */
+
+/**
+ * @swagger
+ * /offers/mine:
+ *   get:
+ *     summary: List my own offers (Stylist only)
+ *     description: >
+ *       The stylist's own offers, newest first, with their own price and a summary of the request
+ *       (title, date, status, `offerCount`). Requests a stylist has already bid on disappear from
+ *       the feed, so this is where they follow up.
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, ACCEPTED, REJECTED, WITHDRAWN, CLOSED, EXPIRED]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *     responses:
+ *       200:
+ *         description: Offers retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       requestId:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                       duration:
+ *                         type: integer
+ *                       message:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       request:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           date:
+ *                             type: string
+ *                             format: date-time
+ *                           time:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                           visibility:
+ *                             type: string
+ *                           offerCount:
+ *                             type: integer
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       403:
+ *         description: Caller is not a stylist
+ */

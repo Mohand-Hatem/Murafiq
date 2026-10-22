@@ -70,10 +70,10 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
 - Chat/Notifications run on **Firebase** (Firestore for chat, FCM for push). Notifications
   are persisted in MongoDB and pushed via FCM. There is no Socket.io server layer in
   this project (Decision P7).
-- AI module (`src/modules/ai/`): **empty except `.gitkeep`.** There is no `/api/v1/ai`
-  route at all — it returns `404`, not `501`. The design is specified in
-  `docs/next-phase/PHASE_15_AI_SKELETON.md` (overview) and built via `PHASE_15A`–`PHASE_15E`.
-  **`HARDENING_08_WARDROBE_AI_READINESS.md` blocks all of it.**
+- AI module (`src/modules/ai/`): **built (Phases 15A–15F; see `docs/STATUS.md` §9).**
+  `/api/v1/ai/*` is live: stylist pipeline, conversations, outfits, preferences, fashion-knowledge
+  RAG, product search, and the isolated virtual try-on / shape-model subsystem. The design lives in
+  `docs/next-phase/PHASE_15_AI_SKELETON.md` and `PHASE_15A`–`PHASE_15F`.
   Locked decisions: **one model** (`gemini-3.1-flash-lite`) for every AI task;
   **no LangChain, no LangGraph** (the workflow is a linear pipeline with one branch);
   wardrobe retrieval is a **Mongo slot query**, not a vector search; RAG is used for
@@ -279,7 +279,7 @@ should already be made, not left probabilistic.
 ## Pre-Phase Skill Installation Reminder Rule
 Phases 12, 13 and 14 have shipped; only the phases below are still ahead.
 Before beginning implementation on:
-- **Phase 15 (AI Stylist — the active target):** Check for `rag-engineer`. **Not** `langchain-architect` — LangChain/LangGraph were explicitly ruled out, see `docs/next-phase/PHASE_15_AI_ARCHITECTURE_DECISION.md`
+- **Phase 15 (AI Stylist — built; relevant only when extending it):** Check for `rag-engineer`. **Not** `langchain-architect` — LangChain/LangGraph were explicitly ruled out, see `docs/next-phase/PHASE_15_AI_ARCHITECTURE_DECISION.md`
 - **Phase 16 (Deployment):** Check for `devops-engineer` / `docker-debugger`
 
 If the skill is missing from `~/.gemini/config/skills/`, remind and prompt the user to install it before beginning step 1 of that phase. The historical phase-to-skill matrix is archived at `docs/archive/reviews/RECOMMENDED_SKILLS_ROADMAP.md`.

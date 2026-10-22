@@ -55,7 +55,7 @@
  *           type: integer
  *         status:
  *           type: string
- *           enum: [confirmed, in-progress, completed, cancelled, disputed]
+ *           enum: [pending_payment, confirmed, in-progress, completed, cancelled, disputed]
  *         bookingMode:
  *           type: string
  *           enum: [standard, demo]
@@ -153,7 +153,7 @@
  *         name: status
  *         schema:
  *           type: string
- *           enum: [confirmed, in-progress, completed, cancelled, disputed]
+ *           enum: [pending_payment, confirmed, in-progress, completed, cancelled, disputed]
  *       - in: query
  *         name: page
  *         schema:
@@ -186,7 +186,7 @@
  *         name: status
  *         schema:
  *           type: string
- *           enum: [confirmed, in-progress, completed, cancelled, disputed]
+ *           enum: [pending_payment, confirmed, in-progress, completed, cancelled, disputed]
  *       - in: query
  *         name: page
  *         schema:

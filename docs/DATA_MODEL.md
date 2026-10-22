@@ -70,7 +70,7 @@ Client-initiated styling requests targeted at specific stylists.
 | `date` | Date | Requested session date |
 | `time` | String | Requested start time (`"HH:MM"`) |
 | `meetingLocation` | Object | Address and GeoJSON Point |
-| `status` | String | `pending` \| `accepted` \| `declined` \| `cancelled` \| `expired` |
+| `status` | String | `OPEN` \| `PAUSED` \| `CLOSED` \| `FULFILLED` \| `CANCELLED` \| `DECLINED` (see `REQUEST_STATUS`; `offerCount` replaces the old `offered` state) |
 | `expiresAt` | Date | Expiration threshold (48 hours from creation) |
 
 **Indexes:**
@@ -91,7 +91,7 @@ Stylist-created proposals on client requests.
 | `price` | Number | Proposed price in EGP |
 | `duration` | Number | Proposed session duration in minutes |
 | `message` | String | Cover note |
-| `status` | String | `pending` \| `accepted` \| `rejected` \| `expired` |
+| `status` | String | `PENDING` \| `ACCEPTED` \| `REJECTED` \| `WITHDRAWN` \| `CLOSED` \| `EXPIRED` (see `OFFER_STATUS`); `closedByBookingId` marks offers closed by a sibling's accepted booking |
 | `expiresAt` | Date | Expiration threshold (24 hours from creation) |
 
 **Indexes:**
@@ -115,7 +115,9 @@ Confirmed shopping session agreement with calendar schedule blocks.
 | `scheduledEndMinute` | Number | End time in minutes from midnight |
 | `price` | Number | Agreed session total in EGP |
 | `duration` | Number | Duration in minutes |
-| `status` | String | `confirmed` \| `in-progress` \| `completed` \| `cancelled` \| `disputed` |
+| `status` | String | `pending_payment` \| `confirmed` \| `in-progress` \| `completed` \| `cancelled` \| `disputed` \| `no-show-stylist` \| `no-show-client` |
+| `paymentExpiresAt` | Date | Deadline while `pending_payment` (30 min, never later than the session start) |
+| `isLive` | Boolean | `false` once an unpaid booking is released; `requestId`/`offerId` are unique only among live bookings |
 | `checkInAt` | Date | Stylist check-in timestamp |
 | `clientConfirmedAt` | Date | Client completion confirmation |
 | `stylistConfirmedAt` | Date | Stylist completion confirmation |
@@ -160,7 +162,9 @@ Financial ledger entry capturing customer billing, platform commission, and refu
 | `platformFeePercentage` | Number | Platform fee rate (15%) |
 | `platformFeeAmount` | Number | Platform earnings in EGP |
 | `stylistPayoutAmount` | Number | Net stylist earnings in EGP (85% adjusted for refunds) |
-| `status` | String | `pending` \| `paid` \| `failed` \| `refunded` \| `partially_refunded` |
+| `status` | String | `pending` \| `paid` \| `failed` \| `refunding` \| `refunded` \| `partially_refunded` |
+| `paymentAttempt` | Number | Paymob intentions created beyond the first (reference becomes `<bookingId>-<n>`) |
+| `providerPaymentUrl` / `providerClientSecret` | String | Last issued checkout link (`select:false`, never serialised) |
 | `provider` | String | `'paymob'` \| `'mock'` |
 | `providerTransactionId` | String | Payment gateway transaction ID |
 | `refundAmount` | Number | Cumulative refunded amount in EGP |

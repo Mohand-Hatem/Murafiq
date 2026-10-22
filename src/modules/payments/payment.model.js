@@ -107,6 +107,17 @@ const paymentSchema = new Schema(
     paidAt: {
       type: Date,
     },
+    // The checkout link last issued, so a client who closed the payment page gets the same link
+    // back instead of a Paymob "order already exists" rejection. Never serialised (select:false).
+    providerPaymentUrl: { type: String, select: false },
+    providerClientSecret: { type: String, select: false },
+    paymentUrlCreatedAt: { type: Date },
+    // Amount the stored link was issued for; a coupon changes `amount`, which voids the link.
+    paymentUrlAmount: { type: Number },
+    // Paymob intentions created beyond the first; makes special_reference unique per attempt.
+    paymentAttempt: { type: Number, default: 0 },
+    // Throttle for the lost-webhook reconciliation sweep (see claimStalePending).
+    lastReconciledAt: { type: Date },
   },
   { timestamps: true }
 );

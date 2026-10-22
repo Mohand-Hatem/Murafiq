@@ -5,11 +5,18 @@ import userRepository from '../users/user.repository.js';
 import bookingService from '../bookings/booking.service.js';
 import entitlementService from '../subscriptions/entitlement.service.js';
 import moderationService from '../moderation/moderation.service.js';
-import { toPublicOfferDto } from './offer.dto.js';
+import stylistService from '../stylists/stylist.service.js';
+import paymentService from '../payments/payment.service.js';
+import logger from '../../config/logger.config.js';
+import { toPublicOfferDto, toCompetingOfferDto, toMyOfferDto } from './offer.dto.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
-import { OFFER_STATUS, REQUEST_STATUS } from '../../common/constants/statuses.constant.js';
+import {
+  OFFER_STATUS,
+  REQUEST_STATUS,
+  BOOKING_STATUS,
+} from '../../common/constants/statuses.constant.js';
 
 export const createOffer = async (stylistUser, requestId, offerData) => {
   const stylistId = (stylistUser._id || stylistUser.id).toString();
@@ -199,6 +206,36 @@ export const acceptOffer = async (clientUser, offerId, options = {}) => {
   return bookingDoc;
 };
 
+/**
+ * Accepts the offer and hands back the checkout link in the same response. The link is created
+ * AFTER the booking transaction commits (never inside it); if the provider is down the booking
+ * is still reserved and the client retries POST /payments/:bookingId/initialize.
+ */
+export const acceptOfferAndPay = async (clientUser, offerId, options = {}) => {
+  const booking = await acceptOffer(clientUser, offerId, options);
+
+  let paymentUrl = null;
+  if (booking.status === BOOKING_STATUS.PENDING_PAYMENT) {
+    try {
+      ({ paymentUrl } = await paymentService.initializePayment(
+        clientUser,
+        (booking._id || booking.id).toString()
+      ));
+    } catch (err) {
+      logger.warn(`Checkout link not created at accept for booking ${booking._id}: ${err.message}`);
+    }
+  }
+  return { booking, paymentUrl };
+};
+
+export const getMyOffers = async (stylistUser, queryString = {}) => {
+  const { items, meta } = await offerRepository.findMineByStylist(
+    (stylistUser._id || stylistUser.id).toString(),
+    queryString
+  );
+  return { items: items.map(toMyOfferDto), meta };
+};
+
 export const rejectOffer = async (clientUser, offerId) => {
   const offerDoc = await offerRepository.findById(offerId);
   if (!offerDoc) {
@@ -245,7 +282,42 @@ export const getOffersForRequest = async (clientUser, requestId) => {
   return offers.map(toPublicOfferDto);
 };
 
+/**
+ * Stylist-facing view of the competition on a broadcast request: who else bid and what they
+ * wrote. Price and duration are never returned -- see toCompetingOfferDto.
+ */
+export const getCompetingOffers = async (stylistUser, requestId) => {
+  const stylistId = (stylistUser._id || stylistUser.id).toString();
+  const stylist = await userRepository.findById(stylistId);
+  if (!stylist || stylist.verification?.status !== 'verified') {
+    throw new ApiError(403, 'Your identity must be verified before viewing competing offers');
+  }
+
+  const reqDoc = await requestRepository.findById(requestId);
+  if (!reqDoc) {
+    throw new ApiError(404, 'Request not found');
+  }
+  if (reqDoc.visibility !== 'broadcast') {
+    throw new ApiError(400, 'Only broadcast requests have competing offers');
+  }
+  if (reqDoc.status !== REQUEST_STATUS.OPEN) {
+    throw new ApiError(400, `Request is no longer open (status '${reqDoc.status}')`);
+  }
+
+  const offers = await offerRepository.findPendingByRequestId(requestId);
+  const ratings = await stylistService.getRatingSummaries(
+    offers.map((o) => (o.stylistId._id || o.stylistId).toString())
+  );
+
+  return offers.map((o) =>
+    toCompetingOfferDto(o, ratings.get((o.stylistId._id || o.stylistId).toString()), stylistId)
+  );
+};
+
 export default {
+  getMyOffers,
+  acceptOfferAndPay,
+  getCompetingOffers,
   createOffer,
   withdrawOffer,
   acceptOffer,

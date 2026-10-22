@@ -91,6 +91,7 @@ jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
 jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () => ({
   default: {
     findById: mockFindBookingById,
+    transitionStatus: async () => ({ status: 'confirmed' }),
   },
 }));
 

@@ -212,7 +212,7 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('confirmed');
+      expect(res.body.data.status).toBe('pending_payment');
     });
 
     it('should return 409 if time slot overlaps with an existing block', async () => {

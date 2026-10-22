@@ -29,6 +29,9 @@ const offerSchema = new Schema(
     // create -- the $or clause in expireOldOffers that checks it could never match
     // anything, and the long-stop expiry did not exist in practice.
     longStopExpiresAt: Date,
+    // Set when this offer was CLOSED because a sibling's booking was accepted, so releasing an
+    // unpaid booking revives exactly these offers.
+    closedByBookingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking' },
   },
   { timestamps: true }
 );

@@ -77,7 +77,7 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
     // Verify real documents persisted in MongoDB
     const persistedBooking = await Booking.findById(booking._id);
     expect(persistedBooking).not.toBeNull();
-    expect(persistedBooking.status).toBe('confirmed');
+    expect(persistedBooking.status).toBe('pending_payment');
 
     const persistedBlock = await ScheduleBlock.findOne({ bookingId: booking._id });
     expect(persistedBlock).not.toBeNull();
@@ -127,8 +127,9 @@ describe('Real Database Integration (In-Memory Replica Set)', () => {
     const booking = await offerService.acceptOffer(clientUser, offerDoc._id.toString());
     const bookingId = booking.id || booking._id;
 
-    // Mark payment paid
+    // Mark payment paid -- the real webhook also confirms the booking in the same transaction
     await Payment.findOneAndUpdate({ bookingId }, { status: 'paid', paidAt: new Date() });
+    await Booking.findByIdAndUpdate(bookingId, { status: 'confirmed' });
 
     // Cancel booking as client < 24h before
     await bookingService.cancelBooking(clientUser, bookingId.toString(), {

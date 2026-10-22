@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import couponRepository from './coupon.repository.js';
 import { COUPON_POLICY } from '../../common/constants/statuses.constant.js';
 import { round2 } from '../payments/payment.service.js';
+import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
 import ApiError from '../../common/utils/ApiError.js';
 import logger from '../../config/logger.config.js';
 
@@ -135,6 +136,48 @@ export const redeemCoupon = async (userId, code, bookingId, bookingPrice, sessio
   return { coupon: claimed, discountAmount };
 };
 
+/**
+ * The booking a coupon was redeemed on will never be paid: give the coupon back and reverse the
+ * discount on the ledger with an ADJUSTMENT pair (the ledger is append-only, never edited).
+ * Runs inside the caller's transaction. Returns null if no coupon was redeemed on the booking.
+ */
+export const releaseForBooking = async (
+  { bookingId, clientId, paymentId, discountAmount },
+  session = null
+) => {
+  const coupon = await couponRepository.releaseRedeemed(bookingId, session);
+  if (!coupon) return null;
+
+  const amountMinor = egpToPiastres(discountAmount);
+  const base = {
+    entryType: 'ADJUSTMENT',
+    amountMinor,
+    bookingId,
+    paymentId,
+    correlationId: `booking_${bookingId}`,
+  };
+  // Mirror image of the redemption pair (PLATFORM debit / CLIENT credit).
+  await ledgerService.postDoubleEntry(
+    {
+      ...base,
+      idempotencyKey: `coupon:release:client:${bookingId}:${coupon.code}`,
+      accountType: 'CLIENT',
+      accountId: clientId.toString(),
+      notes: `Coupon ${coupon.code} returned: booking #${bookingId} was never paid`,
+    },
+    {
+      ...base,
+      idempotencyKey: `coupon:release:platform:${bookingId}:${coupon.code}`,
+      accountType: 'PLATFORM',
+      notes: `Coupon ${coupon.code} discount reversed: booking #${bookingId} was never paid`,
+    },
+    session
+  );
+
+  logger.info(`Coupon ${coupon.code} returned to the client; booking ${bookingId} was never paid`);
+  return coupon;
+};
+
 export const issueCouponsBulk = async ({
   recipientIds,
   issuedReason = 'MARKETING',
@@ -165,6 +208,7 @@ export const getMine = async (userId, query = {}) => {
 };
 
 export default {
+  releaseForBooking,
   issueCoupon,
   issueCouponsBulk,
   validateCoupon,

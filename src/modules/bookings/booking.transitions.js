@@ -18,6 +18,10 @@ import { BOOKING_STATUS } from '../../common/constants/statuses.constant.js';
  *    restores noShowDetails.contestedFromStatus -- never a hardcoded value (X4).
  */
 export const BOOKING_TRANSITIONS = Object.freeze({
+  [BOOKING_STATUS.PENDING_PAYMENT]: Object.freeze([
+    BOOKING_STATUS.CONFIRMED,
+    BOOKING_STATUS.CANCELLED,
+  ]),
   [BOOKING_STATUS.CONFIRMED]: Object.freeze([
     BOOKING_STATUS.IN_PROGRESS,
     BOOKING_STATUS.CANCELLED,

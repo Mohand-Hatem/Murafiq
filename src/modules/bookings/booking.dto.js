@@ -45,6 +45,8 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     price: doc.price,
     duration: doc.duration,
     status: doc.status,
+    // Only set while the booking is awaiting payment; null otherwise.
+    paymentExpiresAt: doc.paymentExpiresAt || null,
     checkInAt: doc.checkInAt || null,
     checkInLocation: doc.checkInLocation || null,
     cashCollectedAt: doc.cashCollectedAt || null,

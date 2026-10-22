@@ -28,6 +28,8 @@ import {
   OFFER_STATUS,
   BOOKING_TERMINAL_STATUSES,
   CHECK_IN_POLICY,
+  BOOKING_PAYMENT_POLICY,
+  REQUEST_STATUS,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import env from '../../config/env.config.js';
@@ -79,6 +81,16 @@ export const createBookingFromOffer = async (
 
   const isDemo = bookingMode === 'demo';
 
+  // Online bookings only RESERVE the slot until paid; the deadline never outlives the session.
+  const paymentExpiresAt = isDemo
+    ? undefined
+    : new Date(
+        Math.min(
+          Date.now() + BOOKING_PAYMENT_POLICY.WINDOW_MINUTES * 60 * 1000,
+          getAppointmentDateTime({ scheduledDate: requestDate, scheduledStartMinute: startMinute }).getTime()
+        )
+      );
+
   // Create booking with duplicate-offer / duplicate-request protection
   let bookingDoc;
   try {
@@ -94,7 +106,8 @@ export const createBookingFromOffer = async (
         meetingLocation: requestDoc.meetingLocation || undefined,
         price: offer.price,
         duration: offer.duration,
-        status: 'confirmed',
+        status: isDemo ? BOOKING_STATUS.CONFIRMED : BOOKING_STATUS.PENDING_PAYMENT,
+        paymentExpiresAt,
         bookingMode,
         payoutStatus: isDemo ? PAYOUT_STATUS.NOT_OWED : PAYOUT_STATUS.UNPAID,
       },
@@ -162,7 +175,7 @@ export const createBookingFromOffer = async (
     session
   );
   if (siblingOffers && siblingOffers.length > 0) {
-    await offerRepository.rejectSiblingOffers(requestDoc._id, offer._id, session);
+    await offerRepository.rejectSiblingOffers(requestDoc._id, offer._id, session, bookingDoc._id);
   }
 
   return bookingDoc;
@@ -202,6 +215,10 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
   }
 
   const { clientId, isClient } = assertBookingParticipant(user, booking, { allowAdmin: false });
+
+  if (booking.status === BOOKING_STATUS.PENDING_PAYMENT) {
+    throw new ApiError(400, 'Payment must be completed before check-in');
+  }
 
   if (booking.status !== 'confirmed' && booking.status !== 'in-progress') {
     throw new ApiError(400, `Cannot check-in to a booking in '${booking.status}' status`);
@@ -763,6 +780,80 @@ export const getCancellationQuote = async (user, bookingId) => {
   };
 };
 
+/**
+ * Releases a `pending_payment` booking that will not be paid (deadline missed or client gave up):
+ * frees the stylist's slot, reopens the request and revives the offers this accept had closed.
+ * One transaction; the booking CAS makes it safe against a racing payment webhook or a second
+ * sweep. Returns null if the booking was no longer pending_payment.
+ */
+export const releaseUnpaidBooking = async (bookingId, { cancelledBy, reason }) => {
+  const released = await withTransaction(async (session) => {
+    const res = await bookingRepository.transitionStatus(
+      bookingId,
+      [BOOKING_STATUS.PENDING_PAYMENT],
+      {
+        status: BOOKING_STATUS.CANCELLED,
+        cancelledBy,
+        cancellationReason: reason,
+        cancelledAt: new Date(),
+        isLive: false,
+        paymentExpiresAt: null,
+      },
+      session
+    );
+    if (!res) return null;
+
+    await scheduleRepository.deleteByBookingId(bookingId, session);
+    const failedPayment = await paymentRepository.failPending(bookingId, session);
+    if (failedPayment?.couponCode) {
+      await couponService.releaseForBooking(
+        {
+          bookingId: res._id,
+          clientId: res.clientId._id || res.clientId,
+          paymentId: failedPayment._id,
+          discountAmount: failedPayment.discountAmount,
+        },
+        session
+      );
+    }
+
+    // The session may already be over; a request/offers for a past slot cannot be revived.
+    const stillBookable = getAppointmentDateTime(res).getTime() > Date.now();
+    await offerRepository.releaseAfterUnpaidBooking(
+      {
+        requestId: res.requestId,
+        offerId: res.offerId,
+        bookingId: res._id,
+        toStatus: stillBookable ? OFFER_STATUS.PENDING : OFFER_STATUS.EXPIRED,
+      },
+      session
+    );
+    await requestRepository.updateById(
+      res.requestId,
+      stillBookable
+        ? {
+            status: REQUEST_STATUS.OPEN,
+            reactivatedAt: new Date(),
+            autoPauseAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+            expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          }
+        : { status: REQUEST_STATUS.CLOSED },
+      session
+    );
+    return res;
+  });
+
+  if (released) {
+    eventBus.emit(EVENTS.BOOKING_CANCELLED, {
+      bookingId: released._id.toString(),
+      clientId: (released.clientId._id || released.clientId).toString(),
+      stylistId: (released.stylistId._id || released.stylistId).toString(),
+      cancelledBy,
+    });
+  }
+  return released;
+};
+
 export const cancelBooking = async (user, bookingId, cancelData = {}) => {
   const booking = await bookingRepository.findById(bookingId);
   if (!booking) {
@@ -805,6 +896,15 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
       400,
       "Cannot cancel a session already in progress. Confirm completion, file a dispute, or (after the check-in grace period) report a no-show instead."
     );
+  }
+
+  // Nothing was paid, so there is nothing to refund and no cancellation tier to price.
+  if (booking.status === BOOKING_STATUS.PENDING_PAYMENT) {
+    const released = await releaseUnpaidBooking(bookingId, {
+      cancelledBy,
+      reason: cancelData.reason || 'cancelled_before_payment',
+    });
+    return toPublicBookingDto(released, user);
   }
 
   if (booking.status !== 'confirmed') {
@@ -1381,6 +1481,7 @@ export default {
   resolveDispute,
   getCancellationQuote,
   cancelBooking,
+  releaseUnpaidBooking,
   getAppointmentDateTime,
   getAppointmentEndDateTime,
   isAttendanceValid,

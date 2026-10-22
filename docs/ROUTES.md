@@ -97,7 +97,9 @@
 | POST | `/offers/requests/:id` | 💇 | ✅ Built | Stylist sends an offer on a request (daily & active capped) |
 | PATCH | `/offers/:id/withdraw` | 💇 | ✅ Built | Stylist withdraws a pending offer |
 | GET | `/offers/requests/:id` | 👤 | ✅ Built | Client's own request: full offer comparison (cheapest first) |
-| PATCH | `/offers/:id/accept` | 👤 | ✅ Built | Accept offer → atomic booking transaction & sibling offer rejection |
+| GET | `/offers/mine` | 💇 | ✅ Built | Stylist: my own offers (status, my price, request summary incl. `offerCount`), newest first, paginated; `?status=` filter. Requests I bid on leave the feed, so this is where to follow up. |
+| GET | `/offers/requests/:id/competing` | 💇 | ✅ Built | Stylist: other pending offers on an OPEN broadcast request — message, name, rating only. Never price/duration/contact; digits in messages masked. Feed items carry `offerCount`. |
+| PATCH | `/offers/:id/accept` | 👤 | ✅ Built | Accept offer → atomic transaction reserving the slot as a `pending_payment` booking (30-min deadline); response includes `paymentUrl`. Paid → `confirmed`; unpaid at `paymentExpiresAt` → released, request + rival offers reopen. Demo (COD) bookings stay `confirmed`. |
 | PATCH | `/offers/:id/reject` | 👤 | ✅ Built | Reject an offer |
 
 ---

@@ -206,6 +206,15 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
  * @param {import('mongoose').ClientSession|null} [session]
  * @returns {Promise<Object|null>}
  */
+export const findExpiredPendingPayment = async (now = new Date(), limit = 25) => {
+  return Booking.find({
+    status: BOOKING_STATUS.PENDING_PAYMENT,
+    paymentExpiresAt: { $lte: now },
+  })
+    .sort({ paymentExpiresAt: 1 })
+    .limit(limit);
+};
+
 export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
   const targetStatus = patch?.status ?? patch?.$set?.status;
   const isSystemCancel =
@@ -539,6 +548,7 @@ export default {
   promoteToCompleted,
   settleNoShow,
   transitionStatus,
+  findExpiredPendingPayment,
   getBookingStats,
 };
 

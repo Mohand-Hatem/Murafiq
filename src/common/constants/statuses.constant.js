@@ -7,6 +7,8 @@ export const ACCOUNT_STATUS = {
 };
 
 export const BOOKING_STATUS = {
+  // Slot reserved, checkout link issued, awaiting payment. Released if unpaid at paymentExpiresAt.
+  PENDING_PAYMENT: 'pending_payment',
   CONFIRMED: 'confirmed',
   IN_PROGRESS: 'in-progress',
   COMPLETED: 'completed',
@@ -147,6 +149,28 @@ export const COUPON_POLICY = {
   MIN_BOOKING_EGP: 0, // no minimum — bookings already carry a 100 EGP floor
 };
 
+// Pay-before-confirm: how long an accepted offer holds the slot while the client pays.
+export const BOOKING_PAYMENT_POLICY = Object.freeze({
+  WINDOW_MINUTES: 30,
+  SWEEP_SCHEDULE: '*/5 * * * *',
+  BATCH_SIZE: 25,
+});
+
+// How long an issued Paymob checkout link is handed back as-is before a new attempt is created.
+// Deliberately conservative: Paymob's own link lifetime is not documented in this repo.
+export const PAYMENT_LINK_POLICY = Object.freeze({
+  REUSE_MINUTES: 15,
+});
+
+// Lost-webhook recovery. Paymob calls transaction inquiry "for manual checks", so it is throttled.
+export const PAYMENT_RECONCILE_POLICY = Object.freeze({
+  SCHEDULE: '*/2 * * * *',
+  MIN_AGE_MINUTES: 2,
+  MAX_AGE_MINUTES: 60,
+  RETRY_MINUTES: 5,
+  BATCH_SIZE: 20,
+});
+
 export const CHECK_IN_POLICY = Object.freeze({
   EARLY_WINDOW_MINUTES: 30,
 });
@@ -195,6 +219,9 @@ export default {
   NO_SHOW_POLICY,
   COUPON_POLICY,
   CHECK_IN_POLICY,
+  BOOKING_PAYMENT_POLICY,
+  PAYMENT_LINK_POLICY,
+  PAYMENT_RECONCILE_POLICY,
   SYSTEM_NO_SHOW_POLICY,
 };
 

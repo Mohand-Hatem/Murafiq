@@ -3,7 +3,7 @@
 > **The single source of truth for: "is X actually working right now?"**
 >
 > **Revalidated 2026-10-09** — Phases 0–14 and Phase 15 (AI Personal Stylist: 15A Pipeline & Scope Guard, 15B Multi-Turn Conversation, 15C Anchor Garment Image Input, 15D Fashion Knowledge RAG Grounding, 15E External Product Search & Gap Closing, 15F Virtual Try-On Isolated Experimental Subsystem) and Subscriptions are **fully implemented, tested, and verified** (**END OF V1 + 15F**).
-> All 160 OpenAPI operations validated. >400 automated unit, integration, and golden evaluation tests pass (100%).
+> All 162 OpenAPI operations validated. >400 automated unit, integration, and golden evaluation tests pass (100%).
 > Verified against live MongoDB: free tier 10-lifetime message cap, CAS defense-in-depth, wardrobe formality adjacency relaxation, clean single-array response contract (`data.outfits`), honest quota-blocked product search feedback, and multi-look composition.
 > See [`docs/PLANS.md`](PLANS.md) for the complete subscription plans and entitlements architecture.
 
@@ -93,6 +93,29 @@ Legend:
 > **Business Rules Revision — Stages R0 through R12: 100% COMPLETE & VERIFIED.** `BUSINESS_RULES.md`
 > (added 2026-08-27) is a cross-cutting revision of business rules across Phases 1–13, **not a Phase 17**
 > — it does not extend the build sequence and does not wait on Phases 14–16. Its stages are `R0`–`R12`.
+### Pay-before-confirm + payment recovery (added 2026-10-22)
+
+- **Booking lifecycle:** accept creates the booking as `pending_payment` (slot held, request
+  `FULFILLED`) with `paymentExpiresAt` = min(now+30 min, session start) and returns `paymentUrl`.
+  The Paymob webhook (or reconciliation) confirms it in the same transaction that marks the payment
+  paid. `jobs/payment-timeout.cron.js` (every 5 min) releases unpaid bookings: slot freed, payment
+  `failed`, request back to `OPEN`, accepted + rival offers back to `PENDING` (or `CLOSED`/`EXPIRED`
+  if the session start has passed). A client cancel of an unpaid booking does the same, no refund.
+  A payment that lands after release is refunded in full automatically. Demo (COD) is unchanged.
+- **Re-initialisable payments (P1):** `Payment` now stores the issued checkout link and an attempt
+  counter; `/payments/:bookingId/initialize` reuses a link younger than 15 min, otherwise creates
+  attempt N+1 with `special_reference = <bookingId>-<N>` (the webhook strips the suffix). Previously
+  any second initialize failed with Paymob's "order already exists".
+- **Lost-webhook recovery:** `jobs/payment-reconcile.cron.js` (every 2 min) asks Paymob's
+  transaction inquiry (`POST /api/ecommerce/orders/transaction_inquiry`, verified live against the
+  sandbox) about payments pending 2–60 min, each at most once per 5 min (Paymob documents inquiry as
+  "for manual checks"), and settles through the same `settlePayment` path as the webhook.
+- **Index migration required before deploy:** `Booking.requestId`/`offerId` unique indexes are now
+  partial (`isLive: true`). Run `node scripts/migrate-booking-live-indexes.js` once per database.
+- **Known gap:** a coupon redeemed on a payment that then times out is not restored.
+- **Root cause of the ngrok 502:** the tunnel pointed at port 80, the backend listens on 4000
+  (`ngrok http 4000 --url …`). Not a code defect.
+
 ### Subscriptions — manual admin entitlement (added 2026-09-11)
 
 Three admin-only endpoints now sit alongside the paid Paymob flow:
@@ -251,7 +274,7 @@ holding duplicate active rows. It never deletes or merges anything.
 | `users/` | ✅ Active | 8 routes (`/users/me` [5 endpoints] + `GET /users/:id` [public profile] + `/locations/governorates` + `/locations/governorates/:governorate/cities`) + the verification service backing `/admin/verifications` (using Cloudinary documentRefs). Canonical Egyptian administrative hierarchy dataset and normalizer, zero-PII public client DTO. |
 | `stylists/` | ✅ Active | 7 routes (`GET /`, `GET /me/profile`, `GET /me/payouts`, `GET /:id`, `GET /:id/reviews`, `GET /:id/reliability`, `POST /profile`, `PATCH /profile`). Multi-factor reliability scoring engine, multi-tier Egyptian geo search, `$geoNear` search aggregation, cancellation counter tracking, and payout credentials. |
 | `requests/` | ✅ Active | 9 routes (`POST /requests`, `GET /mine`, `GET /incoming`, `GET /feed`, `PATCH /:id`, `PATCH /:id/reactivate`, `PATCH /:id/close`, `PATCH /:id/cancel`, `PATCH /:id/decline`). Supports both Direct (1:1) and Open Broadcast requests, Zod discriminated union, multi-bid broadcast feed, edit with 0-offer immutability guard, 3-reactivation limit, 15-min quota refund on cancellation, 48h auto-pause cron, content safety scanner, and sanitized public client DTO mapping. |
-| `offers/` | ✅ Active | 5 routes (`POST /requests/:id`, `GET /requests/:id`, `PATCH /:id/withdraw`, `PATCH /:id/accept`, `PATCH /:id/reject`). Multi-bid support (up to 3 per request), entitlement daily & active capacity consumption, withdraw flow, unchosen siblings transition to `CLOSED`, 24h & 30-day long-stop expiry sweeps, and content safety scanner. |
+| `offers/` | ✅ Active | 7 routes (`POST /requests/:id`, `GET /mine` [stylist's own offers], `GET /requests/:id`, `GET /requests/:id/competing` [stylist view of rival offers: message/name/rating, no price — added 2026-10-21; feed exposes `offerCount`], `PATCH /:id/withdraw`, `PATCH /:id/accept`, `PATCH /:id/reject`). Multi-bid support (docs say up to 3 per request; `offer.service.js` currently enforces 1 per stylist per request — unresolved drift), entitlement daily & active capacity consumption, withdraw flow, unchosen siblings transition to `CLOSED`, 24h & 30-day long-stop expiry sweeps, and content safety scanner. |
 | `bookings/` | ✅ Active | 11 routes (`GET /mine`, `GET /stylist`, `GET /:id`, `GET /:id/cancellation-quote`, `GET /:id/reviews`, `GET /:id/dispute`, `POST /:id/review`, `POST /:id/dispute`, `POST /:id/dispute/evidence`, `PATCH /:id/check-in`, `PATCH /:id/confirm-completion`, `PATCH /:id/cancel`). Atomic CAS Request lock, 97/3/0 early and 80/15/5 late cancellation tiers, 48h dispute filing window, evidence timeline attachment, multi-outcome admin arbitration, dual-write ledger entries, and sanitized client DTO. |
 | `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. Dual-writes to immutable ledger journal on payment success and refund. |
 | `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). Automatic penalty debt netting engine with integer piastres math and dual-write ledger entries. |
@@ -285,8 +308,8 @@ the server never called `new Server(...)` after that); `uuid` was never used at 
 
 **NOT installed** — verified against `package.json`, regardless of what any other doc claims:
 
-`bullmq` · `ioredis` · `openai` ·
-any Pinecone/Qdrant client · `langchain`
+`openai` · any Pinecone/Qdrant client · `langchain`
+*(2026-10-22: `bullmq` and `ioredis` ARE installed and used by the wardrobe-classification and try-on workers — an earlier version of this list wrongly said otherwise.)*
 
 > `ARCHITECTURE.md` §2 marks Cloudinary+Multer and BullMQ+Redis as "Active". **They are not
 > installed** (BullMQ/Redis deliberately deferred to Phase 12 — see §6). Corrected in
@@ -354,7 +377,7 @@ key above). All are now present in `.env.example`.
 
 | Piece | Status | Notes |
 |---|---|---|
-| BullMQ / Redis | ⛔ Not installed | Deliberately deferred to **Phase 14**, not Phase 12 — Phase 12 was re-scoped to node-cron-only scheduled sweeps and never installs a queue. v1's only recurring jobs are cron-shaped; the classification worker in Phase 14 is the first genuinely queue-shaped work. See `src/jobs/offer-expiry.cron.js`'s header comment and `HARDENING_07` Part 2 (Phase 12/14 sections). |
+| BullMQ / Redis | ✅ Installed (2026-10-22 correction) — used by `jobs/queues/*` and `jobs/workers/*` (wardrobe classification, try-on). The text that follows is the historical Phase 12 rationale: deliberately deferred to **Phase 14**, not Phase 12 — Phase 12 was re-scoped to node-cron-only scheduled sweeps and never installs a queue. v1's only recurring jobs are cron-shaped; the classification worker in Phase 14 is the first genuinely queue-shaped work. See `src/jobs/offer-expiry.cron.js`'s header comment and `HARDENING_07` Part 2 (Phase 12/14 sections). |
 | `otp-cleanup` sweep | ⛔ Not built | Phase 12 scope, same `node-cron` pattern as offer-expiry. |
 | `expireOldRequests()` | ✅ Active | Lazily invoked on read (`request.service.js:79`, `:88`). |
 | `expireOldOffers()` | ✅ **Active (fixed this pass)** | Was dead code — defined at `offer.repository.js:43`, called from nowhere. Now swept every 5 minutes by `src/jobs/offer-expiry.cron.js` (in-process `node-cron`, registered from `server.js` after DB connect, skipped in `NODE_ENV=test`). **Must run on exactly one PM2 instance** — `ecosystem.config.cjs` pins `instances: 1` for this reason; do not switch to cluster mode without moving this to a real queue first. |

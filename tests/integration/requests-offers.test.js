@@ -317,7 +317,7 @@ describe('Phase 4 Integration — Requests & Offers', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('confirmed');
+      expect(res.body.data.status).toBe('pending_payment');
     });
   });
 });

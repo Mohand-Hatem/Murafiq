@@ -171,10 +171,13 @@ export default class PaymobProvider extends PaymentProviderInterface {
 
     const success = dataObj.success === true || dataObj.success === 'true';
     const transactionId = dataObj.id?.toString();
-    const bookingId =
+    // Retry attempts use "<bookingId>-<n>" as their reference (unique per Paymob order);
+    // strip the suffix. Plain ids and "subord_..." subscription references don't match.
+    const bookingId = (
       dataObj.order?.merchant_order_id ||
       dataObj.special_reference ||
-      dataObj.intention_id;
+      dataObj.intention_id
+    )?.toString().replace(/^([0-9a-f]{24})-\d+$/i, '$1');
 
     return {
       success,
@@ -214,6 +217,33 @@ export default class PaymobProvider extends PaymentProviderInterface {
 
     const data = await response.json();
     return data.token;
+  }
+
+  /**
+   * Transaction Inquiry by merchant_order_id (our special_reference). Used only to recover a lost
+   * webhook -- Paymob documents inquiry as "for manual checks", so callers must throttle.
+   * Returns null when Paymob has no transaction for the reference.
+   */
+  async inquire(reference) {
+    const authToken = await this.getAuthToken();
+    const response = await fetch(`${this.baseUrl}/api/ecommerce/orders/transaction_inquiry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_token: authToken, merchant_order_id: reference }),
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new ApiError(502, `Paymob transaction inquiry failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    return {
+      success: data.success === true,
+      pending: data.pending === true,
+      transactionId: data.id?.toString(),
+      amountCents: data.amount_cents ?? null,
+    };
   }
 
   /**

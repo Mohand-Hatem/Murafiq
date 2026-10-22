@@ -17,6 +17,10 @@ export default class MockProvider extends PaymentProviderInterface {
     };
   }
 
+  async inquire() {
+    return null; // the mock has no remote state to ask
+  }
+
   async verify(transactionId) {
     return {
       status: 'paid',

@@ -19,10 +19,12 @@ export const withdrawOffer = asyncHandler(async (req, res) => {
 
 export const acceptOffer = asyncHandler(async (req, res) => {
   const bookingMode = req.bookingMode || 'standard';
-  const offerDoc = await offerService.acceptOffer(req.user, req.params.id, { bookingMode });
+  const { booking, paymentUrl } = await offerService.acceptOfferAndPay(req.user, req.params.id, {
+    bookingMode,
+  });
   return ApiResponse.success(res, {
     message: 'Offer accepted successfully',
-    data: offerDoc,
+    data: { ...(booking.toJSON ? booking.toJSON() : booking), paymentUrl },
   });
 });
 
@@ -42,7 +44,26 @@ export const getOffersForRequest = asyncHandler(async (req, res) => {
   });
 });
 
+export const getMyOffers = asyncHandler(async (req, res) => {
+  const result = await offerService.getMyOffers(req.user, req.query);
+  return ApiResponse.success(res, {
+    message: 'Your offers retrieved successfully',
+    data: result.items,
+    meta: result.meta,
+  });
+});
+
+export const getCompetingOffers = asyncHandler(async (req, res) => {
+  const offers = await offerService.getCompetingOffers(req.user, req.params.id);
+  return ApiResponse.success(res, {
+    message: 'Competing offers retrieved successfully',
+    data: offers,
+  });
+});
+
 export default {
+  getMyOffers,
+  getCompetingOffers,
   createOffer,
   withdrawOffer,
   acceptOffer,

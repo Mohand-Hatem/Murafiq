@@ -16,6 +16,12 @@ router.post('/requests/:id', restrictTo(ROLES.STYLIST), validate(createOfferSche
 // Stylist-only offer withdrawal
 router.patch('/:id/withdraw', restrictTo(ROLES.STYLIST), offerController.withdrawOffer);
 
+// Stylist-only: my own offers with status and a request summary (the feed hides requests I bid on)
+router.get('/mine', restrictTo(ROLES.STYLIST), offerController.getMyOffers);
+
+// Stylist-only: the other offers' messages/names/ratings on a broadcast request -- no prices
+router.get('/requests/:id/competing', restrictTo(ROLES.STYLIST), offerController.getCompetingOffers);
+
 // Client-only: full offer comparison on their own request (sealed-bid)
 router.get('/requests/:id', restrictTo(ROLES.CLIENT), offerController.getOffersForRequest);
 
