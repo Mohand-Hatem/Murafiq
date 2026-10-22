@@ -146,6 +146,13 @@ export const rejectSiblingOffers = async (
   return closeSiblingOffers(requestId, winningOfferId, session, closedByBookingId);
 };
 
+export const closePendingForRequest = async (requestId, session = null) =>
+  Offer.updateMany(
+    { requestId, status: OFFER_STATUS.PENDING },
+    { $set: { status: OFFER_STATUS.CLOSED } },
+    session ? { session } : {}
+  );
+
 // An unpaid booking was released: the accepted offer and the siblings it closed go back to
 // `toStatus` (PENDING to be accepted again, or EXPIRED when the session start has passed).
 export const releaseAfterUnpaidBooking = async (
@@ -182,4 +189,5 @@ export default {
   closeSiblingOffers,
   rejectSiblingOffers,
   releaseAfterUnpaidBooking,
+  closePendingForRequest,
 };

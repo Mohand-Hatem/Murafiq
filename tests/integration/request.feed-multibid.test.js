@@ -31,6 +31,12 @@ const mockUpdateById = jest.fn().mockImplementation((id, data) =>
   Promise.resolve({ ...mockRequestWithOffers, ...data })
 );
 
+// Ending a request closes its pending offers (offers module); that is covered by
+// tests/integration/offer-lifetime.test.js, so this suite stubs it out.
+jest.unstable_mockModule('../../src/modules/offers/offer.service.js', () => ({
+  default: { closePendingForRequest: jest.fn().mockResolvedValue(undefined) },
+}));
+
 jest.unstable_mockModule('../../src/modules/users/user.repository.js', () => ({
   default: {
     findById: jest.fn().mockImplementation((id) => {

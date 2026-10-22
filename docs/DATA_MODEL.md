@@ -159,7 +159,7 @@ Financial ledger entry capturing customer billing, platform commission, and refu
 | `clientId` | ObjectId (User) | Paying client |
 | `amount` | Number | Gross transaction amount in EGP |
 | `currency` | String | Default `'EGP'` |
-| `platformFeePercentage` | Number | Platform fee rate (15%) |
+| `platformFeePercentage` | Number | Platform fee rate (default 20%, snapshotted per payment) |
 | `platformFeeAmount` | Number | Platform earnings in EGP |
 | `stylistPayoutAmount` | Number | Net stylist earnings in EGP (85% adjusted for refunds) |
 | `status` | String | `pending` \| `paid` \| `failed` \| `refunding` \| `refunded` \| `partially_refunded` |

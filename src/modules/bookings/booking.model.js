@@ -66,6 +66,8 @@ const bookingSchema = new Schema(
     reminderSentAt: Date,
     clientConfirmedAt: Date,
     stylistConfirmedAt: Date,
+    // LEGACY: only bookings checked in before the cash OTP became derived (cashOtp.util.js) carry
+    // these. New bookings store neither; safe to drop once no such booking is in progress.
     cashOtpHash: { type: String, select: false },
     cashOtpPlain: { type: String, select: false },
     cashCollectedAt: { type: Date, default: null },

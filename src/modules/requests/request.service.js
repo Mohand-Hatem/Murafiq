@@ -3,6 +3,7 @@ import userRepository from '../users/user.repository.js';
 import stylistRepository from '../stylists/stylist.repository.js';
 import entitlementService from '../subscriptions/entitlement.service.js';
 import moderationService from '../moderation/moderation.service.js';
+import offerService from '../offers/offer.service.js';
 import { toPublicRequestDto } from './request.dto.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
@@ -230,6 +231,7 @@ export const closeRequest = async (clientId, requestId) => {
     status: REQUEST_STATUS.CLOSED,
     autoPauseAt: null,
   });
+  await offerService.closePendingForRequest(requestId);
 
   return toPublicRequestDto(updated);
 };
@@ -263,6 +265,7 @@ export const cancelRequest = async (clientId, requestId) => {
     status: REQUEST_STATUS.CANCELLED,
     autoPauseAt: null,
   });
+  await offerService.closePendingForRequest(requestId);
 
   return toPublicRequestDto(updated);
 };
@@ -308,6 +311,7 @@ export const declineRequest = async (stylistId, requestId) => {
     status: REQUEST_STATUS.DECLINED,
     autoPauseAt: null,
   });
+  await offerService.closePendingForRequest(requestId);
 
   eventBus.emit(EVENTS.REQUEST_DECLINED, { requestId });
   return toPublicRequestDto(updated);

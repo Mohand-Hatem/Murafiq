@@ -112,9 +112,29 @@ Legend:
   "for manual checks"), and settles through the same `settlePayment` path as the webhook.
 - **Index migration required before deploy:** `Booking.requestId`/`offerId` unique indexes are now
   partial (`isLive: true`). Run `node scripts/migrate-booking-live-indexes.js` once per database.
-- **Known gap:** a coupon redeemed on a payment that then times out is not restored.
+- **Coupons:** a coupon redeemed on a payment that never completes is returned to `ISSUED` and its
+  discount is reversed on the ledger with an `ADJUSTMENT` pair, in the same transaction as the release.
 - **Root cause of the ngrok 502:** the tunnel pointed at port 80, the backend listens on 4000
   (`ngrok http 4000 --url …`). Not a code defect.
+
+### Product-owner decisions applied (2026-10-22)
+
+- **One offer per stylist per request** (a stylist may still hold several live offers to the same client
+  across different requests). Enforced by a service check (an active `PENDING`/`ACCEPTED` offer by that stylist on the
+  request blocks a new one; a withdrawn/rejected/closed/expired one frees the slot) and by a partial unique `{requestId, stylistId}` index on `PENDING`/
+  `ACCEPTED` offers, which closes the read-then-write race.
+- **No 24h offer expiry.** An offer's `expiresAt` is now min(session start, 30-day long stop)
+  (`OFFER_POLICY.LONG_STOP_DAYS`). Closing, cancelling or declining a request now closes its pending
+  offers (before, they lingered and kept counting against the stylist's `offers.active` capacity).
+  Offers created before this change keep their old 24h `expiresAt` and are swept as before.
+- **Platform fee 20%** (`PLATFORM_FEE_DEFAULT_PERCENTAGE`), the single fallback for the env schema,
+  booking/payment services and settlement. Each payment snapshots the rate it was charged.
+- **Demo cash OTP is derived, not stored** (`common/utils/cashOtp.util.js`: HMAC of the booking id,
+  keyed by `JWT_ACCESS_SECRET`). New bookings store neither the code nor a hash. Bookings checked in
+  earlier still verify through their stored hash; the legacy fields can be dropped later.
+- **Duplicate payment auto-refund:** a second successful transaction on an already-paid payment is
+  refunded on its own transaction id (`Payment.duplicateRefunds`); the real payment stays `paid`. A
+  failed refund returns 502 so Paymob redelivers the webhook.
 
 ### Subscriptions — manual admin entitlement (added 2026-09-11)
 
@@ -274,9 +294,9 @@ holding duplicate active rows. It never deletes or merges anything.
 | `users/` | ✅ Active | 8 routes (`/users/me` [5 endpoints] + `GET /users/:id` [public profile] + `/locations/governorates` + `/locations/governorates/:governorate/cities`) + the verification service backing `/admin/verifications` (using Cloudinary documentRefs). Canonical Egyptian administrative hierarchy dataset and normalizer, zero-PII public client DTO. |
 | `stylists/` | ✅ Active | 7 routes (`GET /`, `GET /me/profile`, `GET /me/payouts`, `GET /:id`, `GET /:id/reviews`, `GET /:id/reliability`, `POST /profile`, `PATCH /profile`). Multi-factor reliability scoring engine, multi-tier Egyptian geo search, `$geoNear` search aggregation, cancellation counter tracking, and payout credentials. |
 | `requests/` | ✅ Active | 9 routes (`POST /requests`, `GET /mine`, `GET /incoming`, `GET /feed`, `PATCH /:id`, `PATCH /:id/reactivate`, `PATCH /:id/close`, `PATCH /:id/cancel`, `PATCH /:id/decline`). Supports both Direct (1:1) and Open Broadcast requests, Zod discriminated union, multi-bid broadcast feed, edit with 0-offer immutability guard, 3-reactivation limit, 15-min quota refund on cancellation, 48h auto-pause cron, content safety scanner, and sanitized public client DTO mapping. |
-| `offers/` | ✅ Active | 7 routes (`POST /requests/:id`, `GET /mine` [stylist's own offers], `GET /requests/:id`, `GET /requests/:id/competing` [stylist view of rival offers: message/name/rating, no price — added 2026-10-21; feed exposes `offerCount`], `PATCH /:id/withdraw`, `PATCH /:id/accept`, `PATCH /:id/reject`). Multi-bid support (docs say up to 3 per request; `offer.service.js` currently enforces 1 per stylist per request — unresolved drift), entitlement daily & active capacity consumption, withdraw flow, unchosen siblings transition to `CLOSED`, 24h & 30-day long-stop expiry sweeps, and content safety scanner. |
+| `offers/` | ✅ Active | 7 routes (`POST /requests/:id`, `GET /mine` [stylist's own offers], `GET /requests/:id`, `GET /requests/:id/competing` [stylist view of rival offers: message/name/rating, no price — added 2026-10-21; feed exposes `offerCount`], `PATCH /:id/withdraw`, `PATCH /:id/accept`, `PATCH /:id/reject`). Multi-bid support (one offer per stylist per request — PO decision 2026-10-22; a stylist may hold several live offers to the same client across different requests), entitlement daily & active capacity consumption, withdraw flow, unchosen siblings transition to `CLOSED`, expiry sweeps (session start and 30-day long stop; no 24h expiry since 2026-10-22), and content safety scanner. |
 | `bookings/` | ✅ Active | 11 routes (`GET /mine`, `GET /stylist`, `GET /:id`, `GET /:id/cancellation-quote`, `GET /:id/reviews`, `GET /:id/dispute`, `POST /:id/review`, `POST /:id/dispute`, `POST /:id/dispute/evidence`, `PATCH /:id/check-in`, `PATCH /:id/confirm-completion`, `PATCH /:id/cancel`). Atomic CAS Request lock, 97/3/0 early and 80/15/5 late cancellation tiers, 48h dispute filing window, evidence timeline attachment, multi-outcome admin arbitration, dual-write ledger entries, and sanitized client DTO. |
-| `payments/` | ✅ Active | 5 routes, provider pattern, 15% commission, `round2()` 2-dp EGP. Dual-writes to immutable ledger journal on payment success and refund. |
+| `payments/` | ✅ Active | 5 routes, provider pattern, 20% commission (`PLATFORM_FEE_DEFAULT_PERCENTAGE`; PO decision 2026-10-22), `round2()` 2-dp EGP. Dual-writes to immutable ledger journal on payment success and refund. |
 | `payouts/` | ✅ Active | 6 routes (stylist account management, admin pending balances summary, batch disbursement, status guards). Automatic penalty debt netting engine with integer piastres math and dual-write ledger entries. |
 | `ledger/` | ✅ Active | Immutable financial journal (`LedgerEntry`), integer piastres math, idempotent key deduplication, double-entry posting, statements, paginated query filter, and daily reconciliation cron. |
 | `subscriptions/` | ✅ Active | 5 routes (`GET /plans`, `GET /me`, `GET /me/entitlements`, `POST /subscribe`, `POST /cancel`). Single-gate `entitlement.service` for atomic `UsageCounter` consumption, persistent capacity computation, and daily subscription renewal cron. |

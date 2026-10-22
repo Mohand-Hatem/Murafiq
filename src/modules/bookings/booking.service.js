@@ -14,6 +14,7 @@ import moderationService from '../moderation/moderation.service.js';
 import reliabilityService from '../stylists/reliability.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
 import { timeToMinutes } from '../../common/utils/timeUtils.js';
+import { matchesCashOtp } from '../../common/utils/cashOtp.util.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
@@ -32,6 +33,8 @@ import {
   REQUEST_STATUS,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
+import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
+
 import env from '../../config/env.config.js';
 import logger from '../../config/logger.config.js';
 
@@ -144,7 +147,7 @@ export const createBookingFromOffer = async (
 
   // Create pending payment record (V1 online payments only; skipped for demo COD)
   if (!isDemo) {
-    const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || 15;
+    const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || PLATFORM_FEE_DEFAULT_PERCENTAGE;
     const platformFeeAmount = round2(offer.price * (platformFeePercentage / 100));
     const stylistPayoutAmount = round2(offer.price - platformFeeAmount);
 
@@ -267,13 +270,8 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     updateData.checkInLocation = { lat: locationData.lat, lng: locationData.lng };
   }
 
-  // Generate 4-digit Cash OTP for demo bookings upon entering in-progress
-  if (booking.bookingMode === 'demo' && !booking.cashOtpHash) {
-    const rawOtp = crypto.randomInt(1000, 10000).toString();
-    const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
-    updateData.cashOtpHash = otpHash;
-    updateData.cashOtpPlain = rawOtp;
-  }
+  // Demo cash OTP: nothing is generated or stored here -- the 4-digit code is derived from the
+  // booking id on demand (see cashOtp.util.js).
 
   const updated = await bookingRepository.transitionStatus(
     bookingId,
@@ -378,15 +376,16 @@ export const verifyCashOtp = async (user, bookingId, { otp } = {}) => {
     throw new ApiError(400, 'Cash payment has already been verified for this booking');
   }
 
-  if (!booking.cashOtpHash) {
-    throw new ApiError(400, 'No Cash OTP has been generated for this booking');
+  // Bookings checked in before the OTP became derived still carry a stored hash: honour it.
+  let otpMatches;
+  if (booking.cashOtpHash) {
+    const submitted = crypto.createHash('sha256').update(otp).digest();
+    const stored = Buffer.from(booking.cashOtpHash, 'hex');
+    otpMatches = submitted.length === stored.length && crypto.timingSafeEqual(submitted, stored);
+  } else {
+    otpMatches = matchesCashOtp(booking._id, otp);
   }
-
-  const submittedHash = crypto.createHash('sha256').update(otp).digest('hex');
-  const hashBuffer = Buffer.from(submittedHash, 'hex');
-  const storedBuffer = Buffer.from(booking.cashOtpHash, 'hex');
-
-  if (hashBuffer.length !== storedBuffer.length || !crypto.timingSafeEqual(hashBuffer, storedBuffer)) {
+  if (!otpMatches) {
     throw new ApiError(400, 'Invalid Cash OTP');
   }
 
@@ -595,7 +594,10 @@ export const resolveDispute = async (
           event: 'DISPUTE',
           actor: 'admin',
           refundPercentage: finalRefundPercentage,
-          platformFeePercentage: payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15,
+          platformFeePercentage:
+            payment.platformFeePercentage ||
+            env.PLATFORM_FEE_PERCENTAGE ||
+            PLATFORM_FEE_DEFAULT_PERCENTAGE,
         });
         stylistPayoutOverrideAmount = settlement.stylistCompensationAmount;
       }

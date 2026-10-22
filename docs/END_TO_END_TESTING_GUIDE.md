@@ -278,20 +278,21 @@ For all API testing tools (Postman, API Dog, Insomnia, cURL):
 
 ---
 
-### Step 15: Client Accepts Offer (Creates Booking)
+### Step 15: Client Accepts Offer (Reserves the Slot and Returns the Payment Link)
 - **Method:** `PATCH`
 - **URL:** `/offers/{{OFFER_ID}}/accept`
 - **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
 - **Expected Status:** `200 OK`
-- **Capture:** `data.booking._id` (or `data._id`) ➔ **`BOOKING_ID`**
+- **Capture:** `data._id` ➔ **`BOOKING_ID`**, and `data.paymentUrl` (open it in a browser to pay)
 - **Effect:**
-  - Booking is created with status `pending`.
-  - Winning offer status becomes `accepted`.
-  - Competing offers become `rejected`.
+  - Booking is created with status `pending_payment` and `data.paymentExpiresAt` (30 minutes ahead).
+  - Winning offer status becomes `ACCEPTED`.
+  - Competing offers become `CLOSED` (they return to `PENDING` if the booking is released unpaid).
+  - `data.paymentUrl` is `null` only if Paymob was unreachable; use Step 16 to get it.
 
 ---
 
-### Step 16: Client Initializes Payment Checkout
+### Step 16: Client Re-issues the Payment Link (optional; also where a coupon is applied)
 - **Method:** `POST`
 - **URL:** `/payments/{{BOOKING_ID}}/initialize`
 - **Headers:** `Authorization: Bearer <CLIENT_TOKEN>`
@@ -303,7 +304,8 @@ For all API testing tools (Postman, API Dog, Insomnia, cURL):
 ```
 *(Leave body empty `{}` if no coupon is applied).*
 - **Expected Status:** `200 OK`
-- **Verify:** Returns payment iframe URL, transaction token, and calculated amount.
+- **Verify:** Returns the payment URL and calculated amount. Calling it again within 15 minutes returns the
+  same link; later it creates a new attempt. It is refused once the booking is released or paid.
 
 ---
 

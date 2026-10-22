@@ -121,8 +121,12 @@ EGP**), languages, working areas, weekly availability, portfolio, and payout acc
                          ├─ stylist withdraws ───► WITHDRAWN  (terminal)
                          ├─ a sibling wins ──────► CLOSED     (terminal)
                          ├─ request closed ──────► CLOSED     (terminal)
+                         ├─ session start passes ► EXPIRED    (terminal)
                          └─ 30-day long-stop ────► EXPIRED    (terminal)
 ```
+
+There is no 24-hour offer expiry. An offer lives until one of the events above; closing, cancelling
+or declining a request closes its pending offers.
 
 **`CLOSED` and `REJECTED` are deliberately different.** *Someone else won* is not the same signal as
 *this client looked at your bid and said no* — the distinction matters on a stylist's dashboard and
@@ -144,15 +148,22 @@ request is not.
 
 The per-request cap is enforced by a database index rather than by a service check alone. A service
 check reads then writes, and two concurrent requests can both pass through that window; the unique
-index closes it. Proven by a concurrency test that fails when the index is removed.
+`{ requestId, stylistId }` index (partial: `PENDING` and `ACCEPTED` offers) closes it.
 
 ## 7. Booking, payment and completion
 
-1. **Accept an offer → a booking is created.** This is one atomic transaction: booking, schedule
-   block, and pending payment record are written together, the winning offer becomes `ACCEPTED`,
-   losing offers become `CLOSED`, and the request becomes `FULFILLED`.
-2. **The client pays.** Money is held in escrow. The chat room, created closed at booking time,
-   unlocks on successful payment. A coupon may be applied here.
+1. **Accept an offer → the slot is reserved and a payment link is returned.** One atomic
+   transaction writes the booking (status `PENDING_PAYMENT`), the schedule block and a pending
+   payment record; the winning offer becomes `ACCEPTED`, losing offers become `CLOSED`, and the
+   request becomes `FULFILLED`. The accept response carries the Paymob `paymentUrl` and
+   `paymentExpiresAt` (30 minutes, never later than the session start).
+2. **The client pays.** Money is held in escrow and the booking becomes `CONFIRMED` in the same
+   transaction. The chat room, created closed at booking time, unlocks on successful payment. A
+   coupon may be applied when (re)starting checkout. If the client does not pay in time (or
+   cancels), the slot is released, the payment is failed, any coupon is returned, the request
+   reopens and the offers it had closed come back to `PENDING`. A payment that arrives after the
+   release is refunded in full; a second payment on an already-paid booking is refunded
+   automatically.
 3. **Check-in.** Either party checks in at the meeting location, optionally with GPS coordinates.
    Check-in is gated on payment being complete.
 4. **Both parties confirm completion.** One-sided confirmation never completes a booking.
@@ -161,7 +172,7 @@ index closes it. Proven by a concurrency test that fails when the index is remov
    transferred. Disbursement is a deliberate admin action.
 
 ```
-CONFIRMED ──► IN_PROGRESS ──► COMPLETED ──► (48h hold) ──► payout-eligible
+PENDING_PAYMENT ──► CONFIRMED ──► IN_PROGRESS ──► COMPLETED ──► (48h hold) ──► payout-eligible
     │                              │
     │                              └──► DISPUTED ──► COMPLETED | CANCELLED
     ├──► CANCELLED

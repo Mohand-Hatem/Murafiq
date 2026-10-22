@@ -110,6 +110,11 @@ describe('Demo COD 4-Digit Cash OTP Integration Tests', () => {
     expect(stylistCheckIn.body.data.cashOtp).toBeDefined();
     expect(stylistCheckIn.body.data.cashOtp).toMatch(/^\d{4}$/); // Exactly 4 digits
 
+    // The OTP is derived on demand -- neither the code nor a hash of it is stored on new bookings
+    const stored = await Booking.findById(bookingId).select('+cashOtpPlain +cashOtpHash').lean();
+    expect(stored.cashOtpPlain).toBeUndefined();
+    expect(stored.cashOtpHash).toBeUndefined();
+
     // Stylist GET /bookings/:id sees cashOtp
     const stylistGet = await request(app)
       .get(`/api/demo/bookings/${bookingId}`)

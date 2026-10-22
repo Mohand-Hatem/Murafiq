@@ -1,3 +1,4 @@
+import { deriveCashOtp } from '../../common/utils/cashOtp.util.js';
 import { minutesToTime } from '../../common/utils/timeUtils.js';
 
 // Deliberately NOT toPublicUser (email/phone/role/accountStatus) and NOT
@@ -50,7 +51,8 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     checkInAt: doc.checkInAt || null,
     checkInLocation: doc.checkInLocation || null,
     cashCollectedAt: doc.cashCollectedAt || null,
-    ...(showOtp && doc.cashOtpPlain ? { cashOtp: doc.cashOtpPlain } : {}),
+    // cashOtpPlain exists only on bookings checked in before the OTP became derived.
+    ...(showOtp ? { cashOtp: doc.cashOtpPlain || deriveCashOtp(doc._id) } : {}),
     clientConfirmedAt: doc.clientConfirmedAt || null,
     stylistConfirmedAt: doc.stylistConfirmedAt || null,
     cancelledBy: doc.cancelledBy || null,

@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import { z } from 'zod';
+import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../common/constants/defaults.constant.js';
 
 dotenv.config();
 
@@ -62,7 +63,10 @@ const envSchema = z.object({
   // This BACKEND's own public origin. Distinct from CLIENT_URL: payment webhooks must be
   // delivered here, not to the frontend. In production this is the public API hostname.
   API_URL: z.string().default('http://localhost:4000'),
-  PLATFORM_FEE_PERCENTAGE: z.string().default('15').transform(Number),
+  PLATFORM_FEE_PERCENTAGE: z
+    .string()
+    .default(String(PLATFORM_FEE_DEFAULT_PERCENTAGE))
+    .transform(Number),
   FIREBASE_PROJECT_ID: secret('murafiq-dev'),
   FIREBASE_CLIENT_EMAIL: secret('firebase-adminsdk@murafiq-dev.iam.gserviceaccount.com'),
   FIREBASE_PRIVATE_KEY: secret('dev_firebase_private_key_change_me_in_prod'),

@@ -78,16 +78,19 @@ This document breaks down:
    - *Rule:* Bounded by subscription tier daily quota and active capacity.
 2. **Sealed-Bid Comparison:** Client reviews all incoming offers for their request without stylists seeing each other's quotes (`GET /api/v1/offers/requests/:requestId`).
 3. **Offer Acceptance:** Client accepts their preferred offer (`PATCH /api/v1/offers/:id/accept`).
-   - Sibling pending offers are automatically marked `REJECTED`.
-   - A `PENDING` booking record is created in the database.
+   - Sibling pending offers are automatically marked `CLOSED`.
+   - A booking is created in `PENDING_PAYMENT` (slot reserved for 30 minutes) and the response
+     includes the Paymob `paymentUrl` and `paymentExpiresAt`.
 
 ### Cycle 4: Booking, Escrow Payment & Confirmation Flow
-1. **Initialize Payment:** Client initiates checkout (`POST /api/v1/payments/:bookingId/initialize`) optionally applying a coupon code.
-2. **Gateway Checkout:** The server returns a Paymob payment gateway URL / token.
+1. **Payment link:** returned by the accept call. `POST /api/v1/payments/:bookingId/initialize` re-issues it
+   (the live link is reused for 15 minutes, then a new attempt is created) and is where a coupon code is applied.
+2. **Gateway Checkout:** The client opens the Paymob payment gateway URL.
 3. **Webhook Callback:** Paymob calls `POST /api/v1/payments/callback` on successful charge.
 4. **Escrow Lock:**
    - Platform locks funds in Escrow.
-   - Booking transitions to `CONFIRMED`.
+   - Booking transitions from `PENDING_PAYMENT` to `CONFIRMED`. If the deadline passed first, the slot is
+     released and the payment is refunded; a lost webhook is recovered by a reconciliation sweep.
    - Double-entry ledger records `ESCROW_HOLD` and `COMMISSION_ACCRUED`.
 
 ### Cycle 5: In-Person Service, Check-In & Mutual Completion Flow
@@ -212,7 +215,9 @@ This document breaks down:
 | POST | /offers/requests/:id | Stylist | Place a binding price & duration quote on a request (max 1 per request). |
 | PATCH | /offers/:id/withdraw | Stylist | Withdraw a pending offer before client accepts it (refunds daily quota). |
 | GET | /offers/requests/:id | Client | View and compare all sealed bids placed on the client's request. |
-| PATCH | /offers/:id/accept | Client | Accept an offer; auto-creates booking in PENDING and rejects competing bids. |
+| GET | /offers/mine | Stylist | My own offers (status, my price, request summary incl. `offerCount`), paginated. |
+| GET | /offers/requests/:id/competing | Stylist | Other pending offers on a broadcast request: message, name, rating only (no price, duration or contact details). |
+| PATCH | /offers/:id/accept | Client | Accept an offer: reserves the slot as a `PENDING_PAYMENT` booking, closes competing bids and returns `paymentUrl`. |
 | PATCH | /offers/:id/reject | Client | Explicitly reject an individual offer. |
 
 ---

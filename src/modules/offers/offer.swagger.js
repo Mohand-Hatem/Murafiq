@@ -170,11 +170,54 @@
  *           type: string
  *     responses:
  *       200:
- *         description: Offer accepted successfully
+ *         description: Offer accepted - slot reserved, awaiting payment
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   description: The new booking plus the checkout link
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       description: Booking ID (use it for /payments/{bookingId}/initialize)
+ *                     status:
+ *                       type: string
+ *                       enum: [pending_payment, confirmed]
+ *                       description: pending_payment for online bookings; confirmed only for demo (cash) bookings
+ *                     paymentExpiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                       description: Payment deadline (30 minutes, never later than the session start); unpaid bookings are released after it
+ *                     paymentUrl:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Paymob checkout link; null for demo bookings or if the provider was unreachable
+ *                     requestId:
+ *                       type: string
+ *                     offerId:
+ *                       type: string
+ *                     clientId:
+ *                       type: string
+ *                     stylistId:
+ *                       type: string
+ *                     scheduledDate:
+ *                       type: string
+ *                       format: date-time
+ *                     price:
+ *                       type: number
+ *                     duration:
+ *                       type: integer
+ *                     bookingMode:
+ *                       type: string
+ *                       enum: [standard, demo]
  *       400:
  *         description: Offer expired or invalid status
  *         content:

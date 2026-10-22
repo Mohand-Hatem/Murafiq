@@ -152,7 +152,7 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   client, 5 offers/day per stylist, both counted regardless of eventual status
   (cancelled/expired still count).
 - **Multiple simultaneous offers are allowed** — a stylist may hold several live offers
-  to the same client and up to 3 on the same request. The former "one active
+  to the same client (across different requests) but only ONE per request. The former "one active
   (`pending`) offer per stylist–client pair" rule and the `{requestId, stylistId}`
   unique index were both removed by the Business Rules Revision (§7). Limits are now
   entitlement-based: `offers.daily` (a counter that resets on the Cairo business day)

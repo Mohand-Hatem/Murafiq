@@ -133,7 +133,7 @@ murafiq-backend/
 │   │   ├── payments/
 │   │   │   ├── payment.routes.js
 │   │   │   ├── payment.controller.js
-│   │   │   ├── payment.service.js          # refund ledger, 15% platform commission
+│   │   │   ├── payment.service.js          # refund ledger, 20% platform commission
 │   │   │   ├── payment.repository.js
 │   │   │   ├── payment.model.js
 │   │   │   ├── payment.validator.js

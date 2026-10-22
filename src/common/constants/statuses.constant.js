@@ -149,6 +149,12 @@ export const COUPON_POLICY = {
   MIN_BOOKING_EGP: 0, // no minimum — bookings already carry a 100 EGP floor
 };
 
+// An offer lives until accepted/rejected/withdrawn, a sibling is accepted, its request ends, the
+// session starts, or this long stop - there is no 24h expiry (product owner, 2026-10-22).
+export const OFFER_POLICY = Object.freeze({
+  LONG_STOP_DAYS: 30,
+});
+
 // Pay-before-confirm: how long an accepted offer holds the slot while the client pays.
 export const BOOKING_PAYMENT_POLICY = Object.freeze({
   WINDOW_MINUTES: 30,
@@ -220,6 +226,7 @@ export default {
   COUPON_POLICY,
   CHECK_IN_POLICY,
   BOOKING_PAYMENT_POLICY,
+  OFFER_POLICY,
   PAYMENT_LINK_POLICY,
   PAYMENT_RECONCILE_POLICY,
   SYSTEM_NO_SHOW_POLICY,

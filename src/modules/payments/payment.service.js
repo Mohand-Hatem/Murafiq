@@ -11,6 +11,8 @@ import {
   BOOKING_STATUS,
 } from '../../common/constants/statuses.constant.js';
 import ApiError from '../../common/utils/ApiError.js';
+import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
+
 import { ROLES } from '../../common/constants/roles.constant.js';
 import couponService from '../coupons/coupon.service.js';
 import ledgerService, { egpToPiastres } from '../ledger/ledger.service.js';
@@ -27,7 +29,7 @@ export const createPendingPayment = async (
   { bookingId, clientId, amount, currency = 'EGP' },
   session = null
 ) => {
-  const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || 15;
+  const platformFeePercentage = env.PLATFORM_FEE_PERCENTAGE || PLATFORM_FEE_DEFAULT_PERCENTAGE;
   const platformFeeAmount = round2(amount * (platformFeePercentage / 100));
   const stylistPayoutAmount = round2(amount - platformFeeAmount);
 
@@ -114,7 +116,10 @@ export const initializePayment = async (user, bookingId, { couponCode = null } =
 
       // Floor at zero: a discount can never make the platform owe the client money here.
       const discountedAmount = round2(Math.max(0, booking.price - discountAmount));
-      const platformFeePercentage = payment.platformFeePercentage || env.PLATFORM_FEE_PERCENTAGE || 15;
+      const platformFeePercentage =
+        payment.platformFeePercentage ||
+        env.PLATFORM_FEE_PERCENTAGE ||
+        PLATFORM_FEE_DEFAULT_PERCENTAGE;
 
       // The platform absorbs the discount, not the stylist -- the stylist agreed a price
       // with the client and must be paid against it. Clamped to what was actually
@@ -264,21 +269,58 @@ export const handleWebhook = async (payload, query = {}) => {
 };
 
 /**
+ * Refunds an extra capture on an already-paid payment. Deliberately NOT processRefund: that
+ * flips the real payment to refunded. The record is written only after the provider confirms,
+ * so a failed refund is retried on the provider's next delivery.
+ * shortcut: two simultaneous deliveries can both call the provider; the second is rejected by
+ * Paymob (already refunded) and retried harmlessly - add a claim step if that ever shows up.
+ */
+const refundDuplicateCapture = async (payment, result) => {
+  const transactionId = String(result.transactionId);
+  if (payment.duplicateRefunds?.some((d) => d.transactionId === transactionId)) {
+    return payment;
+  }
+
+  const amount =
+    result.amountCents !== undefined && result.amountCents !== null
+      ? round2(Number(result.amountCents) / 100)
+      : payment.amount;
+  logger.error(
+    `[Payment Webhook] DUPLICATE CAPTURE on paid payment ${payment._id}: transaction ${transactionId} (paid with ${payment.providerTransactionId}). Refunding ${amount}.`
+  );
+
+  let refund;
+  try {
+    refund = await getProvider().refund(transactionId, amount, {
+      idempotencyKey: `duplicate_capture:${transactionId}`,
+    });
+  } catch (err) {
+    logger.error(`[Payment Webhook] Refund of duplicate capture ${transactionId} failed: ${err.message}`);
+    throw new ApiError(502, `Could not refund duplicate payment ${transactionId}: ${err.message}`);
+  }
+
+  return paymentRepository.recordDuplicateRefund(payment._id, {
+    transactionId,
+    amount,
+    refundId: refund?.refundId,
+    refundedAt: new Date(),
+  });
+};
+
+/**
  * Applies a provider's verdict on a payment. Shared by the webhook and by reconciliation so a
  * recovered payment gets exactly the same transaction, ledger pair and events.
  */
 export const settlePayment = async (payment, result) => {
   if (payment.status === PAYMENT_STATUS.PAID) {
     // A second, different successful transaction means the client paid twice (old link plus a
-    // newer attempt). Nothing refunds it automatically yet, so make it impossible to miss.
+    // newer attempt): give that money back on its own transaction id.
     if (
       result.success &&
       result.transactionId &&
       String(result.transactionId) !== String(payment.providerTransactionId)
     ) {
-      logger.error(
-        `[Payment Webhook] DUPLICATE CAPTURE on paid payment ${payment._id}: transaction ${result.transactionId} (paid with ${payment.providerTransactionId}). Refund manually.`
-      );
+      return refundDuplicateCapture(payment, result);
     }
     return payment; // Idempotent return
   }

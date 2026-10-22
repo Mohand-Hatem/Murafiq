@@ -9,7 +9,8 @@ const SWEEP_SCHEDULE = '*/5 * * * *'; // every 5 minutes
 let registered = false;
 
 /**
- * Sweeps expired offers (24h standard window and 30-day long-stop window).
+ * Sweeps expired offers: those whose session start has passed, and the 30-day long stop.
+ * (There is no 24h expiry. New offers get expiresAt = min(session start, long stop).)
  * @returns {Promise<{ modifiedCount: number }>}
  */
 export const sweepExpiredOffers = async () => {

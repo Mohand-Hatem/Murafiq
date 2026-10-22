@@ -8,6 +8,12 @@ const mockCapacity = jest.fn();
 const mockConsume = jest.fn();
 const mockRefundQuota = jest.fn();
 
+// Ending a request closes its pending offers (offers module); that is covered by
+// tests/integration/offer-lifetime.test.js, so this suite stubs it out.
+jest.unstable_mockModule('../../src/modules/offers/offer.service.js', () => ({
+  default: { closePendingForRequest: jest.fn().mockResolvedValue(undefined) },
+}));
+
 jest.unstable_mockModule('../../src/modules/requests/request.repository.js', () => ({
   default: {
     findById: mockFindById,

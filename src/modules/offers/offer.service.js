@@ -16,7 +16,9 @@ import {
   OFFER_STATUS,
   REQUEST_STATUS,
   BOOKING_STATUS,
+  OFFER_POLICY,
 } from '../../common/constants/statuses.constant.js';
+import { timeToMinutes } from '../../common/utils/timeUtils.js';
 
 export const createOffer = async (stylistUser, requestId, offerData) => {
   const stylistId = (stylistUser._id || stylistUser.id).toString();
@@ -78,23 +80,41 @@ export const createOffer = async (stylistUser, requestId, offerData) => {
 
   const reqClientId = reqDoc.clientId._id?.toString() || reqDoc.clientId.toString();
 
-  // 24-hour standard expiry, 30-day long-stop expiry
+  // An offer is good until the session starts, but never longer than the long stop (so offers
+  // on a far-future request cannot occupy a stylist's capacity forever).
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const longStopExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const longStopExpiresAt = new Date(now.getTime() + OFFER_POLICY.LONG_STOP_DAYS * 24 * 60 * 60 * 1000);
+  const sessionStart = reqDoc.date
+    ? bookingService.getAppointmentDateTime({
+        scheduledDate: reqDoc.date,
+        scheduledStartMinute: timeToMinutes(reqDoc.time || '10:00'),
+      })
+    : null;
+  const expiresAt = sessionStart && sessionStart < longStopExpiresAt ? sessionStart : longStopExpiresAt;
 
-  const newOffer = await offerRepository.create({
-    requestId,
-    stylistId,
-    clientId: reqClientId,
-    requestVisibility: reqDoc.visibility || 'direct',
-    price: offerData.price,
-    duration: offerData.duration,
-    message: offerData.message,
-    status: OFFER_STATUS.PENDING,
-    expiresAt,
-    longStopExpiresAt,
-  });
+  let newOffer;
+  try {
+    newOffer = await offerRepository.create({
+      requestId,
+      stylistId,
+      clientId: reqClientId,
+      requestVisibility: reqDoc.visibility || 'direct',
+      price: offerData.price,
+      duration: offerData.duration,
+      message: offerData.message,
+      status: OFFER_STATUS.PENDING,
+      expiresAt,
+      longStopExpiresAt,
+    });
+  } catch (err) {
+    // The partial unique index {requestId, stylistId} caught a submission that raced past the
+    // check above. Nothing was created, so the daily offer it already consumed goes back.
+    if (err.code === 11000) {
+      await entitlementService.refundQuota(stylistId, 'offers.daily', 1);
+      throw new ApiError(409, 'Maximum of 1 offer per request reached for your account.');
+    }
+    throw err;
+  }
 
   // The request STAYS 'OPEN'. It deliberately does not move to an 'offered' state:
   // "has at least one offer" is a count, not a status, and encoding it as a status is
@@ -228,6 +248,10 @@ export const acceptOfferAndPay = async (clientUser, offerId, options = {}) => {
   return { booking, paymentUrl };
 };
 
+// Called by the requests module when a request ends: its pending offers can no longer win.
+export const closePendingForRequest = async (requestId) =>
+  offerRepository.closePendingForRequest(requestId);
+
 export const getMyOffers = async (stylistUser, queryString = {}) => {
   const { items, meta } = await offerRepository.findMineByStylist(
     (stylistUser._id || stylistUser.id).toString(),
@@ -315,6 +339,7 @@ export const getCompetingOffers = async (stylistUser, requestId) => {
 };
 
 export default {
+  closePendingForRequest,
   getMyOffers,
   acceptOfferAndPay,
   getCompetingOffers,

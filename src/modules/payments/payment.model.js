@@ -116,6 +116,17 @@ const paymentSchema = new Schema(
     paymentUrlAmount: { type: Number },
     // Paymob intentions created beyond the first; makes special_reference unique per attempt.
     paymentAttempt: { type: Number, default: 0 },
+    // Extra captures on an already-paid payment (client paid twice) that were refunded on their
+    // own transaction id. The real payment stays 'paid'.
+    duplicateRefunds: [
+      {
+        _id: false,
+        transactionId: { type: String, required: true },
+        amount: Number,
+        refundId: String,
+        refundedAt: Date,
+      },
+    ],
     // Throttle for the lost-webhook reconciliation sweep (see claimStalePending).
     lastReconciledAt: { type: Date },
   },

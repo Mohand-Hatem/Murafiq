@@ -1,4 +1,5 @@
 import { CANCELLATION_POLICY, NO_SHOW_POLICY, SYSTEM_NO_SHOW_POLICY } from './constants/statuses.constant.js';
+import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from './constants/defaults.constant.js';
 
 /** The repository's single money-rounding rule. Mirrors payment.service.js round2. */
 export const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -43,7 +44,7 @@ export const computeSettlement = ({
   actor,
   hoursUntilSession = null,
   refundPercentage = 0,
-  platformFeePercentage = 15,
+  platformFeePercentage = PLATFORM_FEE_DEFAULT_PERCENTAGE,
   isSystem = false,
 }) => {
   const p = Number(price) || 0;

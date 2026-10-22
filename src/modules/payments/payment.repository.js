@@ -51,6 +51,17 @@ export const failPending = async (bookingId, session = null) => {
   );
 };
 
+// Records a refunded duplicate capture exactly once per transaction id. Returns the payment
+// either way, so a redelivery that loses the race is a harmless no-op.
+export const recordDuplicateRefund = async (paymentId, entry) => {
+  const updated = await Payment.findOneAndUpdate(
+    { _id: paymentId, 'duplicateRefunds.transactionId': { $ne: entry.transactionId } },
+    { $push: { duplicateRefunds: entry } },
+    { returnDocument: 'after' }
+  );
+  return updated || Payment.findById(paymentId);
+};
+
 export const findByTransactionId = async (providerTransactionId) => {
   return Payment.findOne({ providerTransactionId });
 };
@@ -167,6 +178,7 @@ export default {
   findByTransactionId,
   findByIntentionId,
   claimStalePending,
+  recordDuplicateRefund,
   failPending,
   updateById,
   transitionStatus,

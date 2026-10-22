@@ -342,7 +342,7 @@ The current cap keys off `verification.status` (verified 5 / unverified 2). The 
 - **[PO]** An offer stays active until: another offer is accepted, the request is deleted, or the request is closed.
 - **[REC] Add two more closing conditions:** the stylist withdraws it, or the client explicitly rejects that one offer. Both already exist in the code (`rejectOffer`) and both are obviously correct.
 - **[REC] Remove the 24h auto-expiry entirely** (§9 explicitly asks for this), but **keep a 30-day long-stop** so pending offers on abandoned requests do not accumulate forever against a stylist's `maxActiveOffers`. `[OPEN]` on 30 days.
-- **[REC] Add a per-request cap: 3 offers from one stylist to one request.** §7 asks for *multiple*, not *unlimited*. Without a cap, one stylist can flood a client's comparison view and crowd out competitors — the exact failure mode the broadcast feed exists to prevent.
+- **[PO, DECIDED 2026-10-22] One offer per stylist per request.** (This line originally recommended a cap of 3.) A stylist may still hold several live offers to the same client, as long as each is on a different request. §7 asks for *multiple*, not *unlimited*. Without a cap, one stylist can flood a client's comparison view and crowd out competitors — the exact failure mode the broadcast feed exists to prevent.
 
 ## C.7 Cancellation policy matrix
 
@@ -934,7 +934,7 @@ MongoDB, so all changes are additive except two index drops. No migration files 
 
 | Endpoint | Change |
 |---|---|
-| `POST /offers/requests/:id` | **modify** — remove the `findActiveForClient` 409; quota via `entitlements.consume('offers.daily')` (now counting direct too); check `offers.active` capacity; enforce the per-request cap of 3 |
+| `POST /offers/requests/:id` | **modify** — remove the `findActiveForClient` 409; quota via `entitlements.consume('offers.daily')` (now counting direct too); check `offers.active` capacity; enforce the per-request cap of 1 (PO decision 2026-10-22) |
 | `PATCH /offers/:id/accept` | **modify** — sibling offers → `CLOSED` not `REJECTED`; request → `FULFILLED`. **Keep the existing CAS lock + retry envelope verbatim.** |
 | `PATCH /offers/:id/reject` | **modify** — must **not** reset the request to `pending` (`offer.service.js:203`); the request stays `OPEN` |
 | `PATCH /offers/:id/withdraw` | **NEW** — stylist retracts, frees an active slot |

@@ -14,16 +14,16 @@ This document defines the financial lifecycle of funds in Murafiq: escrow collec
 
 ## 2. Commission & Fee Breakdown
 
-The standard platform commission is **15%** (`PLATFORM_FEE_PERCENTAGE = 15`):
+The standard platform commission is **20%** (`PLATFORM_FEE_DEFAULT_PERCENTAGE = 20` in `defaults.constant.js`, overridable per environment with `PLATFORM_FEE_PERCENTAGE`; each payment snapshots the rate it was charged):
 
 $$\text{Gross Amount} = \text{Offer.price}$$
-$$\text{Platform Fee} = \text{round2}(\text{Gross Amount} \times 0.15)$$
+$$\text{Platform Fee} = \text{round2}(\text{Gross Amount} \times 0.20)$$
 $$\text{Stylist Payout Amount} = \text{round2}(\text{Gross Amount} - \text{Platform Fee})$$
 
 *Example on a 1,000 EGP booking:*
 - Gross Amount: `1000.00 EGP`
-- Platform Fee (15%): `150.00 EGP`
-- Stylist Net Payout (85%): `850.00 EGP`
+- Platform Fee (20%): `200.00 EGP`
+- Stylist Net Payout (80%): `800.00 EGP`
 
 ---
 
