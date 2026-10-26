@@ -64,7 +64,35 @@
  *           type: string
  *           format: date-time
  *           nullable: true
+ *           description: Legacy. First check-in by either party.
  *         checkInLocation:
+ *           type: object
+ *           nullable: true
+ *           description: Legacy. Location of the most recent check-in by either party; use the per-party fields.
+ *           properties:
+ *             lat:
+ *               type: number
+ *             lng:
+ *               type: number
+ *         clientCheckInAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Client's first check-in. Set while status is `confirmed` = client is waiting for the stylist.
+ *         stylistCheckInAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Stylist's first check-in. Set while status is `confirmed` = stylist is waiting for the client.
+ *         clientCheckInLocation:
+ *           type: object
+ *           nullable: true
+ *           properties:
+ *             lat:
+ *               type: number
+ *             lng:
+ *               type: number
+ *         stylistCheckInLocation:
  *           type: object
  *           nullable: true
  *           properties:
@@ -236,6 +264,13 @@
  * /bookings/{id}/check-in:
  *   patch:
  *     summary: Record arrival check-in for a session
+ *     description: |
+ *       Records the caller's own attendance (client or stylist). Open from 30 minutes before the
+ *       scheduled start until the scheduled end. The first check-in leaves the booking `confirmed`
+ *       (that party is waiting and the other is notified); the session becomes `in-progress` only
+ *       when both parties have checked in, and both are notified. Repeating a check-in keeps the
+ *       first timestamp and location. Once anyone has checked in the booking can no longer be
+ *       cancelled; a missing party is handled by the no-show report.
  *     tags: [Bookings]
  *     security:
  *       - bearerAuth: []
@@ -462,5 +497,9 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
+ *       400:
+ *         description: Not cancellable — in progress, disputed, terminal, or either party has already checked in (use the no-show report instead)
+ *       409:
+ *         description: The booking changed (e.g. a check-in landed) between the read and the cancel
  */
 

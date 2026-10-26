@@ -131,10 +131,14 @@ describe('Demo COD 4-Digit Cash OTP Integration Tests', () => {
   });
 
   it('2. Rejects incorrect Cash OTP with 400', async () => {
-    // Stylist checks in to generate OTP
+    // Both check in so the session is in-progress
     await request(app)
       .patch(`/api/demo/bookings/${bookingId}/check-in`)
       .set('Authorization', `Bearer ${stylistToken}`)
+      .send({});
+    await request(app)
+      .patch(`/api/demo/bookings/${bookingId}/check-in`)
+      .set('Authorization', `Bearer ${clientToken}`)
       .send({});
 
     const wrongOtpRes = await request(app)

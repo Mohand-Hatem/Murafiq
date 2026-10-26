@@ -131,6 +131,17 @@ jest.unstable_mockModule('../../src/modules/bookings/booking.repository.js', () 
       mockBookingDoc = { ...mockBookingDoc, status: 'completed', completedAt: new Date() };
       return Promise.resolve(mockBookingDoc);
     }),
+    promoteToInProgress: jest.fn().mockImplementation(() => {
+      if (
+        mockBookingDoc.status !== 'confirmed' ||
+        !mockBookingDoc.clientCheckInAt ||
+        !mockBookingDoc.stylistCheckInAt
+      ) {
+        return Promise.resolve(null);
+      }
+      mockBookingDoc = { ...mockBookingDoc, status: 'in-progress' };
+      return Promise.resolve(mockBookingDoc);
+    }),
     transitionStatus: jest.fn().mockImplementation((id, fromStates, patch) => {
       if (!fromStates.includes(mockBookingDoc.status)) return Promise.resolve(null);
       mockBookingDoc = { ...mockBookingDoc, ...patch };
@@ -228,14 +239,22 @@ describe('Phase 5 Integration — Bookings & Scheduling', () => {
   });
 
   describe('PATCH /api/v1/bookings/:id/check-in', () => {
-    it('should record check-in and update status to in-progress', async () => {
+    it('should record check-in and move to in-progress only once both parties checked in', async () => {
       const res = await request(app)
         .patch(`/api/v1/bookings/${mockBookingDoc._id}/check-in`)
         .set('Authorization', `Bearer ${clientToken}`)
         .send({ lat: 30.0444, lng: 31.2357 });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe('in-progress');
+      expect(res.body.data.status).toBe('confirmed');
+
+      const res2 = await request(app)
+        .patch(`/api/v1/bookings/${mockBookingDoc._id}/check-in`)
+        .set('Authorization', `Bearer ${stylistToken}`)
+        .send({ lat: 30.0444, lng: 31.2357 });
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.data.status).toBe('in-progress');
     });
 
     it('refuses to check in if booking was cancelled after the read (CAS race)', async () => {

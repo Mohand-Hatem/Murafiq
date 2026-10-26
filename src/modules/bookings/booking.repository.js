@@ -165,6 +165,30 @@ export const promoteToCompleted = async (bookingId, session = null) => {
   ]);
 };
 
+// Starts the session only once BOTH check-ins are on the document. Same two-step CAS as
+// confirmCompletion: each check-in writes its own field first, then whichever caller sees
+// both set tries this; the { status: 'confirmed' } filter lets exactly one of them win.
+export const promoteToInProgress = async (bookingId, session = null) => {
+  const options = { returnDocument: 'after', runValidators: true };
+  if (session) options.session = session;
+
+  return Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      status: BOOKING_STATUS.CONFIRMED,
+      clientCheckInAt: { $ne: null },
+      stylistCheckInAt: { $ne: null },
+    },
+    { $set: { status: BOOKING_STATUS.IN_PROGRESS } },
+    options
+  )
+    .select('+cashOtpPlain')
+    .populate([
+      { path: 'clientId', select: 'name profileImage' },
+      { path: 'stylistId', select: 'name profileImage' },
+    ]);
+};
+
 // Settles a no-show only if the booking is still in one of the two REPORTABLE_STATUSES
 // (no-show.service.js). Without this CAS, the 15-minute no-show sweep and mutual
 // completion confirmation could race: both a no-show report and a genuine completion
@@ -204,6 +228,7 @@ export const settleNoShow = async (bookingId, patch, session = null) => {
  * @param {string[]} fromStates  statuses this write is allowed to apply from
  * @param {Object}   patch       $set payload; `patch.status` is the target status
  * @param {import('mongoose').ClientSession|null} [session]
+ * @param {Object}   [extraFilter] further CAS preconditions besides status
  * @returns {Promise<Object|null>}
  */
 export const findExpiredPendingPayment = async (now = new Date(), limit = 25) => {
@@ -215,7 +240,13 @@ export const findExpiredPendingPayment = async (now = new Date(), limit = 25) =>
     .limit(limit);
 };
 
-export const transitionStatus = async (bookingId, fromStates, patch, session = null) => {
+export const transitionStatus = async (
+  bookingId,
+  fromStates,
+  patch,
+  session = null,
+  extraFilter = {}
+) => {
   const targetStatus = patch?.status ?? patch?.$set?.status;
   const isSystemCancel =
     (targetStatus === BOOKING_STATUS.CANCELLED || targetStatus === 'cancelled') &&
@@ -244,7 +275,7 @@ export const transitionStatus = async (bookingId, fromStates, patch, session = n
   const updateDoc = hasOperator ? patch : { $set: patch };
 
   return Booking.findOneAndUpdate(
-    { _id: bookingId, status: { $in: fromStates } },
+    { ...extraFilter, _id: bookingId, status: { $in: fromStates } },
     updateDoc,
     options
   )
@@ -546,6 +577,7 @@ export default {
   updateById,
   setCompletionConfirmation,
   promoteToCompleted,
+  promoteToInProgress,
   settleNoShow,
   transitionStatus,
   findExpiredPendingPayment,

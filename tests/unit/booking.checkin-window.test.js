@@ -148,11 +148,12 @@ describe('Booking Check-in Window and Appointment End Calculation (Step 1)', () 
         bookingId,
         ['confirmed', 'in-progress'],
         expect.objectContaining({
-          status: 'in-progress',
           clientCheckInAt: fixedNow,
           checkInAt: fixedNow,
         })
       );
+      // A single check-in never writes the status; promoteToInProgress does that once both are in.
+      expect(bookingRepository.transitionStatus.mock.calls[0][2]).not.toHaveProperty('status');
     });
 
     it('allows check-in during the active session', async () => {

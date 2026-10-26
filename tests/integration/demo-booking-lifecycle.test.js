@@ -170,10 +170,11 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
 
       expect(checkInRes.statusCode).toBe(200);
       expect(checkInRes.body.success).toBe(true);
-      expect(checkInRes.body.data.status).toBe('in-progress');
+      // One check-in records attendance; the session starts once the stylist checks in too.
+      expect(checkInRes.body.data.status).toBe('confirmed');
 
       const updated = await Booking.findById(bookingId);
-      expect(updated.status).toBe('in-progress');
+      expect(updated.status).toBe('confirmed');
       expect(updated.clientCheckInAt).toBeDefined();
     });
 
@@ -255,10 +256,14 @@ describe('Demo Booking Lifecycle & Branching Integration Tests (Phase 2)', () =>
       const bookingId = acceptRes.body.data._id || acceptRes.body.data.id;
       await makeBookingActiveNow(bookingId);
 
-      // Check in to reach in-progress
+      // Both parties check in to reach in-progress
       await request(app)
         .patch(`/api/demo/bookings/${bookingId}/check-in`)
         .set('Authorization', `Bearer ${clientToken}`)
+        .send({});
+      await request(app)
+        .patch(`/api/demo/bookings/${bookingId}/check-in`)
+        .set('Authorization', `Bearer ${stylistToken}`)
         .send({});
 
       // File dispute
