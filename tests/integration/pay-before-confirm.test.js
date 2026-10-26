@@ -35,6 +35,8 @@ const { default: bookingService } = await import('../../src/modules/bookings/boo
 const { default: paymentService } = await import('../../src/modules/payments/payment.service.js');
 const { sweepUnpaidBookings } = await import('../../src/jobs/payment-timeout.cron.js');
 const { default: eventBus } = await import('../../src/common/events/event-bus.js');
+const { default: getBusinessDayRange } = await import('../../src/common/utils/businessDay.util.js');
+const { minutesToTime } = await import('../../src/common/utils/timeUtils.js');
 
 const MIN = 60 * 1000;
 
@@ -140,12 +142,12 @@ describe('Pay-before-confirm', () => {
     });
 
     it('never sets a deadline later than the session start', async () => {
-      await Request.updateOne({ _id: request._id }, { date: new Date(Date.now() + 10 * MIN) });
-      // 10:00 on that date may be far away; force the start 10 minutes out explicitly.
+      // Force the start 10 minutes out. The app reads date + time in Cairo time, so build the
+      // time there too: the machine's local clock (UTC on CI) can be on a different Cairo day.
       const soon = new Date(Date.now() + 10 * MIN);
-      const hh = String(soon.getHours()).padStart(2, '0');
-      const mm = String(soon.getMinutes()).padStart(2, '0');
-      await Request.updateOne({ _id: request._id }, { date: soon, time: `${hh}:${mm}` });
+      const { startOfDay } = getBusinessDayRange(soon, 'Africa/Cairo');
+      const time = minutesToTime(Math.floor((soon.getTime() - startOfDay.getTime()) / MIN));
+      await Request.updateOne({ _id: request._id }, { date: soon, time });
 
       const { booking } = await accept();
 
