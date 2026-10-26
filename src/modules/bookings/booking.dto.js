@@ -50,6 +50,11 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     paymentExpiresAt: doc.paymentExpiresAt || null,
     checkInAt: doc.checkInAt || null,
     checkInLocation: doc.checkInLocation || null,
+    // Attendance: one timestamp set while 'confirmed' means that party is waiting for the other.
+    clientCheckInAt: doc.clientCheckInAt || null,
+    stylistCheckInAt: doc.stylistCheckInAt || null,
+    clientCheckInLocation: doc.clientCheckInLocation || null,
+    stylistCheckInLocation: doc.stylistCheckInLocation || null,
     cashCollectedAt: doc.cashCollectedAt || null,
     // cashOtpPlain exists only on bookings checked in before the OTP became derived.
     ...(showOtp ? { cashOtp: doc.cashOtpPlain || deriveCashOtp(doc._id) } : {}),

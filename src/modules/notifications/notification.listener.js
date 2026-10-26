@@ -131,14 +131,32 @@ class NotificationListener {
       }
     });
 
-    // 6. Check-in Completed -> Notify Client
-    eventBus.on(EVENTS.CHECK_IN_COMPLETED, async ({ bookingId, clientId }) => {
+    // 6. Check-in Completed -> first check-in tells the other party someone is waiting;
+    //    the second one (session start) tells both.
+    eventBus.on(EVENTS.CHECK_IN_COMPLETED, async (event) => {
+      const { bookingId, clientId, stylistId, checkedInBy, sessionStarted } = event;
       try {
-        if (clientId) {
-          await notificationService.send(clientId, {
+        if (sessionStarted) {
+          await Promise.all(
+            [clientId, stylistId].filter(Boolean).map((recipient) =>
+              notificationService.send(recipient, {
+                type: 'booking',
+                title: 'Session Started',
+                body: 'You have both checked in. Your styling session is now in progress.',
+                relatedEntityId: bookingId,
+              })
+            )
+          );
+          return;
+        }
+
+        const byStylist = checkedInBy === 'stylist';
+        const recipient = byStylist ? clientId : stylistId;
+        if (recipient) {
+          await notificationService.send(recipient, {
             type: 'booking',
-            title: 'Stylist Checked In',
-            body: 'Your stylist has checked in and your styling session is now in progress.',
+            title: byStylist ? 'Stylist Checked In' : 'Client Checked In',
+            body: `Your ${byStylist ? 'stylist' : 'client'} has checked in and is waiting for you. Please check in when you arrive.`,
             relatedEntityId: bookingId,
           });
         }

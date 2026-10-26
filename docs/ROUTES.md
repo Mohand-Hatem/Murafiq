@@ -115,11 +115,11 @@
 | GET | `/bookings/:id` | 🔐 | ✅ Built | Booking detail (participant or admin) |
 | GET | `/bookings/:id/cancellation-quote` | 🔐 | ✅ Built | Preview cancellation refund, fee, and penalty quote |
 | GET | `/bookings/:id/dispute` | 🔐 | ✅ Built | Get dispute arbitration details for a booking |
-| PATCH | `/bookings/:id/check-in` | 🔐 | ✅ Built | Mark arrival at session location (temporal window & payment verified) |
+| PATCH | `/bookings/:id/check-in` | 🔐 | ✅ Built | Record the caller's own arrival (temporal window & payment verified). Booking stays `confirmed` until both parties check in, then becomes `in-progress` |
 | PATCH | `/bookings/:id/confirm-completion` | 🔐 | ✅ Built | Mutual completion confirmation (both client and stylist confirm) |
 | POST | `/bookings/:id/dispute` | 🔐 | ✅ Built | File a dispute (within 48h of completion) with optional evidence |
 | POST | `/bookings/:id/dispute/evidence` | 🔐 | ✅ Built | Attach notes or photo evidence to open dispute |
-| PATCH | `/bookings/:id/cancel` | 🔐 | ✅ Built | Cancel booking (timing-tiered 4-branch refund policy) |
+| PATCH | `/bookings/:id/cancel` | 🔐 | ✅ Built | Cancel booking (timing-tiered 4-branch refund policy). Refused once either party has checked in (no-show flow instead) |
 | POST | `/bookings/:id/no-show` | 🔐 | ✅ Built | File a no-show dispute against counterparty |
 | POST | `/bookings/:id/no-show/respond` | 🔐 | ✅ Built | Accused party responds to filed no-show report |
 | POST | `/bookings/:bookingId/review` | 🔐 | ✅ Built | Submit two-way session review (Client → Stylist or Stylist → Client) |

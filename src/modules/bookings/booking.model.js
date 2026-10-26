@@ -56,7 +56,17 @@ const bookingSchema = new Schema(
     checkInAt: Date,
     clientCheckInAt: Date,
     stylistCheckInAt: Date,
+    // LEGACY: one shared field, overwritten by whichever party checked in last. Kept for the
+    // DTO; the per-party fields below are the attendance evidence.
     checkInLocation: {
+      lat: Number,
+      lng: Number,
+    },
+    clientCheckInLocation: {
+      lat: Number,
+      lng: Number,
+    },
+    stylistCheckInLocation: {
       lat: Number,
       lng: Number,
     },

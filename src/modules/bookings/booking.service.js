@@ -217,7 +217,9 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const { clientId, isClient } = assertBookingParticipant(user, booking, { allowAdmin: false });
+  const { clientId, stylistId, isClient } = assertBookingParticipant(user, booking, {
+    allowAdmin: false,
+  });
 
   if (booking.status === BOOKING_STATUS.PENDING_PAYMENT) {
     throw new ApiError(400, 'Payment must be completed before check-in');
@@ -259,21 +261,27 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     }
   }
 
+  // One check-in only records that party as present; the booking stays 'confirmed' until
+  // the other party checks in too (promoteToInProgress below).
   const existingPartyCheckIn = isClient ? booking.clientCheckInAt : booking.stylistCheckInAt;
   const updateData = {
     checkInAt: booking.checkInAt || now, // legacy: still read by reliability + the DTO
     [isClient ? 'clientCheckInAt' : 'stylistCheckInAt']: existingPartyCheckIn || now,
-    status: 'in-progress',
   };
 
   if (locationData.lat !== undefined && locationData.lng !== undefined) {
-    updateData.checkInLocation = { lat: locationData.lat, lng: locationData.lng };
+    const location = { lat: locationData.lat, lng: locationData.lng };
+    updateData.checkInLocation = location;
+    // Recorded with the party's first check-in only, like its timestamp.
+    if (!existingPartyCheckIn) {
+      updateData[isClient ? 'clientCheckInLocation' : 'stylistCheckInLocation'] = location;
+    }
   }
 
   // Demo cash OTP: nothing is generated or stored here -- the 4-digit code is derived from the
   // booking id on demand (see cashOtp.util.js).
 
-  const updated = await bookingRepository.transitionStatus(
+  let updated = await bookingRepository.transitionStatus(
     bookingId,
     [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS],
     updateData
@@ -283,10 +291,30 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
     throw new ApiError(400, 'Cannot check-in: this booking is no longer in a check-in-able status');
   }
 
-  eventBus.emit(EVENTS.CHECK_IN_COMPLETED, {
-    bookingId: updated._id.toString(),
-    clientId,
-  });
+  // `updated` is the post-write document, so it already carries the other party's check-in
+  // if it landed first. When both check in at once, at least one caller sees both fields.
+  let sessionStarted = false;
+  if (
+    updated.status === BOOKING_STATUS.CONFIRMED &&
+    updated.clientCheckInAt &&
+    updated.stylistCheckInAt
+  ) {
+    const promoted = await bookingRepository.promoteToInProgress(bookingId);
+    sessionStarted = Boolean(promoted);
+    // A lost CAS means another request already moved it on; re-read rather than return stale.
+    updated = promoted || (await bookingRepository.findById(bookingId));
+  }
+
+  // A repeated tap by a party already checked in changes nothing, so it notifies no one.
+  if (!existingPartyCheckIn || sessionStarted) {
+    eventBus.emit(EVENTS.CHECK_IN_COMPLETED, {
+      bookingId: updated._id.toString(),
+      clientId,
+      stylistId,
+      checkedInBy: isClient ? 'client' : 'stylist',
+      sessionStarted,
+    });
+  }
 
   return toPublicBookingDto(updated, user);
 };
@@ -900,6 +928,17 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
     );
   }
 
+  // Same reasoning one step earlier: once either party has checked in, the booking stays
+  // 'confirmed' while waiting for the other, but plain cancellation pricing would let the
+  // absent party dodge the no-show outcome (e.g. a client late-cancel refunds 80% and pays
+  // the stylist nothing, where a client no-show refunds 60% and compensates the stylist).
+  if (booking.clientCheckInAt || booking.stylistCheckInAt) {
+    throw new ApiError(
+      400,
+      'Cannot cancel after check-in. Wait for the other party, or (after the check-in grace period) report a no-show instead.'
+    );
+  }
+
   // Nothing was paid, so there is nothing to refund and no cancellation tier to price.
   if (booking.status === BOOKING_STATUS.PENDING_PAYMENT) {
     const released = await releaseUnpaidBooking(bookingId, {
@@ -934,7 +973,9 @@ export const cancelBooking = async (user, bookingId, cancelData = {}) => {
         cancellationReason: cancelData.reason || undefined,
         cancelledAt: new Date(),
       },
-      session
+      session,
+      // Closes the race with a check-in landing after the read above.
+      { clientCheckInAt: null, stylistCheckInAt: null }
     );
 
     if (!res) {
