@@ -8,8 +8,6 @@ node_modules/
 # -----------------------------------------------------------------------------
 # Environment & Secrets (NEVER commit real credentials)
 # -----------------------------------------------------------------------------
-.env
-.env.*
 !.env.example
 *.pem
 *.key
@@ -58,9 +56,9 @@ artifacts/
 Thumbs.db
 desktop.ini
 .idea/
-.vscode/
 *.swp
 *.swo
 *~
 graphify-out/
 
+config.bat
