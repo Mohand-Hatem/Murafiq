@@ -136,8 +136,8 @@ export const register = () => {
 
   eventBus.on(EVENTS.DISPUTE_RAISED, safeListener('audit.dispute_raised', async (payload) => {
     await auditLogService.recordAction({
-      actorId: payload.raisedBy,
-      actorRole: 'client',
+      actorId: payload.raisedBy || null,
+      actorRole: payload.raisedBy ? 'client' : 'system',
       action: 'dispute.raised',
       targetType: 'Booking',
       targetId: payload.bookingId,

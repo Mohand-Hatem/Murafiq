@@ -31,6 +31,8 @@ import {
   CHECK_IN_POLICY,
   BOOKING_PAYMENT_POLICY,
   REQUEST_STATUS,
+  DISPUTE_TYPES,
+  SYSTEM_DISPUTE_TYPES,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
@@ -325,7 +327,7 @@ export const confirmCompletion = async (user, bookingId) => {
     throw new ApiError(404, 'Booking not found');
   }
 
-  const { isClient } = assertBookingParticipant(user, booking, { allowAdmin: false });
+  const { isClient, clientId, stylistId } = assertBookingParticipant(user, booking, { allowAdmin: false });
 
   if (booking.status !== 'in-progress') {
     throw new ApiError(
@@ -354,7 +356,16 @@ export const confirmCompletion = async (user, bookingId) => {
     );
   }
 
-  if (updated.clientConfirmedAt && updated.stylistConfirmedAt) {
+  if (!(updated.clientConfirmedAt && updated.stylistConfirmedAt)) {
+    // Only on this party's FIRST confirmation; a repeat confirm must not re-notify.
+    if (!booking[confirmationField]) {
+      eventBus.emit(EVENTS.COMPLETION_CONFIRMED, {
+        bookingId: updated._id.toString(),
+        confirmedBy: isClient ? 'client' : 'stylist',
+        recipientId: isClient ? stylistId : clientId,
+      });
+    }
+  } else {
     // Second CAS: only the request that actually observes both fields set attempts
     // this, and the { status: 'in-progress' } filter means only one concurrent
     // attempt can ever succeed -- so SESSION_COMPLETED is emitted exactly once.
@@ -391,6 +402,15 @@ export const verifyCashOtp = async (user, bookingId, { otp } = {}) => {
 
   if (booking.bookingMode !== 'demo') {
     throw new ApiError(400, 'Cash OTP verification is only applicable for demo bookings');
+  }
+
+  // Once the booking is under review, payment is decided by the admin (with evidence), never
+  // by a late code entry.
+  if (booking.status === BOOKING_STATUS.DISPUTED) {
+    throw new ApiError(
+      409,
+      'This booking is under admin review, so the cash payment can no longer be verified here. Add it as evidence in the dispute instead.'
+    );
   }
 
   if (booking.status !== BOOKING_STATUS.IN_PROGRESS && booking.status !== 'in-progress') {
@@ -442,6 +462,10 @@ export const fileDispute = async (user, bookingId, disputeData) => {
   }
 
   assertBookingParticipant(user, booking, { allowAdmin: true });
+
+  if (SYSTEM_DISPUTE_TYPES.includes(disputeData.type)) {
+    throw new ApiError(400, `Dispute type '${disputeData.type}' is reserved for system reviews`);
+  }
 
   if (booking.status === 'disputed') {
     throw new ApiError(409, 'Booking is already disputed');
@@ -1245,6 +1269,12 @@ export const autoCompleteStaleBooking = async (bookingId) => {
       );
     }
 
+    // Demo completion needs a verified cash payment AND both confirmations; the system can
+    // supply neither, so an open demo session goes to admin review (escalateStaleDemoBooking).
+    if (booking.bookingMode === 'demo') {
+      throw new ApiError(400, 'Demo bookings are never auto-completed; they go to admin review instead');
+    }
+
     // Attendance check: Both parties must have valid attendance
     if (!isAttendanceValid(booking, 'client') || !isAttendanceValid(booking, 'stylist')) {
       throw new ApiError(
@@ -1288,6 +1318,47 @@ export const autoCompleteStaleBooking = async (bookingId) => {
 };
 
 /**
+ * A demo session both parties attended that is still open at scheduled end + 24h: it was never
+ * mutually confirmed (and may be unpaid), so it goes to admin review as a system-raised dispute
+ * (raisedBy: null). Never completed by the system, never filed on behalf of a participant.
+ */
+const escalateStaleDemoBooking = async (booking) => {
+  const cashCollected = Boolean(booking.cashCollectedAt);
+  const type = cashCollected ? DISPUTE_TYPES.COMPLETION_UNCONFIRMED : DISPUTE_TYPES.PAYMENT_UNVERIFIED;
+  const reason = cashCollected
+    ? 'The session ended without both of you confirming it was complete, so an admin will review it.'
+    : 'The session ended without a verified cash payment, so an admin will review it.';
+
+  const updated = await bookingRepository.escalateToSystemReview(
+    booking._id,
+    { cashCollected },
+    { raisedBy: null, reason, type, raisedAt: new Date(), evidence: [] }
+  );
+  if (!updated) {
+    // Lost the CAS (a cash code was verified, a dispute was filed, or another sweep won).
+    return { action: 'skipped_state_changed', bookingId: booking._id };
+  }
+
+  try {
+    await chatService.openConversation(booking._id);
+  } catch (err) {
+    logger.warn('Failed to open chat conversation on system review', {
+      bookingId: booking._id.toString(),
+      error: err.message,
+    });
+  }
+
+  eventBus.emit(EVENTS.DISPUTE_RAISED, {
+    bookingId: updated._id.toString(),
+    raisedBy: null,
+    reason,
+    type,
+  });
+
+  return { action: `system_review_${type}`, bookingId: booking._id };
+};
+
+/**
  * Processes an individual stale booking candidate evaluated against the authoritative 24h threshold.
  * Classifies attendance via isAttendanceValid() into one of 4 outcomes:
  * 1. Both valid attendance -> auto-complete (SESSION_COMPLETED)
@@ -1318,7 +1389,10 @@ export const processStaleBooking = async (booking, now = new Date()) => {
   const stylistValid = isAttendanceValid(booking, 'stylist');
 
   // Classification:
-  // 1. Both valid attendance -> auto-complete
+  // 1. Both valid attendance -> auto-complete (V1) / admin review (demo)
+  if (clientValid && stylistValid && booking.bookingMode === 'demo') {
+    return escalateStaleDemoBooking(booking);
+  }
   if (clientValid && stylistValid) {
     if (booking.status === 'in-progress') {
       await autoCompleteStaleBooking(booking._id);

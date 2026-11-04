@@ -165,6 +165,21 @@ class NotificationListener {
       }
     });
 
+    // One side confirmed completion -> ask the other side to confirm or report a problem
+    eventBus.on(EVENTS.COMPLETION_CONFIRMED, async ({ bookingId, confirmedBy, recipientId }) => {
+      try {
+        if (!recipientId) return;
+        await notificationService.send(recipientId, {
+          type: 'booking',
+          title: 'Confirm Session Completion',
+          body: `Your ${confirmedBy} confirmed the session is complete. Please confirm too, or report a problem if it is not.`,
+          relatedEntityId: bookingId,
+        });
+      } catch (err) {
+        logger.error(`Notification error on COMPLETION_CONFIRMED: ${err.message}`);
+      }
+    });
+
     // 4. Payment Succeeded -> Notify Stylist & Client
     eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async ({ bookingId }) => {
       try {
@@ -384,6 +399,20 @@ class NotificationListener {
         if (booking) {
           const clientUserId = booking.clientId?._id || booking.clientId;
           const stylistUserId = booking.stylistId?._id || booking.stylistId;
+
+          // System-raised review (raisedBy: null): nobody filed it, so tell both parties.
+          if (!raisedBy) {
+            for (const recipient of [clientUserId, stylistUserId].filter(Boolean)) {
+              await notificationService.send(recipient, {
+                type: 'dispute',
+                title: 'Session Under Review',
+                body: `${reason} You can add evidence or a message in the dispute section.`,
+                relatedEntityId: booking._id,
+              });
+            }
+            return;
+          }
+
           const targetRecipient = String(raisedBy) === String(clientUserId) ? stylistUserId : clientUserId;
 
           if (targetRecipient) {

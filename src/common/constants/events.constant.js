@@ -16,6 +16,8 @@ export const EVENTS = {
   BOOKING_CANCELLED: 'booking.cancelled',
   CHECK_IN_COMPLETED: 'checkin.completed',
   SESSION_COMPLETED: 'session.completed',
+  // One party confirmed completion; the other has not yet. Drives the "please confirm" reminder.
+  COMPLETION_CONFIRMED: 'booking.completion_confirmed',
   SESSION_DISPUTED: 'session.disputed',
   NO_SHOW_REPORTED: 'booking.no_show_reported',
   NO_SHOW_RESOLVED: 'booking.no_show_resolved',

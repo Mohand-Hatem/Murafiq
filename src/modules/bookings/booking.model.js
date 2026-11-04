@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { PAYOUT_STATUS } from '../../common/constants/statuses.constant.js';
+import { PAYOUT_STATUS, DISPUTE_OUTCOMES } from '../../common/constants/statuses.constant.js';
 
 const { Schema } = mongoose;
 
@@ -140,7 +140,7 @@ const bookingSchema = new Schema(
       evidence: [{ type: String, trim: true }],
     },
     disputeResolution: {
-      outcome: { type: String, enum: ['completed', 'cancelled'] },
+      outcome: { type: String, enum: DISPUTE_OUTCOMES },
       refundPercentage: Number,
       resolutionNotes: String,
       resolvedBy: { type: Schema.Types.ObjectId, ref: 'User' },

@@ -503,6 +503,20 @@ export const findExhaustedNoShowSettlements = async () =>
  * @param {number} [batchSize=50]
  * @returns {Promise<Array>}
  */
+// in-progress -> disputed for a system-raised review. The cashCollectedAt condition is part of
+// the CAS so a cash code verified after the sweep read the booking can never be filed as
+// "payment unverified" (and vice versa): the losing sweep gets null and re-evaluates next tick.
+export const escalateToSystemReview = async (bookingId, { cashCollected }, disputeDetails) =>
+  Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      status: BOOKING_STATUS.IN_PROGRESS,
+      cashCollectedAt: cashCollected ? { $ne: null } : null,
+    },
+    { $set: { status: BOOKING_STATUS.DISPUTED, disputeDetails } },
+    { returnDocument: 'after', runValidators: true }
+  );
+
 export const findStaleBookingCandidates = async (coarseDateEnd, batchSize = 50) =>
   Booking.find({
     status: { $in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS] },
@@ -562,6 +576,7 @@ export default {
   findUnfinishedNoShowSettlements,
   findExhaustedNoShowSettlements,
   findStaleBookingCandidates,
+  escalateToSystemReview,
   findPendingRefundRecoveryCandidates,
   create,
   findById,

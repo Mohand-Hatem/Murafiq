@@ -88,6 +88,27 @@ export const PAYOUT_STATUS = {
   NOT_OWED: 'not_owed',
 };
 
+// Admin dispute outcomes. The one list for both the Zod validator and the Booking schema:
+// they had drifted, and 5 outcomes failed the schema AFTER the refund was already issued.
+export const DISPUTE_OUTCOMES = [
+  'completed',
+  'cancelled',
+  'refund_full',
+  'payout_stylist',
+  'split',
+  'partial_refund',
+  'dismissed',
+];
+
+// Dispute types the SYSTEM raises (raisedBy: null). Participants may never file these.
+// A demo session both parties attended is never auto-completed: if it is still open at
+// scheduled end + 24h it goes to admin review with one of these types instead.
+export const DISPUTE_TYPES = Object.freeze({
+  PAYMENT_UNVERIFIED: 'payment_unverified',
+  COMPLETION_UNCONFIRMED: 'completion_unconfirmed',
+});
+export const SYSTEM_DISPUTE_TYPES = Object.freeze(Object.values(DISPUTE_TYPES));
+
 // Cancellation policy — see docs/BUSINESS_RULES.md §H.
 // Boundary: exactly 24h00m falls in the CLIENT-FAVOURABLE tier (`diffHours >= EARLY_HOURS`).
 export const CANCELLATION_POLICY = {

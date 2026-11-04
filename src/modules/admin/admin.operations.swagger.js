@@ -53,10 +53,13 @@
  *   patch:
  *     summary: Arbitrate a dispute
  *     description: |
- *       Resolves to exactly one of two outcomes — never a third silent state.
- *       `completed` makes the booking payout-eligible; `cancelled` triggers a refund.
- *       A non-zero `refundPercentage` is executed through the payment service and recorded
- *       in the ledger.
+ *       The booking always ends in exactly one of two statuses — never a third silent state.
+ *       `cancelled` / `refund_full` → booking `cancelled`, 100% refund.
+ *       `completed` / `payout_stylist` / `dismissed` → booking `completed` (payout-eligible);
+ *       `completed` also applies an optional `refundPercentage`.
+ *       `split` / `partial_refund` → booking `completed` with a 1–99% refund (default 50).
+ *       Refunds run through the payment service and are recorded in the ledger
+ *       (skipped for demo cash bookings).
  *     tags: [Admin — Operations]
  *     parameters:
  *       - in: path
@@ -69,9 +72,9 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [outcome]
+ *             required: [outcome, resolutionNotes]
  *             properties:
- *               outcome: { type: string, enum: [completed, cancelled] }
+ *               outcome: { type: string, enum: [completed, cancelled, refund_full, payout_stylist, split, partial_refund, dismissed] }
  *               refundPercentage: { type: number, minimum: 0, maximum: 100 }
  *               resolutionNotes: { type: string }
  *     responses:

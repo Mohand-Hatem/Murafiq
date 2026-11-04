@@ -93,6 +93,36 @@ Legend:
 > **Business Rules Revision — Stages R0 through R12: 100% COMPLETE & VERIFIED.** `BUSINESS_RULES.md`
 > (added 2026-08-27) is a cross-cutting revision of business rules across Phases 1–13, **not a Phase 17**
 > — it does not extend the build sequence and does not wait on Phases 14–16. Its stages are `R0`–`R12`.
+### Demo session lifecycle + dispute outcome fix (added 2026-11-04)
+
+- **Session timing:** the booking response now carries `clientCheckInAt`, `stylistCheckInAt`,
+  `sessionStartedAt` (the second check-in; null until both are in) and `sessionExpectedEndAt`
+  (`sessionStartedAt + duration`). Derived in `booking.dto.js`, nothing new stored. The countdown is
+  informational: reaching it changes nothing on the server, and overtime is allowed.
+- **Early completion** is allowed any time while `in-progress`. Demo still requires the verified cash
+  code before either side can confirm. No mid-session cancellation (BUSINESS_RULES row 4): an agreed
+  early stop is a completion, a walk-out is a dispute.
+- **Notifications:** a check-in now notifies the *other* party (previously the client always got
+  "Your stylist has checked in", even for their own check-in, and the stylist was never told); the
+  second check-in says "Session Started". The first completion confirmation notifies the other party
+  (`EVENTS.COMPLETION_CONFIRMED`). Repeated check-ins/confirmations do not re-notify.
+- **Demo sessions are never auto-completed.** A demo booking both parties attended that is still
+  `in-progress` at scheduled end + 24h becomes `disputed` as a system review (`raisedBy: null`,
+  `type: payment_unverified` if no cash was verified, `completion_unconfirmed` if paid but not
+  mutually confirmed). Both parties are notified, the audit actor is `system`, and the admin resolves it
+  through the existing `resolve-dispute` (`completed` does **not** set `cashCollectedAt`). Participants
+  cannot file those two types. A cash code entered after escalation gets `409`. V1 unchanged: attended
+  standard bookings still auto-complete. Single-attendance and zero-attendance demo cases keep the
+  existing system no-show / system cancel.
+- **Dispute outcomes:** `disputeResolution.outcome` only allowed `completed`/`cancelled`, so the five
+  other admin outcomes failed Mongoose validation *after* the refund ran (V1: refund issued, booking
+  stuck `disputed`). One `DISPUTE_OUTCOMES` list now feeds both the schema and the Zod validator.
+- **Known, not fixed here:** an admin resolution to `completed` is still re-announced by the
+  refund-recovery sweep (`completionFinalizedAt` is only stamped on system completions), so counters
+  and the completion notification are duplicated once — the same defect seen on 6 of 9 completed
+  bookings in the 2026-11-04 audit. Dispute evidence still fails to save (`disputeDetails.evidence` is
+  typed `[String]` but written as objects). Both need separate approval.
+
 ### Pay-before-confirm + payment recovery (added 2026-10-22)
 
 - **Booking lifecycle:** accept creates the booking as `pending_payment` (slot held, request
