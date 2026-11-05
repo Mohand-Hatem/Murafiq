@@ -42,6 +42,28 @@ export const claimStalePending = async ({ now, minAgeMs, maxAgeMs, retryMs }) =>
   );
 };
 
+// Claims one refund stuck in 'refunding' for a provider lookup: claimed at least minAgeMs ago and
+// not looked up within retryMs. lastReconciledAt doubles as the throttle, as for pending payments.
+export const claimStuckRefund = async ({ now, minAgeMs, retryMs }) =>
+  Payment.findOneAndUpdate(
+    {
+      status: PAYMENT_STATUS.REFUNDING,
+      refundRequestedAt: { $lte: new Date(now - minAgeMs) },
+      $or: [{ lastReconciledAt: null }, { lastReconciledAt: { $lte: new Date(now - retryMs) } }],
+    },
+    { $set: { lastReconciledAt: new Date(now) } },
+    { returnDocument: 'after' }
+  );
+
+// true only for the call that set it, so an unresolved refund is raised once.
+export const markRefundAlerted = async (paymentId) => {
+  const res = await Payment.updateOne(
+    { _id: paymentId, status: PAYMENT_STATUS.REFUNDING, refundAlertedAt: null },
+    { $set: { refundAlertedAt: new Date() } }
+  );
+  return res.modifiedCount === 1;
+};
+
 // A released (never-paid) booking's payment can no longer be completed: PENDING -> FAILED.
 export const failPending = async (bookingId, session = null) => {
   return Payment.findOneAndUpdate(
@@ -178,6 +200,8 @@ export default {
   findByTransactionId,
   findByIntentionId,
   claimStalePending,
+  claimStuckRefund,
+  markRefundAlerted,
   recordDuplicateRefund,
   failPending,
   updateById,

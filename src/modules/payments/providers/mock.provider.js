@@ -3,6 +3,10 @@ import { Buffer } from 'node:buffer';
 import env from '../../../config/env.config.js';
 import PaymentProviderInterface from './payment-provider.interface.js';
 
+// Refunded totals per transaction, like Paymob's refunded_amount_cents. Module-level because
+// getProvider() returns a new instance on every call.
+const refundedCents = new Map();
+
 export default class MockProvider extends PaymentProviderInterface {
   async initialize({ amount: _amount, bookingId, reference }) {
     const ref = (reference || bookingId || 'mock_ref').toString();
@@ -29,6 +33,7 @@ export default class MockProvider extends PaymentProviderInterface {
   }
 
   async refund(transactionId, amount, { idempotencyKey = null } = {}) {
+    refundedCents.set(transactionId, (refundedCents.get(transactionId) || 0) + Math.round(amount * 100));
     return {
       status: 'refunded',
       transactionId,
@@ -36,6 +41,10 @@ export default class MockProvider extends PaymentProviderInterface {
       refundId: `mock_ref_${crypto.randomUUID()}`,
       idempotencyKey,
     };
+  }
+
+  async getRefundedAmount(transactionId) {
+    return refundedCents.get(transactionId) || 0;
   }
 
   async handleCallback(payload = {}, query = {}) {
@@ -60,6 +69,7 @@ export default class MockProvider extends PaymentProviderInterface {
       success: true,
       transactionId: payload.transactionId || `mock_tx_${crypto.randomUUID()}`,
       status: payload.status || 'paid',
+      isRefund: Boolean(payload.isRefund),
       bookingId: payload.bookingId || payload.special_reference,
       // Test-controllable amount-mismatch simulation (see docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md
       // finding X19 and HARDEN-006, "mock provider cannot simulate a failed webhook").

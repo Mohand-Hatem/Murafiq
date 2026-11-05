@@ -28,6 +28,8 @@ export const EVENTS = {
   PAYMENT_SUCCEEDED: 'payment.succeeded',
   PAYMENT_FAILED: 'payment.failed',
   PAYMENT_REFUNDED: 'payment.refunded',
+  // A refund stayed unconfirmed by the provider for REFUND_RECONCILE_POLICY.ALERT_AFTER_HOURS.
+  PAYMENT_REFUND_UNRESOLVED: 'payment.refund_unresolved',
   CHAT_MESSAGE_SENT: 'chat.message_sent',
   ADMIN_CHAT_ACCESSED: 'admin.chat_accessed',
   REVIEW_SUBMITTED: 'review.submitted',

@@ -78,6 +78,14 @@ const paymentSchema = new Schema(
     refundFailedAt: {
       type: Date,
     },
+    // When processRefund claimed the refund ('refunding'): the age a stuck refund is judged by.
+    refundRequestedAt: {
+      type: Date,
+    },
+    // Set once when a refund stayed unconfirmed too long and was raised for manual handling.
+    refundAlertedAt: {
+      type: Date,
+    },
     refundedAt: {
       type: Date,
     },
