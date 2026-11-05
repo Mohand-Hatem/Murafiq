@@ -226,6 +226,15 @@ export const REFUND_RECONCILE_POLICY = Object.freeze({
   BATCH_SIZE: 20,
 });
 
+// The demo cash code is 4 digits and the client (who gains from a fake "paid") enters it, so
+// guesses are limited: every COOLDOWN_AFTER attempts start a cooldown, and LOCK_AFTER attempts lock
+// the code for good. A locked booking goes through a dispute or the stale sweep's payment review.
+export const CASH_OTP_POLICY = Object.freeze({
+  COOLDOWN_AFTER: 5,
+  COOLDOWN_MINUTES: 15,
+  LOCK_AFTER: 10,
+});
+
 export const CHECK_IN_POLICY = Object.freeze({
   EARLY_WINDOW_MINUTES: 30,
 });
@@ -279,6 +288,7 @@ export default {
   PAYMENT_LINK_POLICY,
   PAYMENT_RECONCILE_POLICY,
   REFUND_RECONCILE_POLICY,
+  CASH_OTP_POLICY,
   SYSTEM_NO_SHOW_POLICY,
   COMPLETION_FINALIZE,
 };

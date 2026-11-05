@@ -351,6 +351,10 @@
  *         description: Booking not found
  *       409:
  *         description: Booking is under admin review (disputed); payment must be submitted as dispute evidence instead
+ *       423:
+ *         description: Cash code locked after 10 attempts; open a dispute, or the payment goes to admin review after the session
+ *       429:
+ *         description: Cooling down for 15 minutes after every 5 attempts; the message gives the retry time
  */
 
 /**

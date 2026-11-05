@@ -1,5 +1,5 @@
 import Booking from './booking.model.js';
-import { BOOKING_STATUS, COMPLETION_FINALIZE } from '../../common/constants/statuses.constant.js';
+import { BOOKING_STATUS, COMPLETION_FINALIZE, CASH_OTP_POLICY } from '../../common/constants/statuses.constant.js';
 import { isLegalTransition } from './booking.transitions.js';
 
 export const create = async (data, session = null) => {
@@ -31,6 +31,38 @@ export const findByIdWithCashOtp = async (id, session = null) => {
     ]);
   if (session) query.session(session);
   return query;
+};
+
+/**
+ * Counts one cash code attempt, before the code is checked, in a single atomic update; returns
+ * null when the code is locked or cooling down. The same update starts the cooldown on every
+ * COOLDOWN_AFTER-th attempt, so simultaneous guesses can't slip in between counting and locking.
+ * Counting the correct attempt too is harmless: it ends the flow.
+ */
+export const claimCashOtpAttempt = async (bookingId, now = new Date()) => {
+  const { COOLDOWN_AFTER, COOLDOWN_MINUTES, LOCK_AFTER } = CASH_OTP_POLICY;
+  const next = { $add: [{ $ifNull: ['$cashOtpAttempts', 0] }, 1] };
+  const startsCooldown = {
+    $and: [{ $eq: [{ $mod: [next, COOLDOWN_AFTER] }, 0] }, { $lt: [next, LOCK_AFTER] }],
+  };
+  return Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      cashOtpAttempts: { $not: { $gte: LOCK_AFTER } },
+      $or: [{ cashOtpLockedUntil: null }, { cashOtpLockedUntil: { $lte: now } }],
+    },
+    [
+      {
+        $set: {
+          cashOtpAttempts: next,
+          cashOtpLockedUntil: {
+            $cond: [startsCooldown, new Date(now.getTime() + COOLDOWN_MINUTES * 60 * 1000), '$cashOtpLockedUntil'],
+          },
+        },
+      },
+    ],
+    { returnDocument: 'after', updatePipeline: true, projection: { cashOtpAttempts: 1, cashOtpLockedUntil: 1 } }
+  );
 };
 
 export const setCashCollected = async (bookingId, collectedAt = new Date(), session = null) => {
@@ -649,6 +681,7 @@ export default {
   findById,
   findByIdWithCashOtp,
   setCashCollected,
+  claimCashOtpAttempt,
   findEligibleForPayout,
   findCompletedUnpaidBefore,
   updateManyPayoutStatus,

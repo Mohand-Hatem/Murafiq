@@ -12,7 +12,7 @@ import auditLogListener from '../../src/modules/audit-log/audit-log.listener.js'
 import AuditLog from '../../src/modules/audit-log/audit-log.model.js';
 import { getBusinessDayRange } from '../../src/common/utils/businessDay.util.js';
 import { deriveCashOtp } from '../../src/common/utils/cashOtp.util.js';
-import { DISPUTE_TYPES } from '../../src/common/constants/statuses.constant.js';
+import { DISPUTE_TYPES, CASH_OTP_POLICY } from '../../src/common/constants/statuses.constant.js';
 import { sweepStaleBookings } from '../../src/jobs/stale-booking.cron.js';
 
 // Listeners run after emit() returns; wait for the notifications they persist.
@@ -198,6 +198,78 @@ describe('Demo session lifecycle (real DB)', () => {
       await expect(bookingService.confirmCompletion(asUser(client), booking._id.toString())).rejects.toThrow(
         /Cash payment must be verified/
       );
+    });
+  });
+
+  describe('Cash code lockout', () => {
+    const startedSession = async () => {
+      const booking = await createLiveDemoBooking();
+      await bookingService.checkIn(asUser(client), booking._id.toString());
+      await bookingService.checkIn(asUser(stylist), booking._id.toString());
+      return booking;
+    };
+    const enter = (booking, otp) => bookingService.verifyCashOtp(asUser(client), booking._id.toString(), { otp });
+    const wrongCode = (booking) => String((Number(deriveCashOtp(booking._id)) + 1) % 10000).padStart(4, '0');
+    const endCooldown = (booking) =>
+      Booking.updateOne({ _id: booking._id }, { cashOtpLockedUntil: new Date(Date.now() - 1000) });
+
+    it('refuses even the right code for 15 minutes after 5 wrong ones', async () => {
+      const booking = await startedSession();
+      for (let i = 0; i < CASH_OTP_POLICY.COOLDOWN_AFTER; i += 1) {
+        await expect(enter(booking, wrongCode(booking))).rejects.toMatchObject({ statusCode: 400 });
+      }
+
+      await expect(enter(booking, deriveCashOtp(booking._id))).rejects.toMatchObject({ statusCode: 429 });
+
+      const saved = await Booking.findById(booking._id);
+      expect(saved.cashCollectedAt).toBeNull();
+      const waitMs = saved.cashOtpLockedUntil.getTime() - Date.now();
+      expect(waitMs).toBeGreaterThan((CASH_OTP_POLICY.COOLDOWN_MINUTES - 1) * 60 * 1000);
+    });
+
+    it('accepts the right code once the cooldown is over', async () => {
+      const booking = await startedSession();
+      for (let i = 0; i < CASH_OTP_POLICY.COOLDOWN_AFTER; i += 1) {
+        await expect(enter(booking, wrongCode(booking))).rejects.toMatchObject({ statusCode: 400 });
+      }
+      await endCooldown(booking);
+
+      const paid = await enter(booking, deriveCashOtp(booking._id));
+
+      expect(paid.cashCollectedAt).toBeInstanceOf(Date);
+    });
+
+    it('locks the code for good after 10 wrong ones', async () => {
+      const booking = await startedSession();
+      for (let i = 0; i < CASH_OTP_POLICY.LOCK_AFTER; i += 1) {
+        if (i === CASH_OTP_POLICY.COOLDOWN_AFTER) await endCooldown(booking);
+        await expect(enter(booking, wrongCode(booking))).rejects.toMatchObject({ statusCode: 400 });
+      }
+      await endCooldown(booking);
+
+      await expect(enter(booking, deriveCashOtp(booking._id))).rejects.toMatchObject({ statusCode: 423 });
+      expect((await Booking.findById(booking._id)).cashCollectedAt).toBeNull();
+    });
+
+    it('counts every guess in a burst of simultaneous wrong codes', async () => {
+      const booking = await startedSession();
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 8 }, () => enter(booking, wrongCode(booking)))
+      );
+
+      const codes = results.map((r) => r.reason?.statusCode).sort();
+      expect(codes.filter((c) => c === 400)).toHaveLength(CASH_OTP_POLICY.COOLDOWN_AFTER);
+      expect(codes.filter((c) => c === 429)).toHaveLength(8 - CASH_OTP_POLICY.COOLDOWN_AFTER);
+      expect((await Booking.findById(booking._id)).cashOtpAttempts).toBe(CASH_OTP_POLICY.COOLDOWN_AFTER);
+    });
+
+    it('still accepts the right code on the first try', async () => {
+      const booking = await startedSession();
+
+      const paid = await enter(booking, deriveCashOtp(booking._id));
+
+      expect(paid.cashCollectedAt).toBeInstanceOf(Date);
     });
   });
 
