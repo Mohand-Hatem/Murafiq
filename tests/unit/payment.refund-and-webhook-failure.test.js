@@ -86,33 +86,35 @@ const paymentId = '60f719b8f1a2c81234567877';
  * specifically the two branches Round 2's initial pass left covered only by inspection:
  * the provider-call-throws revert path, and the webhook amount-mismatch rejection.
  */
-describe('processRefund — reverts to paid when the provider call fails (X17)', () => {
+// A failed provider call only reverts to 'paid' when the provider certainly did not refund;
+// otherwise the payment stays 'refunding' until a lookup confirms (refund-safety integration tests).
+describe('processRefund — a failed provider call (X17)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     fakeSession.withTransaction.mockImplementation(async (cb) => cb());
     fakeSession.endSession.mockResolvedValue();
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
-    lastTransitionResult = null;
-  });
-
-  it('reverts the payment to paid and records refundError when provider.refund() throws', async () => {
-    mockFindByBookingId.mockResolvedValue({
+    const paid = {
       _id: paymentId,
       status: 'paid',
       amount: 1000,
       providerTransactionId: 'tx_will_fail',
       bookingId,
       clientId: 'client-1',
-    });
+    };
+    // Like a real findOneAndUpdate, a transition returns the whole updated document.
+    lastTransitionResult = { ...paid };
+    mockFindByBookingId.mockResolvedValue(paid);
     mockBookingFindById.mockResolvedValue({ _id: bookingId, payoutStatus: 'unpaid' });
-    mockProviderRefund.mockRejectedValue(new Error('Provider network timeout'));
+  });
+
+  it('reverts to paid and records refundError when the provider definitely rejected the refund', async () => {
+    mockProviderRefund.mockRejectedValue(Object.assign(new Error('Amount exceeds refundable'), { definite: true }));
 
     await expect(
       paymentService.processRefund({ bookingId, refundPercentage: 100, reason: 'Test' })
-    ).rejects.toThrow('Provider network timeout');
+    ).rejects.toThrow('Amount exceeds refundable');
 
-    // First transitionStatus call: claim into REFUNDING. Second (via updateById in the
-    // catch branch): revert to 'paid' with the failure recorded.
     expect(mockTransitionStatus).toHaveBeenCalledWith(
       paymentId,
       'paid',
@@ -121,13 +123,28 @@ describe('processRefund — reverts to paid when the provider call fails (X17)',
     expect(mockTransitionStatus).toHaveBeenCalledWith(
       paymentId,
       'refunding',
-      expect.objectContaining({
-        status: 'paid',
-        refundError: 'Provider network timeout',
-      })
+      expect.objectContaining({ status: 'paid', refundError: 'Amount exceeds refundable' })
     );
-    // The refund never resolved to a terminal status, and no ledger entries were posted
-    // for money that never actually moved.
+    expect(mockPostEntry).not.toHaveBeenCalled();
+  });
+
+  it('keeps the refund claimed, without reverting or posting the ledger, when the outcome is unknown', async () => {
+    mockProviderRefund.mockRejectedValue(new Error('Provider network timeout'));
+
+    await expect(
+      paymentService.processRefund({ bookingId, refundPercentage: 100, reason: 'Test' })
+    ).rejects.toMatchObject({ statusCode: 502 });
+
+    expect(mockTransitionStatus).toHaveBeenCalledWith(
+      paymentId,
+      'refunding',
+      expect.objectContaining({ refundError: 'Provider network timeout' })
+    );
+    expect(mockTransitionStatus).not.toHaveBeenCalledWith(
+      paymentId,
+      'refunding',
+      expect.objectContaining({ status: 'paid' })
+    );
     expect(mockPostEntry).not.toHaveBeenCalled();
   });
 });

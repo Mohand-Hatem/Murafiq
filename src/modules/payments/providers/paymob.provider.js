@@ -4,6 +4,10 @@ import env from '../../../config/env.config.js';
 import { logger } from '../../../config/logger.config.js';
 import PaymentProviderInterface from './payment-provider.interface.js';
 
+// A hung refund or lookup request becomes an error (and, for a refund, a lookup) instead of
+// blocking its caller indefinitely.
+const REFUND_TIMEOUT_MS = 20 * 1000;
+
 export default class PaymobProvider extends PaymentProviderInterface {
   constructor() {
     super();
@@ -171,6 +175,11 @@ export default class PaymobProvider extends PaymentProviderInterface {
 
     const success = dataObj.success === true || dataObj.success === 'true';
     const transactionId = dataObj.id?.toString();
+    const flag = (v) => v === true || v === 'true';
+    // A refund or void also reports success: true -- on the original transaction (is_refunded) or
+    // on a child transaction (has_parent_transaction). All three fields are covered by the HMAC.
+    const isRefund =
+      flag(dataObj.is_refunded) || flag(dataObj.is_voided) || flag(dataObj.has_parent_transaction);
     // Retry attempts use "<bookingId>-<n>" as their reference (unique per Paymob order);
     // strip the suffix. Plain ids and "subord_..." subscription references don't match.
     const bookingId = (
@@ -183,6 +192,7 @@ export default class PaymobProvider extends PaymentProviderInterface {
       success,
       transactionId,
       status: success ? 'paid' : 'failed',
+      isRefund,
       bookingId,
       // Paymob's own captured amount, in piastres (its native minor unit) — surfaced so
       // the caller can verify it against what it actually expected to collect rather
@@ -248,13 +258,24 @@ export default class PaymobProvider extends PaymentProviderInterface {
 
   /**
    * Refund API (classic/legacy endpoint — Paymob has not moved refunds onto the Intention API).
+   * Paymob ignores Idempotency-Key. A thrown error carries `definite: true` only when the refund
+   * certainly did not happen (auth failed, or Paymob answered 4xx); a 5xx, network error or
+   * timeout may still have refunded, so the caller must look the transaction up instead.
    */
   async refund(transactionId, amount, { idempotencyKey = null } = {}) {
     const amountInCents = Math.round(amount * 100);
 
+    let authToken;
     try {
-      const authToken = await this.getAuthToken();
+      authToken = await this.getAuthToken();
+    } catch (error) {
+      throw Object.assign(
+        error instanceof ApiError ? error : new ApiError(502, `Paymob auth failed: ${error.message}`),
+        { definite: true }
+      );
+    }
 
+    try {
       const response = await fetch(`${this.baseUrl}/api/acceptance/void_refund/refund`, {
         method: 'POST',
         headers: {
@@ -266,12 +287,15 @@ export default class PaymobProvider extends PaymentProviderInterface {
           transaction_id: transactionId,
           amount_cents: amountInCents,
         }),
+        signal: AbortSignal.timeout(REFUND_TIMEOUT_MS),
       });
 
       if (!response.ok) {
         const errText = await response.text();
         logger.error(`Paymob refund failed (${response.status}): ${errText}`);
-        throw new ApiError(502, `Paymob refund failed: ${errText}`);
+        const err = new ApiError(502, `Paymob refund failed (${response.status}): ${errText}`);
+        if (response.status >= 400 && response.status < 500) err.definite = true;
+        throw err;
       }
 
       const data = await response.json();
@@ -286,6 +310,24 @@ export default class PaymobProvider extends PaymentProviderInterface {
       logger.error(`Paymob refund exception: ${error.message}`);
       throw new ApiError(502, `Failed to process Paymob refund: ${error.message}`);
     }
+  }
+
+  /**
+   * The transaction's cumulative refunded amount in piastres (refunded_amount_cents). The only
+   * reliable answer to "did a refund go through?" after an ambiguous refund error. Throws when
+   * Paymob cannot answer.
+   */
+  async getRefundedAmount(transactionId) {
+    const authToken = await this.getAuthToken();
+    const response = await fetch(`${this.baseUrl}/api/acceptance/transactions/${transactionId}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      signal: AbortSignal.timeout(REFUND_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new ApiError(502, `Paymob transaction lookup failed (${response.status})`);
+    }
+    const data = await response.json();
+    return Number(data.refunded_amount_cents || 0);
   }
 
   // NOTE: there is deliberately no verify(). The previous implementation returned

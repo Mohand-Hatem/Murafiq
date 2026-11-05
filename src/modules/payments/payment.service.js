@@ -312,6 +312,26 @@ const refundDuplicateCapture = async (payment, result) => {
  * recovered payment gets exactly the same transaction, ledger pair and events.
  */
 export const settlePayment = async (payment, result) => {
+  // Paymob calls back on the ORIGINAL transaction after every refund (success: true, full amount),
+  // and refund child transactions report success too. A refund state never goes back to 'paid'.
+  if (REFUND_STATES.includes(payment.status)) {
+    const otherCapture =
+      result.success &&
+      !result.isRefund &&
+      result.transactionId &&
+      String(result.transactionId) !== String(payment.providerTransactionId);
+    if (otherCapture) return refundDuplicateCapture(payment, result);
+    // While 'refunding', the callback may be Paymob confirming it: check and record.
+    if (payment.status === PAYMENT_STATUS.REFUNDING) return reconcileRefund(payment);
+    return payment;
+  }
+  if (result.isRefund) {
+    logger.error(
+      `[Payment Webhook] Refund/void callback (transaction ${result.transactionId}) for payment ${payment._id} in '${payment.status}', which has no refund recorded here; check it with Paymob.`
+    );
+    return payment;
+  }
+
   if (payment.status === PAYMENT_STATUS.PAID) {
     // A second, different successful transaction means the client paid twice (old link plus a
     // newer attempt): give that money back on its own transaction id.
@@ -520,114 +540,37 @@ export const getClientHistory = async (user, queryString = {}) => {
   return paymentRepository.findClientHistory(userId, queryString);
 };
 
-export const processRefund = async ({
-  bookingId,
-  refundPercentage = 100,
-  reason = '',
-  // Caller-supplied EGP amount the stylist should keep from whatever this refund does
-  // NOT return to the client (see NO_SHOW_POLICY.CLIENT.STYLIST_PERCENTAGE and
-  // MONEY_AND_LEDGER.md Section 4.2's dispute-split example). Left unspecified (0) for
-  // pure pre-session cancellations, where the documented policy awards the stylist
-  // nothing since the session never took place.
-  stylistPayoutOverrideAmount = 0,
-  idempotencyKey = null,
-} = {}) => {
-  const payment = await paymentRepository.findByBookingId(bookingId);
-  if (!payment) {
-    throw new ApiError(404, 'Payment record not found for this booking');
-  }
+const REFUND_STATES = [
+  PAYMENT_STATUS.REFUNDING,
+  PAYMENT_STATUS.REFUNDED,
+  PAYMENT_STATUS.PARTIALLY_REFUNDED,
+];
 
-  if (payment.status !== PAYMENT_STATUS.PAID) {
-    throw new ApiError(400, `Cannot refund payment in '${payment.status}' status`);
-  }
-
-  // A refund zeroes stylistPayoutAmount on this Payment record, which is correct for any FUTURE
-  // payout aggregation. But if this booking was already batched into a Payout ('processing' or
-  // 'paid'), the stylist's share has already left the ledger (or is about to) based on the
-  // pre-refund amount — a plain status flip here can't claw that back. Block it and force manual
-  // reconciliation of the existing payout batch before the refund proceeds.
-  // Note (Task S3.3): !== 'unpaid' refuses 'processing', 'paid', and 'not_owed'.
-  const booking = await bookingRepository.findById(bookingId);
-  if (booking && booking.payoutStatus && booking.payoutStatus !== 'unpaid') {
-    throw new ApiError(
-      409,
-      `Cannot refund: this booking's payout is already '${booking.payoutStatus}'. ` +
-        'Reconcile the associated payout batch manually before issuing a refund.'
-    );
-  }
-
-  const refundAmount = round2((payment.amount * refundPercentage) / 100);
-
-  const isPartial = refundPercentage < 100;
-  const status = isPartial ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
-
-  // Whatever isn't refunded to the client (`retainedAmount`) splits between the stylist
-  // (per the caller's policy override) and the platform (whatever's left). Clamping the
-  // override to retainedAmount means a caller bug can never make the platform "owe" more
-  // than it actually kept.
-  const retainedAmount = round2(Math.max(0, payment.amount - refundAmount));
-  const stylistPayoutAmount = Math.min(round2(Math.max(0, stylistPayoutOverrideAmount)), retainedAmount);
-  const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
-
-  // CAS-claim the payment into REFUNDING *before* calling the provider, not after.
-  // Two things this closes (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
-  // (1) durability -- a crash between the provider call succeeding and the terminal
-  //     write used to leave NOTHING persisted: the client was refunded by the provider
-  //     but our own record still said 'paid', so the booking still looked payout-eligible
-  //     and the stylist could be paid for a refunded session. The claim below is written
-  //     and committed BEFORE the provider is touched, so that failure mode now leaves a
-  //     durable 'refunding' record instead of silence.
-  // (2) concurrency -- the CAS is keyed on {_id, status: 'paid'}, so a second concurrent
-  //     processRefund() call for the same payment cannot also pass and call the provider
-  //     a second time; it gets null and must not proceed.
-  const claimed = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.PAID, {
-    status: PAYMENT_STATUS.REFUNDING,
-    refundAmount,
-    refundReason: reason,
-    platformFeeAmount,
-    stylistPayoutAmount,
-  });
-  if (!claimed) {
-    throw new ApiError(
-      409,
-      'This payment is already being refunded or is no longer in a refundable state.'
-    );
-  }
-
-  const provider = getProvider();
-  try {
-    if (payment.providerTransactionId && provider.refund) {
-      await provider.refund(payment.providerTransactionId, refundAmount, { idempotencyKey });
-    }
-  } catch (providerErr) {
-    // The provider call itself failed (network error, provider-side rejection, etc.) --
-    // revert to 'paid' so a retry (the caller re-invoking processRefund, or an admin
-    // retry action) can actually attempt it again, rather than leaving the payment
-    // stuck in the transient 'refunding' state forever.
-    await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
-      status: PAYMENT_STATUS.PAID,
-      refundError: providerErr.message,
-      refundFailedAt: new Date(),
-    });
-    logger.error(`Refund provider call failed for payment ${payment._id}: ${providerErr.message}`);
-    throw providerErr;
-  }
+/**
+ * Moves a claimed refund ('refunding') to its terminal status and writes its ledger entries in one
+ * transaction. Called from the refund call's success path and from provider lookups; the status
+ * CAS lets exactly one of them write the ledger and emit PAYMENT_REFUNDED. Every amount comes from
+ * what processRefund stored on the payment when it claimed the refund (`claimed`).
+ */
+const finalizeRefund = async (claimed) => {
+  const paymentId = claimed._id;
+  const { refundAmount, platformFeeAmount } = claimed;
+  const reason = claimed.refundReason || '';
+  const status =
+    refundAmount < claimed.amount ? PAYMENT_STATUS.PARTIALLY_REFUNDED : PAYMENT_STATUS.REFUNDED;
+  const bookingIdStr = (claimed.bookingId?._id || claimed.bookingId || '').toString();
+  const clientIdStr = (claimed.clientId?._id || claimed.clientId || '').toString();
+  const paymentIdStr = claimed._id.toString();
 
   let updated;
   await withTransaction(async (session) => {
     updated = await paymentRepository.transitionStatus(
-      payment._id,
+      paymentId,
       PAYMENT_STATUS.REFUNDING,
-      {
-        status,
-        refundedAt: new Date(),
-      },
+      { status, refundedAt: new Date() },
       session
     );
-
-    const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
-    const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
-    const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
+    if (!updated) return;
 
     // Dual-write to ledger: Escrow DEBIT (release), Client CREDIT (refund) (Task S4.1, B6)
     const refundMinor = ledgerService.egpToPiastres(refundAmount);
@@ -697,9 +640,7 @@ export const processRefund = async ({
     }
   });
 
-  const bookingIdStr = (payment.bookingId?._id || payment.bookingId || bookingId).toString();
-  const clientIdStr = (payment.clientId?._id || payment.clientId || '').toString();
-  const paymentIdStr = (updated?._id || updated?.id || payment._id).toString();
+  if (!updated) return paymentRepository.findById(paymentId);
 
   eventBus.emit(EVENTS.PAYMENT_REFUNDED, {
     paymentId: paymentIdStr,
@@ -709,11 +650,216 @@ export const processRefund = async ({
     status,
     reason,
   });
-
   return updated;
 };
 
+// The provider's refunded total for this payment's transaction in piastres, or null when it
+// cannot say (lookup failed or the provider has no lookup).
+const lookupRefunded = async (payment) => {
+  const provider = getProvider();
+  if (!provider.getRefundedAmount) return null;
+  try {
+    return Number(await provider.getRefundedAmount(payment.providerTransactionId));
+  } catch (err) {
+    logger.warn(`Refund lookup failed for payment ${payment._id}: ${err.message}`);
+    return null;
+  }
+};
+
+/**
+ * Settles a claimed refund ('refunding') by asking the provider what actually happened, never by
+ * guessing: Paymob ignores Idempotency-Key and a 5xx can still have refunded.
+ * - provider refunded at least the claimed amount -> finalizeRefund
+ * - provider refunded nothing -> back to 'paid' (only with allowRevert; otherwise left alone)
+ * - a different amount, or no answer -> stays 'refunding' for the next lookup
+ * @returns {Promise<object>} the payment as it now stands
+ */
+export const reconcileRefund = async (payment, { allowRevert = false } = {}) => {
+  if (payment.status !== PAYMENT_STATUS.REFUNDING) return payment;
+  if (!payment.providerTransactionId) return finalizeRefund(payment); // nothing was sent out
+
+  const refunded = await lookupRefunded(payment);
+  const expected = ledgerService.egpToPiastres(payment.refundAmount);
+  if (refunded === null) return paymentRepository.findById(payment._id);
+  if (refunded >= expected) return finalizeRefund(payment);
+  if (refunded === 0) {
+    if (!allowRevert) return paymentRepository.findById(payment._id);
+    const reverted = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+      status: PAYMENT_STATUS.PAID,
+    });
+    return reverted || paymentRepository.findById(payment._id);
+  }
+  logger.error(
+    `[CRITICAL ALERT] Refund mismatch for payment ${payment._id}: provider shows ${refunded} piastres refunded, expected ${expected}. Manual reconciliation required.`
+  );
+  return paymentRepository.findById(payment._id);
+};
+
+/**
+ * Raises a refund that has stayed unconfirmed for REFUND_RECONCILE_POLICY.ALERT_AFTER_HOURS, once.
+ */
+export const alertUnresolvedRefund = async (payment) => {
+  if (!(await paymentRepository.markRefundAlerted(payment._id))) return;
+  logger.error(
+    `[CRITICAL ALERT] Refund for payment ${payment._id} is still unconfirmed by the payment provider; manual reconciliation required.`
+  );
+  eventBus.emit(EVENTS.PAYMENT_REFUND_UNRESOLVED, {
+    paymentId: payment._id.toString(),
+    bookingId: (payment.bookingId?._id || payment.bookingId || '').toString(),
+    refundAmount: payment.refundAmount,
+    refundError: payment.refundError || null,
+    refundRequestedAt: payment.refundRequestedAt || null,
+  });
+};
+
+export const processRefund = async ({
+  bookingId,
+  refundPercentage = 100,
+  reason = '',
+  // Caller-supplied EGP amount the stylist should keep from whatever this refund does
+  // NOT return to the client (see NO_SHOW_POLICY.CLIENT.STYLIST_PERCENTAGE and
+  // MONEY_AND_LEDGER.md Section 4.2's dispute-split example). Left unspecified (0) for
+  // pure pre-session cancellations, where the documented policy awards the stylist
+  // nothing since the session never took place.
+  stylistPayoutOverrideAmount = 0,
+  idempotencyKey = null,
+} = {}) => {
+  let payment = await paymentRepository.findByBookingId(bookingId);
+  if (!payment) {
+    throw new ApiError(404, 'Payment record not found for this booking');
+  }
+
+  const refundAmount = round2((payment.amount * refundPercentage) / 100);
+
+  // An earlier call claimed a refund that was never confirmed: settle it with the provider first.
+  if (payment.status === PAYMENT_STATUS.REFUNDING) {
+    payment = await reconcileRefund(payment);
+    if (payment.status === PAYMENT_STATUS.REFUNDING) {
+      throw new ApiError(
+        409,
+        'A refund for this payment is awaiting confirmation from the payment provider.'
+      );
+    }
+  }
+
+  // The same refund requested again (a caller retrying after an error) returns what happened.
+  if (
+    (payment.status === PAYMENT_STATUS.REFUNDED ||
+      payment.status === PAYMENT_STATUS.PARTIALLY_REFUNDED) &&
+    round2(payment.refundAmount) === refundAmount
+  ) {
+    return payment;
+  }
+
+  if (payment.status !== PAYMENT_STATUS.PAID) {
+    throw new ApiError(400, `Cannot refund payment in '${payment.status}' status`);
+  }
+
+  // A refund zeroes stylistPayoutAmount on this Payment record, which is correct for any FUTURE
+  // payout aggregation. But if this booking was already batched into a Payout ('processing' or
+  // 'paid'), the stylist's share has already left the ledger (or is about to) based on the
+  // pre-refund amount — a plain status flip here can't claw that back. Block it and force manual
+  // reconciliation of the existing payout batch before the refund proceeds.
+  // Note (Task S3.3): !== 'unpaid' refuses 'processing', 'paid', and 'not_owed'.
+  const booking = await bookingRepository.findById(bookingId);
+  if (booking && booking.payoutStatus && booking.payoutStatus !== 'unpaid') {
+    throw new ApiError(
+      409,
+      `Cannot refund: this booking's payout is already '${booking.payoutStatus}'. ` +
+        'Reconcile the associated payout batch manually before issuing a refund.'
+    );
+  }
+
+  // Whatever isn't refunded to the client (`retainedAmount`) splits between the stylist
+  // (per the caller's policy override) and the platform (whatever's left). Clamping the
+  // override to retainedAmount means a caller bug can never make the platform "owe" more
+  // than it actually kept.
+  const retainedAmount = round2(Math.max(0, payment.amount - refundAmount));
+  const stylistPayoutAmount = Math.min(round2(Math.max(0, stylistPayoutOverrideAmount)), retainedAmount);
+  const platformFeeAmount = round2(Math.max(0, retainedAmount - stylistPayoutAmount));
+
+  // CAS-claim the payment into REFUNDING *before* calling the provider, not after.
+  // Two things this closes (docs/archive/audits/AUDIT_2026_09_FULL_SYSTEM.md findings X17/X18):
+  // (1) durability -- a crash between the provider call succeeding and the terminal
+  //     write leaves a durable 'refunding' record, which reconcileRefund later settles;
+  // (2) concurrency -- the CAS is keyed on {_id, status: 'paid'}, so a second concurrent
+  //     processRefund() call for the same payment cannot also pass and call the provider
+  //     a second time; it gets null and must not proceed.
+  const claimed = await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.PAID, {
+    status: PAYMENT_STATUS.REFUNDING,
+    refundAmount,
+    refundReason: reason,
+    platformFeeAmount,
+    stylistPayoutAmount,
+    refundRequestedAt: new Date(),
+    refundAlertedAt: null,
+    lastReconciledAt: null,
+  });
+  if (!claimed) {
+    throw new ApiError(
+      409,
+      'This payment is already being refunded or is no longer in a refundable state.'
+    );
+  }
+
+  const provider = getProvider();
+  const sendsToProvider = Boolean(claimed.providerTransactionId && provider.refund);
+
+  // An earlier attempt failed, and a failed refund call may still have refunded: ask first.
+  if (sendsToProvider && payment.refundError) {
+    const refunded = await lookupRefunded(claimed);
+    if (refunded === null) {
+      await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+        status: PAYMENT_STATUS.PAID,
+      });
+      throw new ApiError(
+        503,
+        'Cannot confirm whether an earlier refund attempt went through; try again later.'
+      );
+    }
+    if (refunded >= ledgerService.egpToPiastres(refundAmount)) return finalizeRefund(claimed);
+    if (refunded > 0) {
+      logger.error(
+        `[CRITICAL ALERT] Refund mismatch for payment ${payment._id}: provider shows ${refunded} piastres refunded before retrying a ${refundAmount} EGP refund. Manual reconciliation required.`
+      );
+      throw new ApiError(409, 'The payment provider shows a different refund on this payment.');
+    }
+  }
+
+  if (sendsToProvider) {
+    try {
+      await provider.refund(claimed.providerTransactionId, refundAmount, { idempotencyKey });
+    } catch (providerErr) {
+      logger.error(`Refund provider call failed for payment ${payment._id}: ${providerErr.message}`);
+      const failure = { refundError: providerErr.message, refundFailedAt: new Date() };
+      if (providerErr.definite) {
+        // The provider certainly did not refund: back to 'paid' so a retry can try again.
+        await paymentRepository.transitionStatus(payment._id, PAYMENT_STATUS.REFUNDING, {
+          status: PAYMENT_STATUS.PAID,
+          ...failure,
+        });
+        throw providerErr;
+      }
+      const recorded = await paymentRepository.transitionStatus(
+        payment._id,
+        PAYMENT_STATUS.REFUNDING,
+        failure
+      );
+      const settled = await reconcileRefund(recorded || claimed);
+      if (settled && settled.status !== PAYMENT_STATUS.REFUNDING) return settled;
+      throw new ApiError(
+        502,
+        `Refund outcome unknown (${providerErr.message}); it will be confirmed with the payment provider automatically.`
+      );
+    }
+  }
+
+  return finalizeRefund(claimed);
+};
+
 export default {
+  reconcileRefund,
+  alertUnresolvedRefund,
   createPendingPayment,
   initializePayment,
   handleWebhook,

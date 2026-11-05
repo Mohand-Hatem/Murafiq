@@ -122,6 +122,32 @@ Legend:
 - **Known, not fixed here:** dispute evidence still fails to save (`disputeDetails.evidence` is
   typed `[String]` but written as objects). Needs separate approval.
 
+### Refund safety (added 2026-11-05)
+
+- **The defects:** (1) Paymob calls back on the original transaction after every refund
+  (`success: true`, full amount); `settlePayment` treated it as a payment and moved a `refunded`
+  payment back to `paid`, then refunded again (cancelled booking) or re-emitted `PAYMENT_SUCCEEDED`
+  (completed booking: chat reopened, "Payment secured"). Confirmed live. (2) Any provider error
+  reverted the refund to `paid`, but a 5xx or timeout can still have refunded and Paymob ignores
+  Idempotency-Key, so a retry could refund twice. (3) A callback landing between the `refunding`
+  claim and the final write left the record `paid` for a refunded session.
+- **Now:** a `refunding` / `refunded` / `partially_refunded` payment never returns to `paid` from a
+  callback; refund and void callbacks (`is_refunded`, `is_voided`, `has_parent_transaction`, all
+  HMAC-covered) are never treated as a capture, and a genuine second capture is still refunded on its
+  own. `finalizeRefund` writes the terminal status and ledger once (status CAS), whichever of the
+  refund call or a provider lookup gets there first.
+- **Unknown outcomes are looked up, never guessed:** a provider error marked definite (auth failed,
+  Paymob 4xx) reverts to `paid` as before; anything else leaves the payment `refunding` and asks Paymob
+  (`GET /api/acceptance/transactions/{id}`, `refunded_amount_cents`). Refunded: recorded. Nothing
+  refunded: reverted to `paid`, but only after `REFUND_RECONCILE_POLICY.REVERT_GRACE_MINUTES`. A
+  different amount or no answer: stays `refunding`; after 24 h one `critical`
+  `payment.refund_unresolved` audit entry. The payment reconcile cron (every 2 min) looks each stuck
+  refund up at most once per 15 min, whatever started it. A retry after an earlier failed attempt also
+  looks up first, and asking for the same refund again returns the existing one.
+- **Data:** new optional `Payment.refundRequestedAt` / `refundAlertedAt`; Paymob refund and lookup
+  requests time out after 20 s. Payments already flipped back to `paid` by a refund callback, or reverted
+  after a 5xx, are not corrected automatically: a read-only audit should find them before deploy.
+
 ### Exactly-once completion side effects (added 2026-11-05)
 
 - **The defect:** mutual confirmation and admin `completed` resolutions never stamped

@@ -213,6 +213,19 @@ export const PAYMENT_RECONCILE_POLICY = Object.freeze({
   BATCH_SIZE: 20,
 });
 
+// A refund whose provider call errored stays 'refunding' until the provider confirms what
+// happened (payment.service.js reconcileRefund): Paymob ignores Idempotency-Key and a 5xx can still
+// have refunded, so reverting to 'paid' on a guess risks refunding twice.
+export const REFUND_RECONCILE_POLICY = Object.freeze({
+  // Only after this long does "provider shows nothing refunded" revert the payment to 'paid'.
+  REVERT_GRACE_MINUTES: 10,
+  // At most one provider lookup per stuck refund per this window.
+  RETRY_MINUTES: 15,
+  // Still unresolved after this long: one critical audit entry.
+  ALERT_AFTER_HOURS: 24,
+  BATCH_SIZE: 20,
+});
+
 export const CHECK_IN_POLICY = Object.freeze({
   EARLY_WINDOW_MINUTES: 30,
 });
@@ -265,6 +278,7 @@ export default {
   OFFER_POLICY,
   PAYMENT_LINK_POLICY,
   PAYMENT_RECONCILE_POLICY,
+  REFUND_RECONCILE_POLICY,
   SYSTEM_NO_SHOW_POLICY,
   COMPLETION_FINALIZE,
 };

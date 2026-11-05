@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import paymentRepository from '../modules/payments/payment.repository.js';
 import paymentService from '../modules/payments/payment.service.js';
 import { BUSINESS_TIMEZONE } from '../common/constants/defaults.constant.js';
-import { PAYMENT_RECONCILE_POLICY } from '../common/constants/statuses.constant.js';
+import { PAYMENT_RECONCILE_POLICY, REFUND_RECONCILE_POLICY } from '../common/constants/statuses.constant.js';
 import env from '../config/env.config.js';
 import { logger } from '../config/logger.config.js';
 
@@ -43,6 +43,42 @@ export const sweepStalePayments = async () => {
   return { checked, recovered };
 };
 
+/**
+ * Settles refunds left 'refunding' because the provider call errored or the process stopped
+ * mid-refund, whatever started them (cancellation, dispute, no-show, admin). Each one is looked up
+ * at the provider at most once per RETRY_MINUTES; "nothing refunded" reverts it to 'paid' only
+ * after REVERT_GRACE_MINUTES, and one still unresolved after ALERT_AFTER_HOURS is raised once.
+ * @param {number} [now=Date.now()]
+ * @returns {Promise<{ checked: number, refunded: number, reverted: number }>}
+ */
+export const sweepStuckRefunds = async (now = Date.now()) => {
+  const { REVERT_GRACE_MINUTES, RETRY_MINUTES, ALERT_AFTER_HOURS, BATCH_SIZE } = REFUND_RECONCILE_POLICY;
+  const result = { checked: 0, refunded: 0, reverted: 0 };
+
+  for (let i = 0; i < BATCH_SIZE; i += 1) {
+    const payment = await paymentRepository.claimStuckRefund({
+      now,
+      minAgeMs: REVERT_GRACE_MINUTES * 60 * 1000,
+      retryMs: RETRY_MINUTES * 60 * 1000,
+    });
+    if (!payment) break;
+
+    result.checked += 1;
+    try {
+      const settled = await paymentService.reconcileRefund(payment, { allowRevert: true });
+      if (settled.status === 'paid') result.reverted += 1;
+      else if (settled.status !== 'refunding') result.refunded += 1;
+      else if (payment.refundRequestedAt <= new Date(now - ALERT_AFTER_HOURS * 60 * 60 * 1000)) {
+        await paymentService.alertUnresolvedRefund(settled);
+      }
+    } catch (err) {
+      logger.error(`Refund reconciliation failed for payment ${payment._id}: ${err.message}`);
+    }
+  }
+
+  return result;
+};
+
 export const startPaymentReconcileCron = () => {
   if (registered) return;
   if (env.NODE_ENV === 'test') return;
@@ -56,6 +92,11 @@ export const startPaymentReconcileCron = () => {
       } catch (err) {
         logger.error(`Payment reconciliation sweep failed: ${err.message}`);
       }
+      try {
+        await sweepStuckRefunds();
+      } catch (err) {
+        logger.error(`Stuck refund sweep failed: ${err.message}`);
+      }
     },
     { timezone: BUSINESS_TIMEZONE }
   );
@@ -63,4 +104,4 @@ export const startPaymentReconcileCron = () => {
   logger.info(`Payment reconciliation cron scheduled (${PAYMENT_RECONCILE_POLICY.SCHEDULE}).`);
 };
 
-export default { sweepStalePayments, startPaymentReconcileCron };
+export default { sweepStalePayments, sweepStuckRefunds, startPaymentReconcileCron };

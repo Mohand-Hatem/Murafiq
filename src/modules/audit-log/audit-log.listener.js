@@ -25,6 +25,22 @@ export const register = () => {
     });
   }));
 
+  eventBus.on(EVENTS.PAYMENT_REFUND_UNRESOLVED, safeListener('audit.payment_refund_unresolved', async (payload) => {
+    await auditLogService.recordAction({
+      actorRole: 'system',
+      action: 'payment.refund_unresolved',
+      targetType: 'Payment',
+      targetId: payload.paymentId,
+      severity: 'critical',
+      metadata: {
+        bookingId: payload.bookingId,
+        refundAmount: payload.refundAmount,
+        refundError: payload.refundError,
+        refundRequestedAt: payload.refundRequestedAt,
+      },
+    });
+  }));
+
   eventBus.on(EVENTS.PAYMENT_REFUNDED, safeListener('audit.payment_refunded', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.refundedBy || null,
