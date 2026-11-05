@@ -91,6 +91,9 @@ const bookingSchema = new Schema(
     cashOtpHash: { type: String, select: false },
     cashOtpPlain: { type: String, select: false },
     cashCollectedAt: { type: Date, default: null },
+    // Cash code guesses (verifyCashOtp, CASH_OTP_POLICY). No defaults: missing means none yet.
+    cashOtpAttempts: Number,
+    cashOtpLockedUntil: Date,
     cancelledBy: { type: String, enum: ['client', 'stylist', 'admin', 'system'] },
     cancellationReason: String,
     cancelledAt: Date,

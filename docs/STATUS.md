@@ -122,6 +122,16 @@ Legend:
 - **Known, not fixed here:** dispute evidence still fails to save (`disputeDetails.evidence` is
   typed `[String]` but written as objects). Needs separate approval.
 
+### Demo cash code lockout (added 2026-11-05)
+
+- The 4-digit cash code had unlimited guesses, and the client is the one who enters it. Now every
+  5 attempts start a 15-minute cooldown (`429`, even for the right code) and 10 attempts lock the
+  code for good (`423`) (`CASH_OTP_POLICY`). Attempts are counted atomically before the code is
+  checked, so a burst of simultaneous guesses is fully counted.
+- A locked booking needs no new flow: either party can open a dispute, otherwise the stale sweep sends
+  it to `payment_unverified` admin review after the session. New optional fields:
+  `Booking.cashOtpAttempts`, `cashOtpLockedUntil`.
+
 ### Attendance and dispute fixes (added 2026-11-05)
 
 - **No-show only against an absent party:** `fileNoShow` now refuses a report when the accused

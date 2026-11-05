@@ -34,6 +34,7 @@ import {
   DISPUTE_TYPES,
   SYSTEM_DISPUTE_TYPES,
   COMPLETION_FINALIZE,
+  CASH_OTP_POLICY,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
@@ -478,6 +479,21 @@ export const verifyCashOtp = async (user, bookingId, { otp } = {}) => {
 
   if (booking.cashCollectedAt) {
     throw new ApiError(400, 'Cash payment has already been verified for this booking');
+  }
+
+  const attempt = await bookingRepository.claimCashOtpAttempt(bookingId);
+  if (!attempt) {
+    const current = await bookingRepository.findById(bookingId);
+    if ((current?.cashOtpAttempts || 0) >= CASH_OTP_POLICY.LOCK_AFTER) {
+      throw new ApiError(
+        423,
+        'Too many wrong codes: the cash code is locked. Open a dispute, or an admin will review the payment after the session.'
+      );
+    }
+    throw new ApiError(
+      429,
+      `Too many wrong codes. Try again after ${current?.cashOtpLockedUntil?.toISOString() || 'a few minutes'}.`
+    );
   }
 
   // Bookings checked in before the OTP became derived still carry a stored hash: honour it.
