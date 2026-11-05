@@ -1,5 +1,6 @@
 import { deriveCashOtp } from '../../common/utils/cashOtp.util.js';
 import { minutesToTime } from '../../common/utils/timeUtils.js';
+import { getAppointmentDateTime, getAppointmentEndDateTime } from '../../common/utils/appointmentTime.util.js';
 
 // Deliberately NOT toPublicUser (email/phone/role/accountStatus) and NOT
 // toPublicClientDto (client-specific fields — rating, verification — that make no sense
@@ -43,6 +44,21 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
   const sessionExpectedEndAt =
     sessionStartedAt && doc.duration ? new Date(sessionStartedAt.getTime() + doc.duration * 60 * 1000) : null;
 
+  // Who raised the dispute, so the app can tell "Admin Review" (system) from "Disputed". Evidence
+  // stays on GET /bookings/:id/dispute. The schema defaults disputeDetails.type on every booking,
+  // so raisedAt is what marks a booking that was actually disputed.
+  const details = doc.disputeDetails;
+  const clientId = (doc.clientId?._id || doc.clientId)?.toString();
+  const raiser = details?.raisedBy ? (details.raisedBy._id || details.raisedBy).toString() : null;
+  const dispute = details?.raisedAt
+    ? {
+        type: details.type,
+        reason: details.reason,
+        raisedAt: details.raisedAt,
+        raisedBy: !raiser ? 'system' : raiser === clientId ? 'client' : raiser === stylistId ? 'stylist' : 'admin',
+      }
+    : null;
+
   return {
     id: doc._id?.toString() || doc.id,
     requestId: doc.requestId?.toString() || doc.requestId,
@@ -53,6 +69,11 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     scheduledDate: doc.scheduledDate,
     startTime: minutesToTime(doc.scheduledStartMinute),
     endTime: minutesToTime(doc.scheduledEndMinute),
+    // Real instants (Cairo calendar day + minutes), so the app never does the timezone math.
+    scheduledStartAt: doc.scheduledDate ? getAppointmentDateTime(doc) : null,
+    scheduledEndAt: doc.scheduledDate ? getAppointmentEndDateTime(doc) : null,
+    // For countdowns and overtime: compare against this, not the device clock.
+    serverTime: new Date(),
     meetingLocation: doc.meetingLocation || null,
     price: doc.price,
     duration: doc.duration,
@@ -76,6 +97,7 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     cancelledBy: doc.cancelledBy || null,
     cancellationReason: doc.cancellationReason || null,
     cancelledAt: doc.cancelledAt || null,
+    dispute,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

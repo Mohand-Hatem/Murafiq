@@ -300,6 +300,21 @@ describe('Demo session lifecycle (real DB)', () => {
       });
     };
 
+    it('shows the app a system review, and the schedule as real instants, on a plain read', async () => {
+      const booking = await createStaleBooking();
+      await sweepStaleBookings();
+
+      const read = await bookingService.getById(asUser(client), booking._id.toString());
+
+      expect(read.status).toBe('disputed');
+      expect(read.dispute).toMatchObject({ raisedBy: 'system', type: DISPUTE_TYPES.PAYMENT_UNVERIFIED });
+      expect(read.scheduledStartAt.getTime()).toBe(
+        bookingService.getAppointmentDateTime({ scheduledDate: booking.scheduledDate, scheduledStartMinute: 600 }).getTime()
+      );
+      expect(read.scheduledEndAt.getTime() - read.scheduledStartAt.getTime()).toBe(120 * 60 * 1000);
+      expect(read.serverTime).toBeInstanceOf(Date);
+    });
+
     it('sends an UNPAID demo session attended by both to payment review', async () => {
       const booking = await createStaleBooking();
 

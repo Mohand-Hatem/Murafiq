@@ -14,6 +14,7 @@ import moderationService from '../moderation/moderation.service.js';
 import reliabilityService from '../stylists/reliability.service.js';
 import { toPublicBookingDto } from './booking.dto.js';
 import { timeToMinutes } from '../../common/utils/timeUtils.js';
+import { getAppointmentDateTime, getAppointmentEndDateTime } from '../../common/utils/appointmentTime.util.js';
 import { matchesCashOtp } from '../../common/utils/cashOtp.util.js';
 import eventBus from '../../common/events/event-bus.js';
 import { EVENTS } from '../../common/constants/events.constant.js';
@@ -36,7 +37,6 @@ import {
   COMPLETION_FINALIZE,
   CASH_OTP_POLICY,
 } from '../../common/constants/statuses.constant.js';
-import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
 
 import env from '../../config/env.config.js';
@@ -801,27 +801,8 @@ export const resolveDispute = async (
   return toPublicBookingDto(updated);
 };
 
-export const getAppointmentDateTime = (booking) => {
-  const { startOfDay } = getBusinessDayRange(booking.scheduledDate || booking.date, 'Africa/Cairo');
-  const startMinute =
-    booking.scheduledStartMinute !== undefined && booking.scheduledStartMinute !== null
-      ? booking.scheduledStartMinute
-      : timeToMinutes(booking.time || '10:00');
-  return new Date(startOfDay.getTime() + startMinute * 60 * 1000);
-};
-
-export const getAppointmentEndDateTime = (booking) => {
-  const { startOfDay } = getBusinessDayRange(booking.scheduledDate || booking.date, 'Africa/Cairo');
-  const startMinute =
-    booking.scheduledStartMinute !== undefined && booking.scheduledStartMinute !== null
-      ? booking.scheduledStartMinute
-      : timeToMinutes(booking.time || '10:00');
-  const endMinute =
-    booking.scheduledEndMinute !== undefined && booking.scheduledEndMinute !== null
-      ? booking.scheduledEndMinute
-      : startMinute + (booking.duration || 60);
-  return new Date(startOfDay.getTime() + endMinute * 60 * 1000);
-};
+// Moved to common/utils so booking.dto.js can use them; re-exported here for existing callers.
+export { getAppointmentDateTime, getAppointmentEndDateTime };
 
 export const CHECKIN_SPLIT_AT = process.env.CHECKIN_SPLIT_AT
   ? new Date(process.env.CHECKIN_SPLIT_AT)

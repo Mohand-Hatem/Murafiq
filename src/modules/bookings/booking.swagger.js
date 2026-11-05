@@ -24,6 +24,17 @@
  *         endTime:
  *           type: string
  *           example: "12:00"
+ *         scheduledStartAt:
+ *           type: string
+ *           format: date-time
+ *           description: Scheduled start as a real instant (Cairo calendar day + startTime). Use this, not scheduledDate + startTime.
+ *         scheduledEndAt:
+ *           type: string
+ *           format: date-time
+ *         serverTime:
+ *           type: string
+ *           format: date-time
+ *           description: Server's current time. Compare countdowns and overtime against this, not the device clock.
  *         meetingLocation:
  *           type: object
  *           nullable: true
@@ -137,6 +148,23 @@
  *           type: string
  *           format: date-time
  *           nullable: true
+ *         dispute:
+ *           type: object
+ *           nullable: true
+ *           description: Set once the booking has been disputed. Evidence is on GET /bookings/{id}/dispute.
+ *           properties:
+ *             type:
+ *               type: string
+ *               example: payment_unverified
+ *             reason:
+ *               type: string
+ *             raisedAt:
+ *               type: string
+ *               format: date-time
+ *             raisedBy:
+ *               type: string
+ *               enum: [client, stylist, admin, system]
+ *               description: "`system` = an automatic admin review (stale sweep), not a party's dispute"
  *         createdAt:
  *           type: string
  *           format: date-time

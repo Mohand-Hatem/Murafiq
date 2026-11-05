@@ -73,3 +73,73 @@ describe('toPublicBookingDto — counterparty projection (X26)', () => {
     expect(dto.stylist.profileImage).toBe('https://res.cloudinary.com/x/stylist.jpg');
   });
 });
+
+// Fields the app needs to show the booking's state without guessing (demo lifecycle PDF §10).
+describe('toPublicBookingDto — schedule, server time and dispute summary', () => {
+  const base = {
+    _id: 'booking-2',
+    clientId: { _id: 'client-1', name: 'C' },
+    stylistId: { _id: 'stylist-1', name: 'S' },
+    // 00:30 on 11 Nov in Cairo (UTC+2): the Cairo day starts at 22:00 UTC on 10 Nov.
+    scheduledDate: new Date('2026-11-10T22:30:00.000Z'),
+    scheduledStartMinute: 60,
+    scheduledEndMinute: 120,
+    duration: 60,
+    status: 'confirmed',
+  };
+
+  it('gives the scheduled start and end as real instants on the Cairo calendar day', () => {
+    const dto = toPublicBookingDto(base);
+
+    expect(dto.scheduledStartAt.toISOString()).toBe('2026-11-10T23:00:00.000Z');
+    expect(dto.scheduledEndAt.toISOString()).toBe('2026-11-11T00:00:00.000Z');
+  });
+
+  it("includes the server's current time", () => {
+    const before = Date.now();
+    const dto = toPublicBookingDto(base);
+
+    expect(dto.serverTime).toBeInstanceOf(Date);
+    expect(dto.serverTime.getTime()).toBeGreaterThanOrEqual(before);
+    expect(dto.serverTime.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('has no dispute summary when the booking was never disputed', () => {
+    // The schema defaults disputeDetails.type, so an untouched booking still carries it.
+    expect(toPublicBookingDto({ ...base, disputeDetails: { type: 'general' } }).dispute).toBeNull();
+  });
+
+  it('marks a system review as raised by the system, without the evidence', () => {
+    const raisedAt = new Date('2026-11-12T10:00:00.000Z');
+    const dto = toPublicBookingDto({
+      ...base,
+      status: 'disputed',
+      disputeDetails: {
+        raisedBy: null,
+        type: 'payment_unverified',
+        reason: 'The session ended without a verified cash payment.',
+        raisedAt,
+        evidence: [{ text: 'secret', images: [] }],
+      },
+    });
+
+    expect(dto.dispute).toEqual({
+      type: 'payment_unverified',
+      reason: 'The session ended without a verified cash payment.',
+      raisedAt,
+      raisedBy: 'system',
+    });
+  });
+
+  it('names which party raised a dispute', () => {
+    const raised = (raisedBy) =>
+      toPublicBookingDto({
+        ...base,
+        status: 'disputed',
+        disputeDetails: { raisedBy, type: 'general', reason: 'x', raisedAt: new Date() },
+      }).dispute.raisedBy;
+
+    expect(raised('client-1')).toBe('client');
+    expect(raised({ toString: () => 'stylist-1' })).toBe('stylist');
+  });
+});
