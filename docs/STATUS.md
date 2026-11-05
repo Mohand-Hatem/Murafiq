@@ -122,6 +122,21 @@ Legend:
 - **Known, not fixed here:** dispute evidence still fails to save (`disputeDetails.evidence` is
   typed `[String]` but written as objects). Needs separate approval.
 
+### Attendance and dispute fixes (added 2026-11-05)
+
+- **No-show only against an absent party:** `fileNoShow` now refuses a report when the accused
+  party has checked in too (V1 and demo). Before, either party could report the other mid-session
+  and an uncontested report settled for the reporter after 2 hours. Legacy bookings with only the
+  shared `checkInAt` keep the old rule.
+- **Dispute evidence saves:** `disputeDetails.evidence` was `[String]` while both `fileDispute` and
+  `addDisputeEvidence` write `{ submittedBy, text, images, submittedAt }`, so every non-empty
+  evidence write failed with a CastError. It is now an array of those sub-documents; evidence filed
+  with the dispute is stamped with the raiser and time. Before deploy, a read-only count should
+  confirm no stored booking has string evidence.
+- **V1 booking stuck in `confirmed`:** a crash between the second check-in and the session start
+  left a booking `confirmed` with both check-ins, which the stale sweep could not auto-complete
+  (it errored every 15 minutes). The sweep now starts it first, then auto-completes as usual.
+
 ### Refund safety (added 2026-11-05)
 
 - **The defects:** (1) Paymob calls back on the original transaction after every refund

@@ -3,6 +3,16 @@ import { PAYOUT_STATUS, DISPUTE_OUTCOMES } from '../../common/constants/statuses
 
 const { Schema } = mongoose;
 
+const disputeEvidenceSchema = new Schema(
+  {
+    submittedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    text: { type: String, trim: true },
+    images: [{ type: String, trim: true }],
+    submittedAt: Date,
+  },
+  { _id: false }
+);
+
 const bookingSchema = new Schema(
   {
     requestId: { type: Schema.Types.ObjectId, ref: 'Request', required: true },
@@ -146,7 +156,9 @@ const bookingSchema = new Schema(
       reason: String,
       type: { type: String, default: 'general' },
       raisedAt: Date,
-      evidence: [{ type: String, trim: true }],
+      // Objects, as fileDispute and addDisputeEvidence write them. Was [String], which made every
+      // non-empty evidence write fail with a CastError.
+      evidence: [disputeEvidenceSchema],
     },
     disputeResolution: {
       outcome: { type: String, enum: DISPUTE_OUTCOMES },

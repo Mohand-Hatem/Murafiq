@@ -315,6 +315,30 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
       expect(result).toEqual({ action: 'skipped_not_stale', bookingId });
     });
 
+    it('starts then auto-completes a V1 booking left confirmed with both check-ins', async () => {
+      const booking = {
+        _id: bookingId,
+        status: BOOKING_STATUS.CONFIRMED,
+        scheduledDate,
+        scheduledStartMinute: 600,
+        scheduledEndMinute: 720,
+        duration: 120,
+        clientCheckInAt: new Date(validCheckInMs),
+        stylistCheckInAt: new Date(validCheckInMs),
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+      };
+      const promoteSpy = jest.spyOn(bookingRepository, 'promoteToInProgress').mockResolvedValue({});
+      // autoCompleteStaleBooking re-reads the booking, which is in-progress after the promotion.
+      jest.spyOn(bookingRepository, 'findById').mockResolvedValue({ ...booking, status: BOOKING_STATUS.IN_PROGRESS });
+
+      const result = await processStaleBooking(booking, new Date(staleThresholdMs + 1000));
+
+      expect(promoteSpy).toHaveBeenCalledWith(bookingId);
+      expect(bookingRepository.promoteToCompleted).toHaveBeenCalledWith(bookingId);
+      expect(result).toEqual({ action: 'auto_completed', bookingId });
+    });
+
     it('classifies both valid attendance -> auto_completed', async () => {
       const booking = {
         _id: bookingId,

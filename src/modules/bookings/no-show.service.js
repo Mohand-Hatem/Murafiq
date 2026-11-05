@@ -130,6 +130,16 @@ export const fileNoShow = async (user, bookingId, { evidence = [] } = {}) => {
 
   const reportedAgainst = userId === clientId ? 'stylist' : 'client';
 
+  // Both checked in = attendance is proven. Someone leaving early is a dispute, not a no-show:
+  // an uncontested no-show settles for the reporter, which would punish a party who was there.
+  const accusedCheckIn = reportedAgainst === 'client' ? booking.clientCheckInAt : booking.stylistCheckInAt;
+  if (accusedCheckIn) {
+    throw new ApiError(
+      400,
+      'The other party checked in, so this is not a no-show. If they left early, open a dispute instead.'
+    );
+  }
+
   const updated = await bookingRepository.transitionStatus(
     bookingId,
     REPORTABLE_STATUSES,
