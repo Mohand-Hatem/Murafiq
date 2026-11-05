@@ -122,6 +122,18 @@ Legend:
 - **Known, not fixed here:** dispute evidence still fails to save (`disputeDetails.evidence` is
   typed `[String]` but written as objects). Needs separate approval.
 
+### Booking response fields for the app (added 2026-11-05)
+
+- Every booking response now carries `scheduledStartAt` / `scheduledEndAt` (real instants on the
+  Cairo calendar day, so the app never does the timezone math), `serverTime` (compare countdowns and
+  overtime against it, not the device clock), and `dispute`: `null`, or
+  `{ type, reason, raisedAt, raisedBy: client | stylist | admin | system }`. `raisedBy: 'system'` is
+  an automatic admin review from the stale sweep, which is how the app tells "Admin Review" from
+  "Disputed". Evidence stays on `GET /bookings/:id/dispute`.
+- `getAppointmentDateTime` / `getAppointmentEndDateTime` moved to
+  `common/utils/appointmentTime.util.js` (re-exported from `booking.service.js`), so the DTO can use
+  them without a circular import.
+
 ### Demo cash code lockout (added 2026-11-05)
 
 - The 4-digit cash code had unlimited guesses, and the client is the one who enters it. Now every
