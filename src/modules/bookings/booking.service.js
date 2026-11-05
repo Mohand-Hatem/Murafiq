@@ -558,17 +558,25 @@ export const fileDispute = async (user, bookingId, disputeData) => {
     }
   }
 
+  const raisedBy = user._id || user.id;
+  const raisedAt = new Date();
   const updated = await bookingRepository.transitionStatus(
     bookingId,
     [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.IN_PROGRESS],
     {
       status: 'disputed',
       disputeDetails: {
-        raisedBy: user._id || user.id,
+        raisedBy,
         reason: disputeData.reason,
         type: disputeData.type || 'general',
-        raisedAt: new Date(),
-        evidence: disputeData.evidence || [],
+        raisedAt,
+        // Same shape as addDisputeEvidence entries, so the admin sees one timeline.
+        evidence: (disputeData.evidence || []).map(({ text, images }) => ({
+          submittedBy: raisedBy,
+          text,
+          images: images || [],
+          submittedAt: raisedAt,
+        })),
       },
     }
   );
@@ -1452,9 +1460,10 @@ export const processStaleBooking = async (booking, now = new Date()) => {
     return escalateStaleDemoBooking(booking);
   }
   if (clientValid && stylistValid) {
-    if (booking.status === 'in-progress') {
-      await autoCompleteStaleBooking(booking._id);
-      return { action: 'auto_completed', bookingId: booking._id };
+    // A crash between the second check-in and promoteToInProgress leaves a 'confirmed' booking
+    // with both check-ins; finish that write so it can be auto-completed like any attended session.
+    if (booking.status === BOOKING_STATUS.CONFIRMED) {
+      await bookingRepository.promoteToInProgress(booking._id);
     }
     await autoCompleteStaleBooking(booking._id);
     return { action: 'auto_completed', bookingId: booking._id };

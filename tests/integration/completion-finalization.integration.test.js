@@ -215,6 +215,29 @@ describe('Completion finalization: side effects exactly once (real DB)', () => {
     });
   });
 
+  it('completes a stale V1 booking left confirmed with both check-ins (session start never written)', async () => {
+    const scheduledDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const start = bookingService.getAppointmentDateTime({ scheduledDate, scheduledStartMinute: 600 });
+    const onTime = new Date(start.getTime() + 5 * 60 * 1000);
+    const booking = await makeBooking({
+      status: 'confirmed',
+      bookingMode: 'standard',
+      payoutStatus: 'unpaid',
+      scheduledDate,
+      scheduledEndMinute: 720,
+      duration: 120,
+      checkInAt: onTime,
+      clientCheckInAt: onTime,
+      stylistCheckInAt: onTime,
+    });
+
+    const result = await sweepStaleBookings();
+
+    expect(result.actions).toEqual({ auto_completed: 1 });
+    expect((await Booking.findById(booking._id)).status).toBe('completed');
+    await expectAppliedOnce(booking._id);
+  });
+
   describe('concurrent finalizers', () => {
     it('five finalizers on one booking run the listeners exactly once', async () => {
       const booking = await unfinalizedCompleted();

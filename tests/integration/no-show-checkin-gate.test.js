@@ -92,6 +92,54 @@ describe('Task S3.4: Per-party check-in timestamps and fraud gate (S-2 / BK8)', 
     ).rejects.toThrow(/must check in/i);
   });
 
+  // Both parties checked in = attendance is proven; leaving early is a dispute, not a no-show.
+  const bothCheckedIn = (overrides = {}) =>
+    Booking.create({
+      requestId: new mongoose.Types.ObjectId(),
+      offerId: new mongoose.Types.ObjectId(),
+      clientId: client._id,
+      stylistId: stylist._id,
+      scheduledDate: new Date(Date.now() - 2 * 3600 * 1000),
+      scheduledStartMinute: 0,
+      scheduledEndMinute: 60,
+      price: 500,
+      duration: 60,
+      status: 'in-progress',
+      checkInAt: new Date(Date.now() - 90 * 60 * 1000),
+      clientCheckInAt: new Date(Date.now() - 90 * 60 * 1000),
+      stylistCheckInAt: new Date(Date.now() - 85 * 60 * 1000),
+      createdAt: new Date(),
+      ...overrides,
+    });
+
+  it('refuses a V1 no-show report against a party who also checked in', async () => {
+    const booking = await bothCheckedIn();
+
+    await expect(noShowService.fileNoShow(client, booking._id, { evidence: [] })).rejects.toThrow(
+      /other party checked in.*dispute/i
+    );
+    const saved = await Booking.findById(booking._id);
+    expect(saved.status).toBe('in-progress');
+    expect(saved.noShowDetails?.reportedAt).toBeUndefined();
+  });
+
+  it('refuses a demo no-show report against a party who also checked in', async () => {
+    const booking = await bothCheckedIn({ bookingMode: 'demo', payoutStatus: 'not_owed' });
+
+    await expect(noShowService.fileNoShow(stylist, booking._id, { evidence: [] })).rejects.toThrow(
+      /other party checked in.*dispute/i
+    );
+  });
+
+  it('still accepts a report against a party who never checked in', async () => {
+    const booking = await bothCheckedIn({ status: 'confirmed', clientCheckInAt: null });
+
+    const result = await noShowService.fileNoShow(stylist, booking._id, { evidence: [] });
+
+    expect(result.booking.status).toBe('confirmed');
+    expect((await Booking.findById(booking._id)).noShowDetails.reportedAgainst).toBe('client');
+  });
+
   it('a check-in stamps only the checking-in party field', async () => {
     const scheduledDate = new Date();
     const { startOfDay } = getBusinessDayRange(scheduledDate, 'Africa/Cairo');
