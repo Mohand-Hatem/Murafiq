@@ -73,7 +73,8 @@ describe('Stylist offers — GET /offers/mine', () => {
     expect(items.map((o) => o.request.title)).toEqual(['Second', 'First']);
     expect(items[0]).toMatchObject({ price: 450, duration: 60, status: 'PENDING' });
     expect(items[0].request).toMatchObject({ status: 'OPEN', offerCount: 4 });
-    expect(JSON.stringify(items)).not.toContain('999');
+    // The other stylist's price; checked on the field, since timestamps can contain "999".
+    expect(items.map((o) => o.price)).not.toContain(999);
     expect(meta).toMatchObject({ total: 2, page: 1 });
   });
 
