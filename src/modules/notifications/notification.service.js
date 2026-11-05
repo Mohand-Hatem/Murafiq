@@ -5,20 +5,31 @@ import logger from '../../config/logger.config.js';
 
 class NotificationService {
   /**
-   * Create an in-app notification in MongoDB and dispatch live push notification via FCM
+   * Create an in-app notification in MongoDB and dispatch live push notification via FCM.
+   * With a dedupeKey the notification is created at most once: a repeat call returns the existing
+   * record and sends no push, so a retried caller never notifies twice. The push is therefore at
+   * most once — it is lost if the process stops between the insert and the FCM call.
    */
-  async send(userId, { type, title, body, relatedEntityId = null }) {
+  async send(userId, { type, title, body, relatedEntityId = null }, { dedupeKey } = {}) {
     const stringUserId = String(userId);
-
-    // 1. Persist notification in MongoDB (source of truth for in-app activity feed)
-    const notification = await notificationRepository.create({
+    const data = {
       userId: stringUserId,
       type,
       title,
       body,
       relatedEntityId: relatedEntityId ? String(relatedEntityId) : null,
       isRead: false,
-    });
+    };
+
+    // 1. Persist notification in MongoDB (source of truth for in-app activity feed)
+    let notification;
+    if (dedupeKey) {
+      const { notification: existing, inserted } = await notificationRepository.createOnce(dedupeKey, data);
+      if (!inserted) return existing;
+      notification = existing;
+    } else {
+      notification = await notificationRepository.create(data);
+    }
 
     // 2. Dispatch FCM push notification to active device tokens
     try {

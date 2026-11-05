@@ -34,6 +34,8 @@ class ChatListener {
       }
     });
 
+    // Rethrows: finalizeCompletion retries completion side effects that fail. Locking is
+    // idempotent, so a retry or an overlapping run is harmless.
     eventBus.on(EVENTS.SESSION_COMPLETED, async (payload) => {
       try {
         if (payload?.bookingId) {
@@ -41,6 +43,7 @@ class ChatListener {
         }
       } catch (err) {
         logger.error(`Error locking conversation on SESSION_COMPLETED: ${err.message}`);
+        throw err;
       }
     });
 

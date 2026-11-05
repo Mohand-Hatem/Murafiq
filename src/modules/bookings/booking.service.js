@@ -33,6 +33,7 @@ import {
   REQUEST_STATUS,
   DISPUTE_TYPES,
   SYSTEM_DISPUTE_TYPES,
+  COMPLETION_FINALIZE,
 } from '../../common/constants/statuses.constant.js';
 import getBusinessDayRange from '../../common/utils/businessDay.util.js';
 import { PLATFORM_FEE_DEFAULT_PERCENTAGE } from '../../common/constants/defaults.constant.js';
@@ -321,6 +322,67 @@ export const checkIn = async (user, bookingId, locationData = {}) => {
   return toPublicBookingDto(updated, user);
 };
 
+/**
+ * Runs a completed booking's side effects (every SESSION_COMPLETED listener) and stamps
+ * completionFinalizedAt once they all succeed. The single place SESSION_COMPLETED is raised.
+ *
+ * Exactly-once comes from two layers: the claim gives one run at a time a lease, and every
+ * listener is safe to repeat, which covers the rare overlap when a lease expires mid-run. A
+ * failed or timed-out run records its error and a backoff; the recovery sweep retries it, up to
+ * COMPLETION_FINALIZE.MAX_ATTEMPTS, after which the booking is surfaced for manual handling.
+ *
+ * @returns {Promise<boolean>} true only for the run that finalized the booking
+ */
+export const finalizeCompletion = async (
+  bookingId,
+  { isSystemCompleted = false, timeoutMs = COMPLETION_FINALIZE.TIMEOUT_MS } = {}
+) => {
+  const claimed = await bookingRepository.claimCompletionFinalize(bookingId);
+  if (!claimed) return false;
+
+  const attempt = claimed.completionFinalizeAttempts;
+  const payload = {
+    bookingId: claimed._id.toString(),
+    // stylist.listener.js needs stylistId for the reliability recompute.
+    stylistId: (claimed.stylistId?._id || claimed.stylistId).toString(),
+    isSystemCompleted,
+  };
+  const failures = await eventBus.emitAndWait(EVENTS.SESSION_COMPLETED, payload, { timeoutMs });
+
+  if (failures.length === 0) {
+    await bookingRepository.markCompletionFinalized(bookingId);
+    return true;
+  }
+
+  const message = failures.map((err) => err?.message || String(err)).join('; ');
+  const exhausted = attempt >= COMPLETION_FINALIZE.MAX_ATTEMPTS;
+  const recorded = await bookingRepository.recordCompletionFinalizeFailure(bookingId, attempt, message, {
+    exhausted,
+  });
+  if (exhausted && recorded) {
+    logger.error(
+      `[CRITICAL ALERT] Completion side effects for booking ${bookingId} failed ${attempt} times; manual handling required: ${message}`
+    );
+    eventBus.emit(EVENTS.COMPLETION_FINALIZE_EXHAUSTED, {
+      bookingId: claimed._id.toString(),
+      attempts: attempt,
+      error: message,
+    });
+  } else {
+    logger.warn(
+      `Completion side effects for booking ${bookingId} failed (attempt ${attempt}/${COMPLETION_FINALIZE.MAX_ATTEMPTS}): ${message}`
+    );
+  }
+  return false;
+};
+
+// HTTP paths don't make the response wait for side effects; the recovery sweep retries failures.
+const finalizeCompletionInBackground = (bookingId) => {
+  finalizeCompletion(bookingId).catch((err) => {
+    logger.error(`Completion finalization for booking ${bookingId} threw: ${err.message}`);
+  });
+};
+
 export const confirmCompletion = async (user, bookingId) => {
   const booking = await bookingRepository.findById(bookingId);
   if (!booking) {
@@ -368,17 +430,11 @@ export const confirmCompletion = async (user, bookingId) => {
   } else {
     // Second CAS: only the request that actually observes both fields set attempts
     // this, and the { status: 'in-progress' } filter means only one concurrent
-    // attempt can ever succeed -- so SESSION_COMPLETED is emitted exactly once.
+    // attempt can ever succeed -- so only that request finalizes.
     const promoted = await bookingRepository.promoteToCompleted(bookingId);
     if (promoted) {
       updated = promoted;
-      // stylistId is required here -- stylist.listener.js destructures it to trigger
-      // reliability recalculation on session completion. Previously omitted, so a
-      // stylist's score was never recalculated when a session actually completed.
-      eventBus.emit(EVENTS.SESSION_COMPLETED, {
-        bookingId: updated._id.toString(),
-        stylistId: (updated.stylistId._id || updated.stylistId).toString(),
-      });
+      finalizeCompletionInBackground(bookingId);
     }
   }
 
@@ -713,15 +769,9 @@ export const resolveDispute = async (
   });
 
   if (targetStatus === 'completed') {
-    // Same payload contract as the confirmCompletion emit above -- stylist.listener.js
-    // destructures stylistId. reliabilityService is also called directly a few lines up
-    // in this function, so this particular path isn't silently broken by the omission,
-    // but the emitted event should still carry a correct, complete payload for any other
-    // listener that reacts to session completion.
-    eventBus.emit(EVENTS.SESSION_COMPLETED, {
-      bookingId: updated._id.toString(),
-      stylistId: stylistUserId,
-    });
+    // A booking already finalized by an earlier completion is skipped by the claim, so a
+    // completed -> disputed -> completed booking never repeats its side effects.
+    finalizeCompletionInBackground(bookingId);
   }
 
   return toPublicBookingDto(updated);
@@ -1292,29 +1342,11 @@ export const autoCompleteStaleBooking = async (bookingId) => {
     }
   }
 
-  // Lock chat conversation
-  try {
-    await chatService.lockConversation(bookingId);
-  } catch (_err) {
-    // Non-fatal
-  }
+  // Side effects (chat lock included) run in the SESSION_COMPLETED listeners. A failure is
+  // recorded for the recovery sweep to retry rather than thrown.
+  const finalized = await finalizeCompletion(bookingId, { isSystemCompleted: true });
 
-  const stylistUserId = updated.stylistId?._id
-    ? updated.stylistId._id.toString()
-    : updated.stylistId?.toString();
-
-  eventBus.emit(EVENTS.SESSION_COMPLETED, {
-    bookingId: updated._id.toString(),
-    stylistId: stylistUserId,
-    isSystemCompleted: true,
-  });
-
-  // Stamp completionFinalizedAt so subsequent sweeps or calls safely short-circuit
-  const finalized = await bookingRepository.updateById(bookingId, {
-    completionFinalizedAt: new Date(),
-  });
-
-  return toPublicBookingDto(finalized?.status ? finalized : { ...updated, completionFinalizedAt: new Date() });
+  return toPublicBookingDto(finalized ? { ...updated, completionFinalizedAt: new Date() } : updated);
 };
 
 /**
@@ -1329,10 +1361,22 @@ const escalateStaleDemoBooking = async (booking) => {
     ? 'The session ended without both of you confirming it was complete, so an admin will review it.'
     : 'The session ended without a verified cash payment, so an admin will review it.';
 
-  const updated = await bookingRepository.escalateToSystemReview(
+  // From 'confirmed' too: a crash between the second check-in write and promoteToInProgress
+  // leaves both check-ins on a 'confirmed' booking. The filter pins the state this decision was
+  // made on: both parties checked in, and the cash still in the state read by the sweep.
+  const updated = await bookingRepository.transitionStatus(
     booking._id,
-    { cashCollected },
-    { raisedBy: null, reason, type, raisedAt: new Date(), evidence: [] }
+    [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS],
+    {
+      status: BOOKING_STATUS.DISPUTED,
+      disputeDetails: { raisedBy: null, reason, type, raisedAt: new Date(), evidence: [] },
+    },
+    null,
+    {
+      clientCheckInAt: { $ne: null },
+      stylistCheckInAt: { $ne: null },
+      cashCollectedAt: cashCollected ? { $ne: null } : null,
+    }
   );
   if (!updated) {
     // Lost the CAS (a cash code was verified, a dispute was filed, or another sweep won).
@@ -1391,6 +1435,20 @@ export const processStaleBooking = async (booking, now = new Date()) => {
   // Classification:
   // 1. Both valid attendance -> auto-complete (V1) / admin review (demo)
   if (clientValid && stylistValid && booking.bookingMode === 'demo') {
+    // Both parties confirmed and the cash was verified, but the promotion to 'completed' never
+    // ran (crash between the second confirmation and promoteToCompleted). Finishing that write
+    // is not an auto-completion: both confirmations exist.
+    if (
+      booking.status === BOOKING_STATUS.IN_PROGRESS &&
+      booking.cashCollectedAt &&
+      booking.clientConfirmedAt &&
+      booking.stylistConfirmedAt
+    ) {
+      const promoted = await bookingRepository.promoteToCompleted(booking._id);
+      if (!promoted) return { action: 'skipped_state_changed', bookingId: booking._id };
+      await finalizeCompletion(booking._id);
+      return { action: 'completed_interrupted_confirmation', bookingId: booking._id };
+    }
     return escalateStaleDemoBooking(booking);
   }
   if (clientValid && stylistValid) {
@@ -1443,10 +1501,13 @@ export const processStaleBooking = async (booking, now = new Date()) => {
 export const recoverStaleRefund = async (booking) => {
   if (!booking) return null;
 
-  // 0. Handle unfinalized system completions (crash recovery for auto-completion side effects)
-  if (booking.status === 'completed' || booking.status === BOOKING_STATUS.COMPLETED) {
-    await autoCompleteStaleBooking(booking._id);
-    return { status: 'completion_finalized', bookingId: booking._id };
+  // 0. Completed but never finalized (any completion path): retry its side effects.
+  if (booking.status === BOOKING_STATUS.COMPLETED) {
+    const finalized = await finalizeCompletion(booking._id);
+    return {
+      status: finalized ? 'completion_finalized' : 'completion_finalize_deferred',
+      bookingId: booking._id,
+    };
   }
 
   // 1. Demo bookings: no external money to refund
@@ -1585,6 +1646,7 @@ export const recoverStaleRefund = async (booking) => {
 
 export default {
   createBookingFromOffer,
+  finalizeCompletion,
   getMine,
   getStylistBookings,
   getById,

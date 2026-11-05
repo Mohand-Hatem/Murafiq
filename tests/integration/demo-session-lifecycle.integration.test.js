@@ -4,6 +4,8 @@ import { connectTestDB, closeTestDB, clearTestDB } from '../setup/db-handler.js'
 import User from '../../src/modules/users/user.model.js';
 import Booking from '../../src/modules/bookings/booking.model.js';
 import Notification from '../../src/modules/notifications/notification.model.js';
+import eventBus from '../../src/common/events/event-bus.js';
+import { EVENTS } from '../../src/common/constants/events.constant.js';
 import bookingService from '../../src/modules/bookings/booking.service.js';
 import notificationListener from '../../src/modules/notifications/notification.listener.js';
 import auditLogListener from '../../src/modules/audit-log/audit-log.listener.js';
@@ -82,7 +84,8 @@ describe('Demo session lifecycle (real DB)', () => {
 
       const afterStylist = await bookingService.checkIn(asUser(stylist), booking._id.toString());
 
-      expect(afterStylist.status).toBe('in-progress');
+      // One check-in alone does not start the session; the booking stays 'confirmed'.
+      expect(afterStylist.status).toBe('confirmed');
       expect(afterStylist.stylistCheckInAt).toBeInstanceOf(Date);
       expect(afterStylist.clientCheckInAt).toBeNull();
       expect(afterStylist.sessionStartedAt).toBeNull();
@@ -113,35 +116,7 @@ describe('Demo session lifecycle (real DB)', () => {
     });
   });
 
-  describe('Group 2: check-in and completion notifications', () => {
-    it('tells the OTHER party who checked in, and that the session started on the second check-in', async () => {
-      const booking = await createLiveDemoBooking();
-
-      await bookingService.checkIn(asUser(client), booking._id.toString());
-      const toStylist = await notificationsFor(stylist._id, 1);
-      expect(toStylist).toHaveLength(1);
-      expect(toStylist[0].title).toBe('Client Checked In');
-
-      await bookingService.checkIn(asUser(stylist), booking._id.toString());
-      const toClient = await notificationsFor(client._id, 1);
-      expect(toClient).toHaveLength(1);
-      expect(toClient[0].title).toBe('Session Started');
-
-      await settle();
-      // The party who checked in is never told about their own check-in.
-      expect(await Notification.countDocuments({ userId: client._id, title: 'Client Checked In' })).toBe(0);
-    });
-
-    it('does not notify again when a party repeats their check-in', async () => {
-      const booking = await createLiveDemoBooking();
-
-      await bookingService.checkIn(asUser(stylist), booking._id.toString());
-      await bookingService.checkIn(asUser(stylist), booking._id.toString());
-      await settle();
-
-      expect(await Notification.countDocuments({ userId: client._id })).toBe(1);
-    });
-
+  describe('Group 2: completion notifications', () => {
     const payAndCheckInBoth = async () => {
       const booking = await createLiveDemoBooking();
       await bookingService.checkIn(asUser(client), booking._id.toString());
@@ -174,6 +149,36 @@ describe('Demo session lifecycle (real DB)', () => {
       expect(await Notification.countDocuments({ userId: stylist._id, title: 'Confirm Session Completion' })).toBe(1);
     });
 
+    it('sends one reminder when the same side confirms twice at the same moment', async () => {
+      const booking = await payAndCheckInBoth();
+
+      await Promise.all([
+        bookingService.confirmCompletion(asUser(client), booking._id.toString()),
+        bookingService.confirmCompletion(asUser(client), booking._id.toString()),
+      ]);
+      await settle();
+
+      expect(await Notification.countDocuments({ userId: stylist._id, title: 'Confirm Session Completion' })).toBe(1);
+    });
+
+    it('drops a reminder that arrives after the session already completed', async () => {
+      const booking = await payAndCheckInBoth();
+      await bookingService.confirmCompletion(asUser(client), booking._id.toString());
+      await bookingService.confirmCompletion(asUser(stylist), booking._id.toString());
+      await settle();
+      await Notification.deleteMany({});
+
+      // A late reminder for the client's confirmation, delivered after completion.
+      eventBus.emit(EVENTS.COMPLETION_CONFIRMED, {
+        bookingId: booking._id.toString(),
+        confirmedBy: 'client',
+        recipientId: stylist._id.toString(),
+      });
+      await settle();
+
+      expect(await Notification.countDocuments({ title: 'Confirm Session Completion' })).toBe(0);
+    });
+
     it('completes early (before the countdown ends) once paid and both confirm, with no reminder', async () => {
       const booking = await payAndCheckInBoth();
 
@@ -198,7 +203,7 @@ describe('Demo session lifecycle (real DB)', () => {
 
   describe('Group 3: unresolved demo sessions go to admin review, never auto-complete', () => {
     // A session that ended 3 days ago (well past end + 24h) with both parties checked in on time.
-    const createStaleBooking = async ({ bookingMode = 'demo', cash = false, clientConfirmed = false } = {}) => {
+    const createStaleBooking = async ({ bookingMode = 'demo', cash = false, clientConfirmed = false, status = 'in-progress' } = {}) => {
       const scheduledDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
       const start = bookingService.getAppointmentDateTime({ scheduledDate, scheduledStartMinute: 600 });
       const onTime = new Date(start.getTime() + 5 * 60 * 1000);
@@ -212,7 +217,7 @@ describe('Demo session lifecycle (real DB)', () => {
         scheduledEndMinute: 720,
         price: 500,
         duration: 120,
-        status: 'in-progress',
+        status,
         bookingMode,
         payoutStatus: bookingMode === 'demo' ? 'not_owed' : 'unpaid',
         checkInAt: onTime,
@@ -235,6 +240,18 @@ describe('Demo session lifecycle (real DB)', () => {
       expect(saved.disputeDetails.raisedBy ?? null).toBeNull();
       expect(saved.completedAt ?? null).toBeNull();
       expect(saved.cashCollectedAt).toBeNull();
+    });
+
+    it('sends a demo session left confirmed with both check-ins (session start never written) to review', async () => {
+      const booking = await createStaleBooking({ status: 'confirmed' });
+
+      const result = await sweepStaleBookings();
+
+      expect(result.actions).toEqual({ system_review_payment_unverified: 1 });
+      const saved = await Booking.findById(booking._id);
+      expect(saved.status).toBe('disputed');
+      expect(saved.disputeDetails.type).toBe(DISPUTE_TYPES.PAYMENT_UNVERIFIED);
+      expect(saved.disputeDetails.raisedBy).toBeFalsy();
     });
 
     it('sends a PAID demo session that only one side confirmed to completion review', async () => {

@@ -145,6 +145,19 @@ export const register = () => {
     });
   }));
 
+  // The admin-visible record (GET /admin/audit-logs) of a booking whose completion side effects
+  // gave up; bookingRepository.findExhaustedCompletionFinalizations lists them.
+  eventBus.on(EVENTS.COMPLETION_FINALIZE_EXHAUSTED, safeListener('audit.completion_finalize_exhausted', async (payload) => {
+    await auditLogService.recordAction({
+      actorRole: 'system',
+      action: 'booking.completion_finalize_exhausted',
+      targetType: 'Booking',
+      targetId: payload.bookingId,
+      severity: 'critical',
+      metadata: { attempts: payload.attempts, error: payload.error },
+    });
+  }));
+
   eventBus.on(EVENTS.DISPUTE_RESOLVED, safeListener('audit.dispute_resolved', async (payload) => {
     await auditLogService.recordAction({
       actorId: payload.resolvedBy,

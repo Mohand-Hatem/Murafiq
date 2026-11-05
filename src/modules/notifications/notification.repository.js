@@ -6,6 +6,23 @@ export const create = async (data) => {
   return notification;
 };
 
+// Inserts the notification unless one with this dedupeKey already exists. `inserted` is true
+// only for the call that created it. Concurrent callers can both miss the lookup and race the
+// insert; the unique index rejects the loser (E11000), which then reads the winner's record.
+export const createOnce = async (dedupeKey, data) => {
+  try {
+    const res = await Notification.findOneAndUpdate(
+      { dedupeKey },
+      { $setOnInsert: data },
+      { upsert: true, returnDocument: 'after', includeResultMetadata: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+    return { notification: res.value, inserted: !res.lastErrorObject?.updatedExisting };
+  } catch (err) {
+    if (err?.code !== 11000) throw err;
+    return { notification: await Notification.findOne({ dedupeKey }), inserted: false };
+  }
+};
+
 export const findById = async (id) => {
   return Notification.findById(id);
 };
@@ -53,6 +70,7 @@ export const deleteById = async (userId, notificationId) => {
 
 export default {
   create,
+  createOnce,
   findById,
   findUserNotifications,
   markAsRead,

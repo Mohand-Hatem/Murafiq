@@ -109,6 +109,21 @@ export const DISPUTE_TYPES = Object.freeze({
 });
 export const SYSTEM_DISPUTE_TYPES = Object.freeze(Object.values(DISPUTE_TYPES));
 
+// Post-completion side effects (SESSION_COMPLETED listeners) are claimed under a lease, run with
+// a timeout, and retried with backoff until they succeed or MAX_ATTEMPTS is reached
+// (booking.service.js finalizeCompletion). TIMEOUT_MS must stay well below LEASE_MS so a
+// timed-out run has given up before another finalizer can claim the booking.
+export const COMPLETION_FINALIZE = Object.freeze({
+  MAX_ATTEMPTS: 5,
+  LEASE_MS: 5 * 60 * 1000,
+  TIMEOUT_MS: 60 * 1000,
+  // Retry delay after the Nth failed attempt is N * BACKOFF_MS.
+  BACKOFF_MS: 15 * 60 * 1000,
+  // The recovery sweep leaves a fresh completion alone this long, so the path that completed it
+  // finalizes it first.
+  RECOVERY_GRACE_MS: 30 * 1000,
+});
+
 // Cancellation policy — see docs/BUSINESS_RULES.md §H.
 // Boundary: exactly 24h00m falls in the CLIENT-FAVOURABLE tier (`diffHours >= EARLY_HOURS`).
 export const CANCELLATION_POLICY = {
@@ -251,5 +266,6 @@ export default {
   PAYMENT_LINK_POLICY,
   PAYMENT_RECONCILE_POLICY,
   SYSTEM_NO_SHOW_POLICY,
+  COMPLETION_FINALIZE,
 };
 

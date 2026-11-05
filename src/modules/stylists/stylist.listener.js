@@ -57,13 +57,14 @@ class StylistListener {
       }
     });
 
+    // Recomputes from source (including completedSessions), so a retry is harmless. Rethrows,
+    // and treats updateStylistReliability's null (it swallows its own errors) as a failure, so
+    // finalizeCompletion retries it.
     eventBus.on(EVENTS.SESSION_COMPLETED, async ({ stylistId }) => {
-      try {
-        if (stylistId) {
-          await reliabilityService.updateStylistReliability(stylistId);
-        }
-      } catch (err) {
-        logger.error(`Error updating stylist reliability on booking complete: ${err.message}`);
+      if (!stylistId) return;
+      const reliability = await reliabilityService.updateStylistReliability(stylistId);
+      if (!reliability) {
+        throw new Error(`Stylist reliability update failed for ${stylistId} on session completion`);
       }
     });
 

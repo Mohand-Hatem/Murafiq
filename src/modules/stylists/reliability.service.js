@@ -34,14 +34,9 @@ export class ReliabilityService {
       ? new mongoose.Types.ObjectId(stylistUserId)
       : stylistUserId;
 
-    // 1. Fetch bookings breakdown
-    let bookings = [];
-    try {
-      bookings = await bookingRepository.findCompletedAndCancelledByStylistId(objectId);
-    } catch {
-      // In disconnected test mock mode
-      bookings = [];
-    }
+    // 1. Fetch bookings breakdown. A failure must propagate: treating it as "no bookings" would
+    // write completedSessions: 0 over the real count.
+    const bookings = await bookingRepository.findCompletedAndCancelledByStylistId(objectId);
 
     let completedCount = 0;
     let stylistCancelledCount = 0;

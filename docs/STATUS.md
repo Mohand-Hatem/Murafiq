@@ -102,12 +102,14 @@ Legend:
 - **Early completion** is allowed any time while `in-progress`. Demo still requires the verified cash
   code before either side can confirm. No mid-session cancellation (BUSINESS_RULES row 4): an agreed
   early stop is a completion, a walk-out is a dispute.
-- **Notifications:** a check-in now notifies the *other* party (previously the client always got
-  "Your stylist has checked in", even for their own check-in, and the stylist was never told); the
-  second check-in says "Session Started". The first completion confirmation notifies the other party
-  (`EVENTS.COMPLETION_CONFIRMED`). Repeated check-ins/confirmations do not re-notify.
+- **Notifications:** check-in notifications come from the both-parties check-in change (commit
+  `5553865`), not from this one. This change adds the completion reminder: the first confirmation
+  notifies the other party (`EVENTS.COMPLETION_CONFIRMED`). It is keyed per booking and recipient, so
+  repeated or simultaneous confirmations send one, and it is dropped if the recipient has confirmed or
+  the session is no longer `in-progress` by the time it is sent.
 - **Demo sessions are never auto-completed.** A demo booking both parties attended that is still
-  `in-progress` at scheduled end + 24h becomes `disputed` as a system review (`raisedBy: null`,
+  open at scheduled end + 24h (normally `in-progress`; `confirmed` if a crash stopped the session
+  start being written) becomes `disputed` as a system review (`raisedBy: null`,
   `type: payment_unverified` if no cash was verified, `completion_unconfirmed` if paid but not
   mutually confirmed). Both parties are notified, the audit actor is `system`, and the admin resolves it
   through the existing `resolve-dispute` (`completed` does **not** set `cashCollectedAt`). Participants
@@ -117,11 +119,35 @@ Legend:
 - **Dispute outcomes:** `disputeResolution.outcome` only allowed `completed`/`cancelled`, so the five
   other admin outcomes failed Mongoose validation *after* the refund ran (V1: refund issued, booking
   stuck `disputed`). One `DISPUTE_OUTCOMES` list now feeds both the schema and the Zod validator.
-- **Known, not fixed here:** an admin resolution to `completed` is still re-announced by the
-  refund-recovery sweep (`completionFinalizedAt` is only stamped on system completions), so counters
-  and the completion notification are duplicated once — the same defect seen on 6 of 9 completed
-  bookings in the 2026-11-04 audit. Dispute evidence still fails to save (`disputeDetails.evidence` is
-  typed `[String]` but written as objects). Both need separate approval.
+- **Known, not fixed here:** dispute evidence still fails to save (`disputeDetails.evidence` is
+  typed `[String]` but written as objects). Needs separate approval.
+
+### Exactly-once completion side effects (added 2026-11-05)
+
+- **The defect:** mutual confirmation and admin `completed` resolutions never stamped
+  `completionFinalizedAt`, so the refund-recovery sweep re-announced them 30 s later: duplicate
+  "Session Completed" notifications and pushes, and `completedBookings` / `completedSessions`
+  incremented twice (6 of 9 completed bookings in the 2026-11-04 audit).
+- **Now:** every completion path (confirmation, `resolveDispute`, V1 stale auto-complete, recovery)
+  calls `finalizeCompletion`, the only raiser of `SESSION_COMPLETED`. It claims the booking under a
+  5-minute lease (`completionFinalizeAttempts`, `completionFinalizeLeaseUntil`), runs the listeners
+  via `eventBus.emitAndWait` with a 60 s timeout, and stamps `completionFinalizedAt` only if all
+  succeed. A failure is stored (`completionFinalizeLastError`) and retried by the 15-minute recovery
+  sweep with `attempt × 15 min` backoff; after 5 attempts the booking stops retrying, gets a
+  `critical` `booking.completion_finalize_exhausted` audit entry and is listed by
+  `bookingRepository.findExhaustedCompletionFinalizations` (re-drive: reset the attempts field;
+  there is no admin endpoint yet).
+- **Listeners are safe to repeat:** completion notifications carry a `dedupeKey` (unique partial
+  index on `notifications`; push only when the record is new, so a push is at most once), client
+  `completedBookings` is recounted in a transaction (also on `DISPUTE_RESOLVED`), the stylist `$inc`
+  was removed (reliability already recomputes `completedSessions` from source, and the `$inc` raced
+  it), and a failed reliability booking read no longer writes `completedSessions: 0`.
+- **Demo:** a stale demo session left `in-progress` with both confirmations and verified cash (crash
+  between confirmation and promotion) is now completed by the stale sweep instead of being sent to
+  admin review.
+- **Data:** no backfill. The four inflated client counters correct themselves at each client's next
+  completion or dispute resolution (approved 2026-11-05). After deploy, check
+  `db.notifications.getIndexes()` shows the `dedupeKey` index.
 
 ### Pay-before-confirm + payment recovery (added 2026-10-22)
 

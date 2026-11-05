@@ -1,5 +1,5 @@
 import Booking from './booking.model.js';
-import { BOOKING_STATUS } from '../../common/constants/statuses.constant.js';
+import { BOOKING_STATUS, COMPLETION_FINALIZE } from '../../common/constants/statuses.constant.js';
 import { isLegalTransition } from './booking.transitions.js';
 
 export const create = async (data, session = null) => {
@@ -503,20 +503,6 @@ export const findExhaustedNoShowSettlements = async () =>
  * @param {number} [batchSize=50]
  * @returns {Promise<Array>}
  */
-// in-progress -> disputed for a system-raised review. The cashCollectedAt condition is part of
-// the CAS so a cash code verified after the sweep read the booking can never be filed as
-// "payment unverified" (and vice versa): the losing sweep gets null and re-evaluates next tick.
-export const escalateToSystemReview = async (bookingId, { cashCollected }, disputeDetails) =>
-  Booking.findOneAndUpdate(
-    {
-      _id: bookingId,
-      status: BOOKING_STATUS.IN_PROGRESS,
-      cashCollectedAt: cashCollected ? { $ne: null } : null,
-    },
-    { $set: { status: BOOKING_STATUS.DISPUTED, disputeDetails } },
-    { returnDocument: 'after', runValidators: true }
-  );
-
 export const findStaleBookingCandidates = async (coarseDateEnd, batchSize = 50) =>
   Booking.find({
     status: { $in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_PROGRESS] },
@@ -528,6 +514,81 @@ export const findStaleBookingCandidates = async (coarseDateEnd, batchSize = 50) 
       { path: 'clientId', select: 'name email profileImage' },
       { path: 'stylistId', select: 'name email profileImage' },
     ]);
+
+// `$not: {$gte}` rather than `$lt`: `$lt` would never match rows that have no attempts field yet.
+const belowFinalizeCap = () => ({
+  completionFinalizeAttempts: { $not: { $gte: COMPLETION_FINALIZE.MAX_ATTEMPTS } },
+});
+const finalizeLeaseFree = (now) => ({
+  $or: [{ completionFinalizeLeaseUntil: null }, { completionFinalizeLeaseUntil: { $lte: now } }],
+});
+
+/**
+ * Claims a completed, not-yet-finalized booking for one finalization run: counts the attempt and
+ * takes a lease so no other finalizer (HTTP path, admin resolution, a sweep on another instance)
+ * runs the side effects at the same time. Returns null when finalized, at the attempt cap, no
+ * longer completed, or leased by another run.
+ */
+export const claimCompletionFinalize = async (bookingId, now = new Date()) =>
+  Booking.findOneAndUpdate(
+    {
+      _id: bookingId,
+      status: BOOKING_STATUS.COMPLETED,
+      completionFinalizedAt: null,
+      ...belowFinalizeCap(),
+      ...finalizeLeaseFree(now),
+    },
+    {
+      $set: { completionFinalizeLeaseUntil: new Date(now.getTime() + COMPLETION_FINALIZE.LEASE_MS) },
+      $inc: { completionFinalizeAttempts: 1 },
+    },
+    { returnDocument: 'after' }
+  );
+
+// No status filter: the side effects did run, even if the booking was disputed meanwhile.
+export const markCompletionFinalized = async (bookingId) =>
+  Booking.updateOne(
+    { _id: bookingId, completionFinalizedAt: null },
+    { $set: { completionFinalizedAt: new Date() }, $unset: { completionFinalizeLeaseUntil: 1 } }
+  );
+
+/**
+ * Records a failed run, fenced on its attempt number so a run whose lease expired cannot
+ * overwrite a newer run's lease or a finalized row. Not exhausted: the lease becomes the retry
+ * backoff. Exhausted: the lease is dropped and the attempt cap keeps the booking unclaimable.
+ * Returns true when the write landed.
+ */
+export const recordCompletionFinalizeFailure = async (bookingId, attempt, message, { exhausted, now = new Date() }) => {
+  const update = {
+    $set: { completionFinalizeLastError: { message, at: now, attempt } },
+  };
+  if (exhausted) {
+    update.$unset = { completionFinalizeLeaseUntil: 1 };
+  } else {
+    update.$set.completionFinalizeLeaseUntil = new Date(now.getTime() + attempt * COMPLETION_FINALIZE.BACKOFF_MS);
+  }
+  const res = await Booking.updateOne(
+    { _id: bookingId, completionFinalizedAt: null, completionFinalizeAttempts: attempt },
+    update
+  );
+  return res.modifiedCount === 1;
+};
+
+/**
+ * Manual-handling queue: completed bookings whose side effects failed every attempt.
+ */
+export const findExhaustedCompletionFinalizations = async () =>
+  Booking.find({
+    status: BOOKING_STATUS.COMPLETED,
+    completionFinalizedAt: null,
+    completionFinalizeAttempts: { $gte: COMPLETION_FINALIZE.MAX_ATTEMPTS },
+  });
+
+export const countCompletedByClientId = async (clientId, session = null) => {
+  const query = Booking.countDocuments({ clientId, status: BOOKING_STATUS.COMPLETED });
+  if (session) query.session(session);
+  return query;
+};
 
 /**
  * Finds candidate bookings for refund recovery.
@@ -554,7 +615,9 @@ export const findPendingRefundRecoveryCandidates = async (batchSize = 50) =>
       {
         status: BOOKING_STATUS.COMPLETED,
         completionFinalizedAt: null,
-        completedAt: { $ne: null, $lte: new Date(Date.now() - 30 * 1000) },
+        completedAt: { $ne: null, $lte: new Date(Date.now() - COMPLETION_FINALIZE.RECOVERY_GRACE_MS) },
+        ...belowFinalizeCap(),
+        ...finalizeLeaseFree(new Date()),
       },
     ],
   })
@@ -576,8 +639,12 @@ export default {
   findUnfinishedNoShowSettlements,
   findExhaustedNoShowSettlements,
   findStaleBookingCandidates,
-  escalateToSystemReview,
   findPendingRefundRecoveryCandidates,
+  claimCompletionFinalize,
+  markCompletionFinalized,
+  recordCompletionFinalizeFailure,
+  findExhaustedCompletionFinalizations,
+  countCompletedByClientId,
   create,
   findById,
   findByIdWithCashOtp,

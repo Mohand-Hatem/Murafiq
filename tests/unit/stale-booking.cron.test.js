@@ -106,6 +106,15 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
     jest.spyOn(paymentService, 'processRefund').mockResolvedValue({ status: PAYMENT_STATUS.REFUNDED });
     jest.spyOn(scheduleRepository, 'deleteByBookingId').mockResolvedValue({});
     jest.spyOn(chatService, 'lockConversation').mockResolvedValue({});
+    jest.spyOn(bookingRepository, 'claimCompletionFinalize').mockImplementation(async (id) => ({
+      _id: id || bookingId,
+      status: BOOKING_STATUS.COMPLETED,
+      stylistId,
+      completionFinalizeAttempts: 1,
+    }));
+    jest.spyOn(bookingRepository, 'markCompletionFinalized').mockResolvedValue({ modifiedCount: 1 });
+    jest.spyOn(bookingRepository, 'recordCompletionFinalizeFailure').mockResolvedValue(true);
+    jest.spyOn(eventBus, 'emitAndWait').mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -132,20 +141,21 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
       };
 
       jest.spyOn(bookingRepository, 'findById').mockResolvedValue(booking);
-      const emitSpy = jest.spyOn(eventBus, 'emit');
 
       const result = await autoCompleteStaleBooking(bookingId);
 
       expect(bookingRepository.promoteToCompleted).toHaveBeenCalledWith(bookingId);
-      expect(chatService.lockConversation).toHaveBeenCalledWith(bookingId);
-      expect(emitSpy).toHaveBeenCalledWith(
+      // Side effects (chat lock included) run as SESSION_COMPLETED listeners via the finalizer.
+      expect(eventBus.emitAndWait).toHaveBeenCalledWith(
         EVENTS.SESSION_COMPLETED,
         expect.objectContaining({
           bookingId,
           stylistId,
           isSystemCompleted: true,
-        })
+        }),
+        expect.anything()
       );
+      expect(bookingRepository.markCompletionFinalized).toHaveBeenCalledWith(bookingId);
       expect(result.status).toBe(BOOKING_STATUS.COMPLETED);
     });
 
@@ -189,6 +199,7 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
       expect(result.status).toBe(BOOKING_STATUS.COMPLETED);
       expect(promoteSpy).not.toHaveBeenCalled();
       expect(emitSpy).not.toHaveBeenCalled();
+      expect(eventBus.emitAndWait).not.toHaveBeenCalled();
     });
 
     it('resumes post-completion side effects if booking was completed but crashed before finalization', async () => {
@@ -203,23 +214,21 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
 
       jest.spyOn(bookingRepository, 'findById').mockResolvedValue(booking);
       const promoteSpy = jest.spyOn(bookingRepository, 'promoteToCompleted');
-      const emitSpy = jest.spyOn(eventBus, 'emit');
 
       const result = await autoCompleteStaleBooking(bookingId);
 
       expect(promoteSpy).not.toHaveBeenCalled(); // Already completed, CAS skipped
-      expect(chatService.lockConversation).toHaveBeenCalledWith(bookingId);
-      expect(emitSpy).toHaveBeenCalledWith(
+      expect(bookingRepository.claimCompletionFinalize).toHaveBeenCalledWith(bookingId);
+      expect(eventBus.emitAndWait).toHaveBeenCalledWith(
         EVENTS.SESSION_COMPLETED,
         expect.objectContaining({
           bookingId,
           stylistId,
           isSystemCompleted: true,
-        })
+        }),
+        expect.anything()
       );
-      expect(bookingRepository.updateById).toHaveBeenCalledWith(bookingId, {
-        completionFinalizedAt: expect.any(Date),
-      });
+      expect(bookingRepository.markCompletionFinalized).toHaveBeenCalledWith(bookingId);
       expect(result.status).toBe(BOOKING_STATUS.COMPLETED);
     });
   });
@@ -550,19 +559,39 @@ describe('Step 3: Stale Booking Sweep & Refund Recovery', () => {
       };
 
       jest.spyOn(bookingRepository, 'findById').mockResolvedValue(booking);
-      const emitSpy = jest.spyOn(eventBus, 'emit');
 
       const result = await recoverStaleRefund(booking);
 
-      expect(chatService.lockConversation).toHaveBeenCalledWith(bookingId);
-      expect(emitSpy).toHaveBeenCalledWith(
+      expect(eventBus.emitAndWait).toHaveBeenCalledWith(
         EVENTS.SESSION_COMPLETED,
-        expect.objectContaining({ bookingId, stylistId, isSystemCompleted: true })
+        expect.objectContaining({ bookingId, stylistId }),
+        expect.anything()
       );
-      expect(bookingRepository.updateById).toHaveBeenCalledWith(bookingId, {
-        completionFinalizedAt: expect.any(Date),
-      });
+      expect(bookingRepository.markCompletionFinalized).toHaveBeenCalledWith(bookingId);
       expect(result).toEqual({ status: 'completion_finalized', bookingId });
+    });
+
+    it('defers a completed booking whose side effects failed, without stamping it', async () => {
+      const booking = {
+        _id: bookingId,
+        status: BOOKING_STATUS.COMPLETED,
+        completedAt: new Date(),
+        completionFinalizedAt: null,
+        clientId: { _id: clientId },
+        stylistId: { _id: stylistId },
+      };
+      eventBus.emitAndWait.mockResolvedValue([new Error('chat store unavailable')]);
+
+      const result = await recoverStaleRefund(booking);
+
+      expect(bookingRepository.markCompletionFinalized).not.toHaveBeenCalled();
+      expect(bookingRepository.recordCompletionFinalizeFailure).toHaveBeenCalledWith(
+        bookingId,
+        1,
+        'chat store unavailable',
+        { exhausted: false }
+      );
+      expect(result).toEqual({ status: 'completion_finalize_deferred', bookingId });
     });
 
     it('refuses auto-retry and records error when payment is stuck in REFUNDING (ambiguous state)', async () => {
