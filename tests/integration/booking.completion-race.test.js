@@ -88,7 +88,13 @@ describe('Booking completion — concurrent confirmation race', () => {
       expect(final.completedAt).not.toBeNull();
 
       // The promotion CAS (status: 'in-progress' in the filter) must fire for exactly
-      // one of the two concurrent requests -- never both, never neither.
+      // one of the two concurrent requests -- never both, never neither. Side effects run in
+      // the background after the response, so wait for them, then make sure no second run follows.
+      const deadline = Date.now() + 3000;
+      while (sessionCompletedCount === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await new Promise((r) => setTimeout(r, 200));
       expect(sessionCompletedCount).toBe(1);
     } finally {
       eventBus.off(EVENTS.SESSION_COMPLETED, handler);

@@ -5,8 +5,8 @@ export const findById = async (id) => {
   return User.findById(id);
 };
 
-export const updateById = async (id, updateData) => {
-  return User.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+export const updateById = async (id, updateData, session = null) => {
+  return User.findByIdAndUpdate(id, updateData, { new: true, runValidators: true, ...(session ? { session } : {}) });
 };
 
 export const softDelete = async (id) => {

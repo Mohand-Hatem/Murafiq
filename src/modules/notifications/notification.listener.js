@@ -165,6 +165,31 @@ class NotificationListener {
       }
     });
 
+    // One side confirmed completion -> ask the other side to confirm or report a problem
+    // Two confirmations by the same party can both pass confirmCompletion's first-confirmation
+    // check, so the reminder is keyed: at most one per booking and recipient. Re-read so a
+    // reminder that lands after the recipient confirmed (or the session moved on) is dropped.
+    eventBus.on(EVENTS.COMPLETION_CONFIRMED, async ({ bookingId, confirmedBy, recipientId }) => {
+      try {
+        if (!recipientId) return;
+        const booking = await bookingRepository.findById(bookingId);
+        const recipientField = confirmedBy === 'client' ? 'stylistConfirmedAt' : 'clientConfirmedAt';
+        if (!booking || booking.status !== 'in-progress' || booking[recipientField]) return;
+        await notificationService.send(
+          recipientId,
+          {
+            type: 'booking',
+            title: 'Confirm Session Completion',
+            body: `Your ${confirmedBy} confirmed the session is complete. Please confirm too, or report a problem if it is not.`,
+            relatedEntityId: bookingId,
+          },
+          { dedupeKey: `${EVENTS.COMPLETION_CONFIRMED}:${bookingId}:${recipientId}` }
+        );
+      } catch (err) {
+        logger.error(`Notification error on COMPLETION_CONFIRMED: ${err.message}`);
+      }
+    });
+
     // 4. Payment Succeeded -> Notify Stylist & Client
     eventBus.on(EVENTS.PAYMENT_SUCCEEDED, async ({ bookingId }) => {
       try {
@@ -236,6 +261,8 @@ class NotificationListener {
     });
 
     // 7. Session Completed -> Prompt Review & Notify Payout
+    // Keyed per booking and recipient so a retried or overlapping finalization never creates a
+    // second notification or push; rethrows so finalizeCompletion retries a failed send.
     eventBus.on(EVENTS.SESSION_COMPLETED, async ({ bookingId }) => {
       try {
         if (!bookingId) return;
@@ -244,29 +271,40 @@ class NotificationListener {
           const clientUserId = booking.clientId?._id || booking.clientId;
           const stylistUserId = booking.stylistId?._id || booking.stylistId;
 
+          const dedupeKey = (userId) => `${EVENTS.SESSION_COMPLETED}:${booking._id}:${userId}`;
+
           if (clientUserId) {
-            await notificationService.send(clientUserId, {
-              type: 'review',
-              title: 'Styling Session Completed',
-              body: 'Your styling session is finished! Please rate your experience and leave a review.',
-              relatedEntityId: booking._id,
-            });
+            await notificationService.send(
+              clientUserId,
+              {
+                type: 'review',
+                title: 'Styling Session Completed',
+                body: 'Your styling session is finished! Please rate your experience and leave a review.',
+                relatedEntityId: booking._id,
+              },
+              { dedupeKey: dedupeKey(clientUserId) }
+            );
           }
 
           if (stylistUserId) {
             const isDemo = booking.bookingMode === 'demo';
-            await notificationService.send(stylistUserId, {
-              type: isDemo ? 'review' : 'payout',
-              title: 'Session Completed',
-              body: isDemo
-                ? 'Session completed successfully. Don’t forget to leave a review for your client!'
-                : 'Session completed successfully. Your earnings are now eligible for payout.',
-              relatedEntityId: booking._id,
-            });
+            await notificationService.send(
+              stylistUserId,
+              {
+                type: isDemo ? 'review' : 'payout',
+                title: 'Session Completed',
+                body: isDemo
+                  ? 'Session completed successfully. Don’t forget to leave a review for your client!'
+                  : 'Session completed successfully. Your earnings are now eligible for payout.',
+                relatedEntityId: booking._id,
+              },
+              { dedupeKey: dedupeKey(stylistUserId) }
+            );
           }
         }
       } catch (err) {
         logger.error(`Notification error on SESSION_COMPLETED: ${err.message}`);
+        throw err;
       }
     });
 
@@ -384,6 +422,20 @@ class NotificationListener {
         if (booking) {
           const clientUserId = booking.clientId?._id || booking.clientId;
           const stylistUserId = booking.stylistId?._id || booking.stylistId;
+
+          // System-raised review (raisedBy: null): nobody filed it, so tell both parties.
+          if (!raisedBy) {
+            for (const recipient of [clientUserId, stylistUserId].filter(Boolean)) {
+              await notificationService.send(recipient, {
+                type: 'dispute',
+                title: 'Session Under Review',
+                body: `${reason} You can add evidence or a message in the dispute section.`,
+                relatedEntityId: booking._id,
+              });
+            }
+            return;
+          }
+
           const targetRecipient = String(raisedBy) === String(clientUserId) ? stylistUserId : clientUserId;
 
           if (targetRecipient) {

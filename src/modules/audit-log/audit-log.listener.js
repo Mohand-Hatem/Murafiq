@@ -136,12 +136,25 @@ export const register = () => {
 
   eventBus.on(EVENTS.DISPUTE_RAISED, safeListener('audit.dispute_raised', async (payload) => {
     await auditLogService.recordAction({
-      actorId: payload.raisedBy,
-      actorRole: 'client',
+      actorId: payload.raisedBy || null,
+      actorRole: payload.raisedBy ? 'client' : 'system',
       action: 'dispute.raised',
       targetType: 'Booking',
       targetId: payload.bookingId,
       metadata: { reason: payload.reason, type: payload.type },
+    });
+  }));
+
+  // The admin-visible record (GET /admin/audit-logs) of a booking whose completion side effects
+  // gave up; bookingRepository.findExhaustedCompletionFinalizations lists them.
+  eventBus.on(EVENTS.COMPLETION_FINALIZE_EXHAUSTED, safeListener('audit.completion_finalize_exhausted', async (payload) => {
+    await auditLogService.recordAction({
+      actorRole: 'system',
+      action: 'booking.completion_finalize_exhausted',
+      targetType: 'Booking',
+      targetId: payload.bookingId,
+      severity: 'critical',
+      metadata: { attempts: payload.attempts, error: payload.error },
     });
   }));
 

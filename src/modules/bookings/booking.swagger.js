@@ -100,6 +100,16 @@
  *               type: number
  *             lng:
  *               type: number
+ *         sessionStartedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: The second check-in, i.e. when the session started (null until both parties have checked in)
+ *         sessionExpectedEndAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: sessionStartedAt + duration. Informational countdown target only; reaching it changes nothing server-side
  *         cashCollectedAt:
  *           type: string
  *           format: date-time
@@ -339,6 +349,8 @@
  *         description: Only the client can verify the Cash OTP
  *       404:
  *         description: Booking not found
+ *       409:
+ *         description: Booking is under admin review (disputed); payment must be submitted as dispute evidence instead
  */
 
 /**
@@ -346,6 +358,11 @@
  * /bookings/{id}/confirm-completion:
  *   patch:
  *     summary: Confirm completion of session (Mutual confirmation required)
+ *     description: |
+ *       Allowed any time while in-progress (early completion is fine; the countdown is informational).
+ *       Demo bookings require a verified cash payment first. The booking completes on the second
+ *       confirmation; after the first, the other party is notified to confirm or report a problem.
+ *       A demo session still open at scheduled end + 24h is sent to admin review, never auto-completed.
  *     tags: [Bookings]
  *     security:
  *       - bearerAuth: []
@@ -392,6 +409,7 @@
  *               type:
  *                 type: string
  *                 example: "no_show"
+ *                 description: Free-form category. `payment_unverified` and `completion_unconfirmed` are reserved for system reviews.
  *               evidence:
  *                 type: array
  *                 items:
@@ -411,6 +429,8 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ApiResponseBookingSuccess'
+ *       400:
+ *         description: Booking not disputable, or a reserved system dispute type was used
  *       409:
  *         description: Booking is already disputed
  */

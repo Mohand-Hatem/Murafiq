@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import mongoose from 'mongoose';
 import '../../src/common/globals.js';
 import reviewService from '../../src/modules/reviews/review.service.js';
 import reviewRepository from '../../src/modules/reviews/review.repository.js';
@@ -195,22 +196,25 @@ describe('Review Service Unit Tests', () => {
       expect(reviewRepository.aggregateRating).toHaveBeenCalledWith(stylistId, 'client_to_stylist');
     });
 
-    it('increments completedSessions and completedBookings on SESSION_COMPLETED event', async () => {
+    it('recounts the client completedBookings from source on SESSION_COMPLETED and leaves the stylist counter alone', async () => {
+      // The recount runs in a transaction; there is no DB in this unit test.
+      const fakeSession = { withTransaction: async (cb) => cb(), endSession: async () => {} };
+      jest.spyOn(mongoose, 'startSession').mockResolvedValue(fakeSession);
       jest.spyOn(bookingRepository, 'findById').mockResolvedValue(mockCompletedBooking);
+      jest.spyOn(bookingRepository, 'countCompletedByClientId').mockResolvedValue(4);
       jest.spyOn(stylistRepository, 'updateByUserId').mockResolvedValue({});
       jest.spyOn(userRepository, 'updateById').mockResolvedValue({});
+      const failures = await eventBus.emitAndWait(EVENTS.SESSION_COMPLETED, { bookingId });
 
-      eventBus.emit(EVENTS.SESSION_COMPLETED, { bookingId });
-
-      // Allow microtask queue to process
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      expect(stylistRepository.updateByUserId).toHaveBeenCalledWith(stylistId, {
-        $inc: { completedSessions: 1 },
-      });
-      expect(userRepository.updateById).toHaveBeenCalledWith(clientId, {
-        $inc: { completedBookings: 1 },
-      });
+      expect(failures).toEqual([]);
+      expect(bookingRepository.countCompletedByClientId).toHaveBeenCalledWith(clientId, fakeSession);
+      expect(userRepository.updateById).toHaveBeenCalledWith(
+        clientId,
+        { $set: { completedBookings: 4 } },
+        fakeSession
+      );
+      // completedSessions is recomputed from source by stylist.listener.js, never incremented here.
+      expect(stylistRepository.updateByUserId).not.toHaveBeenCalled();
     });
   });
 });

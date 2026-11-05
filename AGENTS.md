@@ -168,7 +168,18 @@ Treat the notes below as reminders of what tends to be mixed-state, not a snapsh
   newStart`) runs inside the same transaction as booking creation, before creating
   the ScheduleBlock — must fail closed (`409`) on any race, never silently overlap.
 - Session completion requires **both** `clientConfirmedAt` AND `stylistConfirmedAt` —
-  single-party confirmation never transitions to `completed`.
+  single-party confirmation never transitions to `completed`. Other ways a booking reaches
+  `completed`: an admin dispute resolution, and (V1 only) the stale sweep at scheduled end + 24h
+  when both attended. **Demo bookings are never auto-completed**: an attended demo session still
+  open then becomes a system-raised dispute (`raisedBy: null`, `type` in `SYSTEM_DISPUTE_TYPES`)
+  for admin review. The session countdown (`sessionStartedAt` → `sessionExpectedEndAt`) is
+  informational only.
+- **Completion side effects run through `finalizeCompletion` only** (`booking.service.js`):
+  never `eventBus.emit(EVENTS.SESSION_COMPLETED)` directly (a test scans `src/` for it).
+  Every `SESSION_COMPLETED` listener must be **safe to repeat** (recount or recompute from
+  source, keyed notification via `send(..., { dedupeKey })`, idempotent writes — never `$inc`)
+  and must **throw on failure** (never `safeListener`), or the retry can neither see nor
+  safely repeat it. Client `completedBookings` = bookings whose status is `completed` now.
 - No-show has no automatic detection — always filed via `POST /bookings/:id/dispute`
   (`type: 'no_show'`), confirmed by admin before any refund outcome applies. A booking
   already `disputed` can't be disputed again (idempotent, `409` on duplicate).

@@ -32,6 +32,17 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
   const isStylist = Boolean(requestingUserId) && Boolean(stylistId) && requestingUserId === stylistId;
   const showOtp = isStylist && doc.bookingMode === 'demo' && doc.status === 'in-progress' && !doc.cashCollectedAt;
 
+  // The service session starts at the SECOND check-in and is expected to run `duration`
+  // minutes. Informational only (drives the client countdown): nothing on the server acts on it.
+  const clientCheckInAt = doc.clientCheckInAt || null;
+  const stylistCheckInAt = doc.stylistCheckInAt || null;
+  const sessionStartedAt =
+    clientCheckInAt && stylistCheckInAt
+      ? new Date(Math.max(new Date(clientCheckInAt).getTime(), new Date(stylistCheckInAt).getTime()))
+      : null;
+  const sessionExpectedEndAt =
+    sessionStartedAt && doc.duration ? new Date(sessionStartedAt.getTime() + doc.duration * 60 * 1000) : null;
+
   return {
     id: doc._id?.toString() || doc.id,
     requestId: doc.requestId?.toString() || doc.requestId,
@@ -51,10 +62,12 @@ export const toPublicBookingDto = (bookingDoc, requestingUser = null) => {
     checkInAt: doc.checkInAt || null,
     checkInLocation: doc.checkInLocation || null,
     // Attendance: one timestamp set while 'confirmed' means that party is waiting for the other.
-    clientCheckInAt: doc.clientCheckInAt || null,
-    stylistCheckInAt: doc.stylistCheckInAt || null,
+    clientCheckInAt,
+    stylistCheckInAt,
     clientCheckInLocation: doc.clientCheckInLocation || null,
     stylistCheckInLocation: doc.stylistCheckInLocation || null,
+    sessionStartedAt,
+    sessionExpectedEndAt,
     cashCollectedAt: doc.cashCollectedAt || null,
     // cashOtpPlain exists only on bookings checked in before the OTP became derived.
     ...(showOtp ? { cashOtp: doc.cashOtpPlain || deriveCashOtp(doc._id) } : {}),

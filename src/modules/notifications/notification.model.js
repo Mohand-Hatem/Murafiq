@@ -46,12 +46,19 @@ const notificationSchema = new Schema(
       default: false,
       index: true,
     },
+    // Set only by callers that must not create the same notification twice (completion side
+    // effects can be retried). No default: records without a key stay outside the unique index.
+    dedupeKey: { type: String },
   },
   { timestamps: true }
 );
 
 notificationSchema.index({ userId: 1, createdAt: -1 });
 notificationSchema.index({ userId: 1, isRead: 1 });
+notificationSchema.index(
+  { dedupeKey: 1 },
+  { unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } }
+);
 
 const Notification = mongoose.model('Notification', notificationSchema);
 

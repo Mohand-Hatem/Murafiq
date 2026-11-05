@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { PAYOUT_STATUS } from '../../common/constants/statuses.constant.js';
+import { PAYOUT_STATUS, DISPUTE_OUTCOMES } from '../../common/constants/statuses.constant.js';
 
 const { Schema } = mongoose;
 
@@ -89,9 +89,18 @@ const bookingSchema = new Schema(
     // payout-eligibility hold period — NOT `updatedAt`, which changes on unrelated writes
     // (e.g. payoutStatus flipping to 'processing') and would keep pushing both windows back.
     completedAt: Date,
-    // Set once post-completion side effects (chat lock, SESSION_COMPLETED emission) have succeeded.
-    // Allows the recovery sweep to safely resume and finalize completions that crashed after CAS.
+    // Set once every SESSION_COMPLETED listener has succeeded (booking.service.js
+    // finalizeCompletion). Until then the recovery sweep keeps retrying the side effects, which
+    // are all safe to repeat. The three fields below have no defaults: a missing value means
+    // "never attempted" (and is how rows written before they existed look).
     completionFinalizedAt: Date,
+    // Counted when a finalizer claims the booking, so a run that crashes still counts. Also the
+    // fencing token: a run may only record its failure while this still equals its own attempt.
+    completionFinalizeAttempts: Number,
+    // While in the future, no other finalizer may claim the booking: the running finalizer's lease,
+    // or the retry backoff after a failure.
+    completionFinalizeLeaseUntil: Date,
+    completionFinalizeLastError: { message: String, at: Date, attempt: Number },
     payoutStatus: {
       type: String,
       enum: Object.values(PAYOUT_STATUS),
@@ -140,7 +149,7 @@ const bookingSchema = new Schema(
       evidence: [{ type: String, trim: true }],
     },
     disputeResolution: {
-      outcome: { type: String, enum: ['completed', 'cancelled'] },
+      outcome: { type: String, enum: DISPUTE_OUTCOMES },
       refundPercentage: Number,
       resolutionNotes: String,
       resolvedBy: { type: Schema.Types.ObjectId, ref: 'User' },

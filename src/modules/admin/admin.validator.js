@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { objectIdField } from '../../common/validators/shared.validator.js';
+import { DISPUTE_OUTCOMES } from '../../common/constants/statuses.constant.js';
 
 export const approveVerificationSchema = {
   params: z
@@ -120,15 +121,7 @@ export const resolveDisputeSchema = {
     .strict(),
   body: z
     .object({
-      outcome: z.enum([
-        'completed',
-        'cancelled',
-        'refund_full',
-        'payout_stylist',
-        'split',
-        'partial_refund',
-        'dismissed',
-      ]),
+      outcome: z.enum(DISPUTE_OUTCOMES),
       refundPercentage: z.number().min(0).max(100).optional().default(0),
       resolutionNotes: z.string().trim().min(1, 'Resolution notes are required'),
     })

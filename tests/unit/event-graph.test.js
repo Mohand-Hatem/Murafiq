@@ -61,7 +61,8 @@ describe('Domain event graph — every listener has an emitter', () => {
     for (const file of walk(SRC_DIR)) {
       const content = fs.readFileSync(file, 'utf-8');
       for (const line of content.split('\n')) {
-        if (!line.includes('.emit(')) continue;
+        // emitAndWait (event-bus.js) is an emitter too: it runs the same listeners and waits for them.
+        if (!line.includes('.emit(') && !line.includes('.emitAndWait(')) continue;
         for (const match of line.matchAll(/EVENTS\.([A-Z_]+)/g)) {
           emittedStrict.add(match[1]);
         }
@@ -90,7 +91,7 @@ describe('Domain event graph — every listener has an emitter', () => {
     for (const file of walk(SRC_DIR)) {
       const content = fs.readFileSync(file, 'utf-8');
       for (const line of content.split('\n')) {
-        if (line.includes('.emit(')) {
+        if (line.includes('.emit(') || line.includes('.emitAndWait(')) {
           for (const match of line.matchAll(/EVENTS\.([A-Z_]+)/g)) {
             emittedStrict.add(match[1]);
           }

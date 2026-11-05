@@ -116,7 +116,7 @@
 | GET | `/bookings/:id/cancellation-quote` | 🔐 | ✅ Built | Preview cancellation refund, fee, and penalty quote |
 | GET | `/bookings/:id/dispute` | 🔐 | ✅ Built | Get dispute arbitration details for a booking |
 | PATCH | `/bookings/:id/check-in` | 🔐 | ✅ Built | Record the caller's own arrival (temporal window & payment verified). Booking stays `confirmed` until both parties check in, then becomes `in-progress` |
-| PATCH | `/bookings/:id/confirm-completion` | 🔐 | ✅ Built | Mutual completion confirmation (both client and stylist confirm) |
+| PATCH | `/bookings/:id/confirm-completion` | 🔐 | ✅ Built | Mutual completion confirmation (both client and stylist confirm). Early completion allowed; the first confirmation notifies the other party. Demo: cash must be verified first |
 | POST | `/bookings/:id/dispute` | 🔐 | ✅ Built | File a dispute (within 48h of completion) with optional evidence |
 | POST | `/bookings/:id/dispute/evidence` | 🔐 | ✅ Built | Attach notes or photo evidence to open dispute |
 | PATCH | `/bookings/:id/cancel` | 🔐 | ✅ Built | Cancel booking (timing-tiered 4-branch refund policy). Refused once either party has checked in (no-show flow instead) |
