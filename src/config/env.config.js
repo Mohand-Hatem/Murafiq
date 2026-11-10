@@ -44,6 +44,12 @@ const envSchema = z.object({
   // Leave empty or remove in production to send to the actual recipient.
   MAIL_TO_ADDRESS: z.string().optional(),
   PAYMENT_PROVIDER: z.enum(['mock', 'paymob']).default('mock'),
+  // DEMO-first launch switch: 'false' blocks every new V1 Paymob checkout (booking + subscription)
+  // while /api/v1 stays mounted for the admin panel. Set back to 'true' when V1 goes live.
+  V1_PAYMENTS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   MOCK_WEBHOOK_SECRET: secret('dev_mock_webhook_secret'),
   PAYMOB_SECRET_KEY: secret('sk_test_placeholder'),
   PAYMOB_PUBLIC_KEY: secret('pk_test_placeholder'),
