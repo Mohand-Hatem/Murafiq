@@ -157,7 +157,8 @@ Never store plaintext credentials or secrets in Git or documentation. The follow
 | `RESEND_API_KEY` | **REQUIRED** | Active Resend production API key. |
 | `MAIL_FROM_ADDRESS` | **REQUIRED** | Verified sending domain email (e.g. `noreply@murafiq.com`). |
 | `MAIL_TO_ADDRESS` | **MUST BE UNSET** | If set, all outgoing platform emails redirect to this single address (dev capture mode). |
-| `PAYMENT_PROVIDER` | MODE-DEPENDENT | Must be `'paymob'` for V1 and BOTH modes (`'mock'` permitted in standalone DEMO). |
+| `PAYMENT_PROVIDER` | **REQUIRED** | Must be `'paymob'` in every mode — `'mock'` throws outside `NODE_ENV=test` (`provider.factory.js`). DEMO can keep sandbox keys. |
+| `V1_PAYMENTS_ENABLED` | MODE-DEPENDENT | `false` for a DEMO-only launch: `initializePayment` and `checkoutSubscription` refuse with 503, so no V1 Paymob checkout can be opened while `/api/v1` stays mounted for admin. `true` (default) for V1 / BOTH. |
 | `PAYMOB_API_KEY` | MODE-DEPENDENT | Mandatory for V1 / BOTH. Production Paymob merchant API key. |
 | `PAYMOB_SECRET_KEY` | MODE-DEPENDENT | Mandatory for V1 / BOTH. Production Paymob secret key. |
 | `PAYMOB_PUBLIC_KEY` | MODE-DEPENDENT | Mandatory for V1 / BOTH. Production Paymob public key. |

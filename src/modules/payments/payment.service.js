@@ -50,6 +50,9 @@ export const createPendingPayment = async (
 };
 
 export const initializePayment = async (user, bookingId, { couponCode = null } = {}) => {
+  if (!env.V1_PAYMENTS_ENABLED) {
+    throw new ApiError(503, 'Online payments are not available yet');
+  }
   const booking = await bookingRepository.findById(bookingId);
   if (!booking) {
     throw new ApiError(404, 'Booking not found');

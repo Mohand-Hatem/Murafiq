@@ -502,6 +502,9 @@ export const checkoutSubscription = async (
   userRole,
   { planCode, billingCycle = 'monthly' }
 ) => {
+  if (!env.V1_PAYMENTS_ENABLED) {
+    throw new ApiError(503, 'Online payments are not available yet');
+  }
   const plan = await planRepository.findByCode(planCode);
   if (!plan) {
     throwPlanNotFound(planCode);

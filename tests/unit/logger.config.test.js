@@ -1,4 +1,4 @@
-import { safeSerializeMeta } from '../../src/config/logger.config.js';
+import { safeSerializeMeta, redactSensitiveQuery } from '../../src/config/logger.config.js';
 
 describe('Logger Configuration — Safe Metadata Serialization (OBS-02)', () => {
   it('serializes primitive metadata values', () => {
@@ -74,5 +74,24 @@ describe('Logger Configuration — Safe Metadata Serialization (OBS-02)', () => 
     expect(safeSerializeMeta(undefined)).toBe('');
     expect(safeSerializeMeta({})).toBe('');
     expect(safeSerializeMeta({ requestId: 'abc', level: 'info' })).toBe('');
+  });
+});
+
+describe('Logger Configuration — HTTP access log redaction (HARDEN-008)', () => {
+  it('redacts the Paymob hmac query value from access log lines', () => {
+    const line =
+      '1.2.3.4 - - [10/Nov/2026] "POST /api/v1/payments/callback?hmac=abc123def&id=9 HTTP/1.1" 200 2';
+    const result = redactSensitiveQuery(line);
+    expect(result).not.toContain('abc123def');
+    expect(result).toContain('?hmac=[REDACTED]&id=9');
+  });
+
+  it('redacts hmac when it is not the first query parameter, case-insensitively', () => {
+    expect(redactSensitiveQuery('GET /x?a=1&HMAC=secret HTTP/1.1')).toBe('GET /x?a=1&HMAC=[REDACTED] HTTP/1.1');
+  });
+
+  it('leaves lines without an hmac untouched', () => {
+    const line = 'GET /api/v1/health?verbose=1 HTTP/1.1';
+    expect(redactSensitiveQuery(line)).toBe(line);
   });
 });

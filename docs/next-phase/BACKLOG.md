@@ -12,7 +12,7 @@
 
 | Open | Closed since the backlog was written | Blocking Phase 15 |
 |---|---|---|
-| 6 | 8 | **None** |
+| 5 | 9 | **None** |
 
 ---
 
@@ -21,7 +21,6 @@
 | ID | Issue | Severity | Area | Blocks Phase 15? |
 |---|---|---|---|---|
 | HARDEN-002 | `getPendingBalancesSummary` preview calc diverges from actual batch netting | MEDIUM | Money / Data integrity | No |
-| HARDEN-008 | Production access logs may record the webhook HMAC in the query string | MEDIUM | Security / Ops | No |
 | HARDEN-010 | Wardrobe search uses an unescaped, unindexed `$regex` | MEDIUM | Security / Performance | No — but it is in the module Phase 15 builds on |
 | HARDEN-011 | Moderation list repositories accept an uncapped `limit` | LOW | Performance | No |
 | HARDEN-012 | Payout pending-balances preview issues N+1 queries per stylist | LOW | Performance | No |
@@ -31,12 +30,6 @@
 `getPendingBalancesSummary` computes a stylist's pending balance differently from the netting
 `createBatchPayouts` actually performs, so the admin dashboard can show a figure the batch job
 will not pay. Cosmetic until an operator acts on the number.
-
-### HARDEN-008 — webhook HMAC in access logs
-Paymob delivers its HMAC as a query parameter. No redaction middleware exists
-(`grep -rn "redact" src/common/middlewares/` → no match), so a reverse proxy or access log
-retaining full query strings will persist a live signing value. Mitigated in practice by the
-HMAC being per-payload rather than a static secret.
 
 ### HARDEN-010 — wardrobe search regex
 `wardrobe.repository.js:34` builds `{ $regex: search, $options: 'i' }` from caller input with no
@@ -84,6 +77,7 @@ Recorded so that nobody re-opens them from an archived document.
 | HARDEN-005 | `NODE_ENV` defaults to development; dev secrets fall back silently | earlier hardening | `env.config.js:99-114` refuses to boot in production with placeholder JWT secrets |
 | HARDEN-006 | Mock payment provider cannot simulate a failed webhook | earlier hardening | `mock.provider.js:58` — `status: payload.status \|\| 'paid'` |
 | HARDEN-007 | Swagger path-prefix inconsistency (`/api/v1` doubled) | earlier hardening | `npm run validate:openapi` → 137/137, 0 structural problems |
+| HARDEN-008 | Production access logs may record the webhook HMAC in the query string | 2026-11-10 pre-launch | `redactSensitiveQuery()` in `logger.config.js` masks `hmac=` in every Morgan line; `tests/unit/logger.config.test.js`. Nginx must also skip access logs on `/api/v1/payments/callback` (see deployment guide). |
 | HARDEN-009 | `QueryBuilder.select()` can expose `select:false` fields | earlier hardening | `SENSITIVE_FIELD_DENYLIST` in `QueryBuilder.js:13` |
 | HARDEN-014 | Safety module unbuilt; `isFrozen` read but never written | Product Decision P1 | Scaffolding deleted; module intentionally not built |
 
