@@ -122,10 +122,13 @@ if (env.NODE_ENV === 'production') {
   );
 }
 
+// Paymob sends its webhook HMAC as a query param; keep it out of persisted access logs (HARDEN-008).
+export const redactSensitiveQuery = (line) => line.replace(/([?&]hmac=)[^&\s"]*/gi, '$1[REDACTED]');
+
 // Morgan stream for HTTP logging
 export const stream = {
   write: (message) => {
-    logger.info(message.trim());
+    logger.info(redactSensitiveQuery(message.trim()));
   },
 };
 
