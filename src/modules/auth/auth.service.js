@@ -235,7 +235,8 @@ const login = async ({ email, password }, { deviceLabel } = {}) => {
 const googleLogin = async ({ idToken, role }, { deviceLabel } = {}) => {
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: env.GOOGLE_CLIENT_ID });
+    const audience = [env.GOOGLE_CLIENT_ID, env.GOOGLE_ANDROID_CLIENT_ID, env.GOOGLE_IOS_CLIENT_ID].filter(Boolean);
+    const ticket = await googleClient.verifyIdToken({ idToken, audience });
     payload = ticket.getPayload();
   } catch {
     throw new ApiError(401, 'Invalid Google token');

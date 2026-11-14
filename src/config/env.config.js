@@ -34,6 +34,9 @@ const envSchema = z.object({
   // ID-token verification only needs the audience (client ID) — no client secret, since there's
   // no server-side authorization-code exchange (the client hands us an already-signed ID token).
   GOOGLE_CLIENT_ID: secret('dev-google-client-id.apps.googleusercontent.com'),
+  // The app's browser sign-in returns ID tokens issued for these clients, so they are accepted too.
+  GOOGLE_ANDROID_CLIENT_ID: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  GOOGLE_IOS_CLIENT_ID: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   CLOUDINARY_CLOUD_NAME: secret('my_cloud_name'),
   CLOUDINARY_API_KEY: secret('my_api_key'),
   CLOUDINARY_API_SECRET: secret('my_api_secret'),
